@@ -7,23 +7,6 @@ import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { AutoRefresh } from "@/components/auto-refresh";
 
-const formatModelName = (model?: string | null) => {
-  if (!model) return "—";
-
-  switch (model) {
-    case "openai-codex/gpt-5.3-codex":
-      return "Codex 5.3";
-    case "openai-codex/gpt-5.1":
-      return "GPT-5.1";
-    case "anthropic/claude-opus-4-6":
-      return "Opus 4.6";
-    case "anthropic/claude-sonnet-4-20250514":
-      return "Sonnet 4";
-    default:
-      return model;
-  }
-};
-
 export default async function AgentsPage() {
   const agents = await getAgents();
 
@@ -78,7 +61,7 @@ export default async function AgentsPage() {
                   </td>
                   <td className="px-3 py-3">
                     <span className="text-muted-foreground text-xs font-mono">
-                      {formatModelName(agent.model)}
+                      {agent.modelDisplay || agent.model || "—"}
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right text-muted-foreground">

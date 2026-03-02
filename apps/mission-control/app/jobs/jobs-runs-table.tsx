@@ -15,6 +15,7 @@ type RunRecord = {
   launchPhase?: string;
   providerPath?: { label: string; fallback?: boolean };
   assignmentLabel?: string | null;
+  modelDisplay?: string | null;
   startedAt: string | Date | null;
   completedAt: string | Date | null;
   agent: { id: string; name: string } | null;
@@ -150,6 +151,9 @@ export function JobsRunsTable({
                     <span className="truncate text-xs text-muted-foreground">{slug}</span>
                   ) : null;
                 })()}
+                {run.modelDisplay && (
+                  <span className="text-[11px] font-mono text-muted-foreground">{run.modelDisplay}</span>
+                )}
                 {run.launchPhase === "phase2_running_unconfirmed" && (
                   <Badge variant="warning">launch unconfirmed</Badge>
                 )}
@@ -249,6 +253,9 @@ export function JobsRunsTable({
                         ) : null;
                       })()}
                     </div>
+                    {run.modelDisplay && (
+                      <div className="mt-1 text-[11px] font-mono text-muted-foreground">{run.modelDisplay}</div>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap items-center gap-2">

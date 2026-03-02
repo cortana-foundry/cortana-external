@@ -11,6 +11,7 @@ import {
   computeHealthScore,
   deriveHealthBand,
 } from "@/lib/agent-health";
+import { getAgentModelDisplay } from "@/lib/agent-models";
 
 type AgentStatus = "active" | "idle" | "degraded" | "offline";
 type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -235,15 +236,12 @@ export const getAgents = async () => {
 
     const healthScore = computeHealthScore(stats, recentRunsByAgent.get(agent.id));
     const healthBand = deriveHealthBand(healthScore);
-    const model =
-      agent.model ||
-      (normalizeIdentity(agent.name) === "cortana" || normalizeIdentity(agent.role) === "commander"
-        ? "anthropic/claude-opus-4-6"
-        : null);
+    const modelInfo = getAgentModelDisplay(agent.name, agent.model);
 
     return {
       ...agent,
-      model,
+      model: modelInfo.key,
+      modelDisplay: modelInfo.displayName,
       healthScore,
       status:
         agent.status === "offline" && healthBand === "critical"
@@ -298,13 +296,18 @@ export const getRuns = async ({ take = 20, cursor, agentId }: GetRunsInput = {})
   const pageRuns = hasMore ? runs.slice(0, normalizedTake) : runs;
   const nextCursor = hasMore ? pageRuns[pageRuns.length - 1]?.id ?? null : null;
 
-  const enrichedRuns = pageRuns.map((run) => ({
-    ...run,
-    confidence: deriveEvidenceGrade(run),
-    launchPhase: deriveLaunchPhase(run),
-    providerPath: extractProviderPath(run.payload ?? null),
-    assignmentLabel: deriveAssignmentLabel(run),
-  }));
+  const enrichedRuns = pageRuns.map((run) => {
+    const modelInfo = run.agent ? getAgentModelDisplay(run.agent.name, run.agent.model) : null;
+
+    return {
+      ...run,
+      modelDisplay: modelInfo?.displayName ?? null,
+      confidence: deriveEvidenceGrade(run),
+      launchPhase: deriveLaunchPhase(run),
+      providerPath: extractProviderPath(run.payload ?? null),
+      assignmentLabel: deriveAssignmentLabel(run),
+    };
+  });
 
   return {
     runs: enrichedRuns,
