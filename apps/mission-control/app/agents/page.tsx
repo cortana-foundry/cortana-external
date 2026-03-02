@@ -37,6 +37,7 @@ export default async function AgentsPage() {
                 <th className="px-3 py-2">Agent</th>
                 <th className="px-3 py-2">Role</th>
                 <th className="hidden px-3 py-2 sm:table-cell">Capabilities</th>
+                <th className="px-3 py-2">Model</th>
                 <th className="px-3 py-2 text-right">Health</th>
                 <th className="px-3 py-2">Status</th>
               </tr>
@@ -57,6 +58,11 @@ export default async function AgentsPage() {
                   <td className="px-3 py-3 text-muted-foreground">{agent.role}</td>
                   <td className="hidden px-3 py-3 text-sm text-muted-foreground sm:table-cell">
                     {agent.capabilities}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="text-muted-foreground text-xs font-mono">
+                      {agent.modelDisplay || agent.model || "—"}
+                    </span>
                   </td>
                   <td className="px-3 py-3 text-right text-muted-foreground">
                     {typeof agent.healthScore === "number" ? agent.healthScore.toFixed(1) : "—"}
