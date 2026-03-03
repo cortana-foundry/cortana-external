@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Clock3, History, Pencil, Play, Plus, RefreshCcw, Trash2, X } from "lucide-react";
+import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,532 +21,1004 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-type CronJob = {
-  id: string;
+type CronJob = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+  enabled?: boolean;
+  schedule?: Record<string, unknown>;
+  state?: Record<string, unknown>;
+};
+
+type CronRun = Record<string, unknown>;
+
+type CronListResponse = {
+  jobs?: CronJob[];
+  error?: string;
+  details?: string;
+};
+
+type CronRunsResponse = {
+  runs?: CronRun[] | Record<string, unknown>;
+  raw?: string;
+  error?: string;
+  details?: string;
+};
+
+type FormMode = "create" | "edit";
+
+type FormState = {
   name: string;
+  scheduleKind: string;
+  scheduleExpr: string;
+  sessionTarget: string;
+  payloadKind: string;
+  payloadMessage: string;
+  payloadModel: string;
+  payloadTimeout: string;
+  deliveryMode: string;
+  agentId: string;
   enabled: boolean;
-  schedule?: { kind?: "cron" | "every" | "at"; expr?: string; everyMs?: number; at?: string };
-  session?: { target?: "main" | "isolated" };
-  payload?: { kind?: "agentTurn" | "systemEvent"; message?: string; model?: string; timeoutMs?: number; agentId?: string };
-  delivery?: { mode?: "none" | "announce"; channel?: string; to?: string };
-  state?: {
-    lastRunAtMs?: number;
-    nextRunAtMs?: number;
-    lastStatus?: string;
-    consecutiveErrors?: number;
-    lastDurationMs?: number;
-    lastDelivered?: boolean;
-    lastDeliveryStatus?: string;
+  isolated: boolean;
+  agentTurn: boolean;
+};
+
+const DEFAULT_FORM: FormState = {
+  name: "",
+  scheduleKind: "cron",
+  scheduleExpr: "",
+  sessionTarget: "",
+  payloadKind: "message",
+  payloadMessage: "",
+  payloadModel: "",
+  payloadTimeout: "",
+  deliveryMode: "none",
+  agentId: "",
+  enabled: true,
+  isolated: true,
+  agentTurn: true,
+};
+
+const REQUEST_HEADERS = { "Content-Type": "application/json" };
+
+const getJobId = (job: CronJob) =>
+  (job.id || job.jobId || job.name || job.slug || "") as string;
+
+const getJobName = (job: CronJob) =>
+  (job.name || job.id || job.jobId || "Untitled") as string;
+
+const getJobEnabled = (job: CronJob) => {
+  if (typeof job.enabled === "boolean") return job.enabled;
+  if (typeof job.disabled === "boolean") return !job.disabled;
+  return true;
+};
+
+const toTimestamp = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getTime();
+  return null;
+};
+
+const pickValue = <T,>(...values: T[]) => values.find((value) => value !== undefined && value !== null);
+
+const getJobState = (job: CronJob) => (job.state ?? {}) as Record<string, unknown>;
+
+const getLastRunAt = (job: CronJob) => {
+  const state = getJobState(job);
+  return (
+    toTimestamp(
+      pickValue(
+        state.lastRunAtMs,
+        state.lastRunAt,
+        state.lastRun,
+        job.lastRunAtMs,
+        job.lastRunAt,
+        job.lastRun
+      )
+    ) ?? null
+  );
+};
+
+const getNextRunAt = (job: CronJob) => {
+  const state = getJobState(job);
+  return (
+    toTimestamp(
+      pickValue(
+        state.nextRunAtMs,
+        state.nextRunAt,
+        state.nextRun,
+        job.nextRunAtMs,
+        job.nextRunAt,
+        job.nextRun
+      )
+    ) ?? null
+  );
+};
+
+const getLastStatus = (job: CronJob) => {
+  const state = getJobState(job);
+  const value =
+    state.lastStatus || state.last_status || state.status || job.lastStatus || job.status;
+  return typeof value === "string" && value.trim() ? value : "unknown";
+};
+
+const getConsecutiveErrors = (job: CronJob) => {
+  const state = getJobState(job);
+  const value = pickValue(
+    state.consecutiveErrors,
+    state.consecutive_errors,
+    state.consecutiveFailures,
+    job.consecutiveErrors,
+    job.consecutive_errors
+  );
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+};
+
+const getScheduleText = (job: CronJob) => {
+  const schedule = job.schedule as Record<string, unknown> | undefined;
+  if (!schedule) return "—";
+
+  const kind = typeof schedule.kind === "string" ? schedule.kind : "";
+  const expr = typeof schedule.expr === "string" ? schedule.expr : undefined;
+  const everyMs = typeof schedule.everyMs === "number" ? schedule.everyMs : undefined;
+  const at = typeof schedule.at === "string" ? schedule.at : undefined;
+
+  if (kind === "cron" && expr) return `Cron · ${expr}`;
+  if (kind === "every" && everyMs) return `Every · ${formatDuration(everyMs)}`;
+  if (kind === "at" && at) return `At · ${at}`;
+
+  if (expr) return expr;
+  if (everyMs) return formatDuration(everyMs);
+  if (at) return at;
+
+  return kind || "—";
+};
+
+const formatDuration = (ms: number) => {
+  if (!Number.isFinite(ms)) return "—";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  return `${days}d`;
+};
+
+const relativeTime = (timestamp: number | null) => {
+  if (!timestamp) return "—";
+  const diff = timestamp - Date.now();
+  const abs = Math.abs(diff);
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  if (abs < 60_000) return rtf.format(Math.round(diff / 1000), "second");
+  if (abs < 3_600_000) return rtf.format(Math.round(diff / 60_000), "minute");
+  if (abs < 86_400_000) return rtf.format(Math.round(diff / 3_600_000), "hour");
+  if (abs < 604_800_000) return rtf.format(Math.round(diff / 86_400_000), "day");
+
+  return new Date(timestamp).toLocaleDateString();
+};
+
+const statusVariant = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (["done", "completed", "success", "ok"].includes(normalized)) return "success";
+  if (["failed", "error", "timeout", "stale"].includes(normalized)) return "destructive";
+  if (["running", "queued", "pending"].includes(normalized)) return "warning";
+  return "secondary";
+};
+
+const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => {
+  const response = await fetch(url, { cache: "no-store", ...options });
+  let payload: T;
+  try {
+    payload = (await response.json()) as T;
+  } catch {
+    throw new Error(`Request failed (${response.status})`);
+  }
+
+  if (!response.ok) {
+    const errorPayload = payload as { error?: string };
+    throw new Error(errorPayload.error || `Request failed (${response.status})`);
+  }
+
+  return payload;
+};
+
+const buildPayload = (state: FormState, includeEmpty = false) => {
+  const payload: Record<string, unknown> = {};
+  const pushValue = (key: keyof FormState, value: unknown) => {
+    if (!includeEmpty) {
+      if (typeof value === "string" && value.trim() === "") return;
+      if (value === undefined || value === null) return;
+    }
+    payload[key] = value;
+  };
+
+  pushValue("name", state.name.trim());
+  pushValue("scheduleKind", state.scheduleKind);
+  pushValue("scheduleExpr", state.scheduleExpr.trim());
+  pushValue("sessionTarget", state.sessionTarget.trim());
+  pushValue("payloadKind", state.payloadKind.trim());
+  pushValue("payloadMessage", state.payloadMessage.trim());
+  pushValue("payloadModel", state.payloadModel.trim());
+  pushValue("payloadTimeout", state.payloadTimeout.trim());
+  pushValue("deliveryMode", state.deliveryMode.trim());
+  pushValue("agentId", state.agentId.trim());
+  pushValue("enabled", state.enabled);
+  pushValue("isolated", state.isolated);
+  pushValue("agentTurn", state.agentTurn);
+
+  return payload;
+};
+
+const parseJobToForm = (job: CronJob): FormState => {
+  const schedule = (job.schedule ?? {}) as Record<string, unknown>;
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  const session = (job.session ?? {}) as Record<string, unknown>;
+  const delivery = (job.delivery ?? {}) as Record<string, unknown>;
+
+  return {
+    name: (job.name as string) || "",
+    scheduleKind: (schedule.kind as string) || "cron",
+    scheduleExpr:
+      (schedule.expr as string) ||
+      (typeof schedule.everyMs === "number" ? String(schedule.everyMs) : "") ||
+      (schedule.at as string) ||
+      "",
+    sessionTarget:
+      (job.sessionTarget as string) || (session.target as string) || (job.target as string) || "",
+    payloadKind: (payload.kind as string) || "message",
+    payloadMessage: (payload.message as string) || "",
+    payloadModel: (payload.model as string) || "",
+    payloadTimeout:
+      (payload.timeoutMs as string) ||
+      (payload.timeout as string) ||
+      (job.payloadTimeout as string) ||
+      "",
+    deliveryMode:
+      (delivery.mode as string) ||
+      (job.deliveryMode as string) ||
+      (delivery.type as string) ||
+      "none",
+    agentId: (job.agentId as string) || (job.agent_id as string) || "",
+    enabled: getJobEnabled(job),
+    isolated: typeof job.isolated === "boolean" ? job.isolated : true,
+    agentTurn: typeof job.agentTurn === "boolean" ? job.agentTurn : true,
   };
 };
 
-type RunHistoryItem = {
-  at?: string;
-  runAt?: string;
-  startedAt?: string;
-  status?: string;
-  durationMs?: number;
-  duration?: number;
-  delivered?: boolean;
-  deliveryStatus?: string;
-  raw?: string;
+const getRunsRows = (runs: CronRun[] | Record<string, unknown>) => {
+  if (Array.isArray(runs)) return runs;
+  if (runs && typeof runs === "object") {
+    const record = runs as Record<string, unknown>;
+    const values = record.runs;
+    if (Array.isArray(values)) return values as CronRun[];
+  }
+  return [];
 };
 
-type FilterKey = "all" | "enabled" | "disabled" | "errors";
-
-type FormState = {
-  id?: string;
-  name: string;
-  scheduleKind: "cron" | "every" | "at";
-  scheduleExpr: string;
-  sessionTarget: "main" | "isolated";
-  payloadKind: "agentTurn" | "systemEvent";
-  payloadMessage: string;
-  model: string;
-  timeoutMs: string;
-  deliveryMode: "none" | "announce";
-  deliveryChannel: string;
-  deliveryTo: string;
-  agentId: string;
-  enabled: boolean;
+const getRunValue = (run: CronRun, keys: string[]) => {
+  for (const key of keys) {
+    const value = run[key];
+    if (value !== undefined && value !== null) return value;
+  }
+  return null;
 };
 
-const defaultForm: FormState = {
-  name: "",
-  scheduleKind: "cron",
-  scheduleExpr: "*/15 * * * *",
-  sessionTarget: "main",
-  payloadKind: "agentTurn",
-  payloadMessage: "",
-  model: "",
-  timeoutMs: "30000",
-  deliveryMode: "none",
-  deliveryChannel: "last",
-  deliveryTo: "",
-  agentId: "",
-  enabled: true,
+const formatRunTimestamp = (run: CronRun) => {
+  const value = getRunValue(run, ["timestamp", "startedAt", "started_at", "time"]);
+  const timestamp = toTimestamp(value);
+  if (!timestamp) return "—";
+  return new Date(timestamp).toLocaleString();
 };
 
-const statusBadge = (value?: string, enabled?: boolean) => {
-  const normalized = (value || "").toLowerCase();
-  if (enabled === false) return <Badge variant="destructive">Disabled</Badge>;
-  if (["ok", "success", "done", "completed"].includes(normalized)) return <Badge variant="success">{value}</Badge>;
-  if (["error", "failed", "timeout"].includes(normalized)) return <Badge variant="destructive">{value}</Badge>;
-  if (["running", "queued", "pending"].includes(normalized)) return <Badge variant="warning">{value}</Badge>;
-  return <Badge variant="outline">{value || "—"}</Badge>;
+const formatRunDuration = (run: CronRun) => {
+  const value = getRunValue(run, ["durationMs", "duration_ms", "duration", "runtimeMs"]);
+  if (typeof value === "number" && Number.isFinite(value)) return formatDuration(value);
+  if (typeof value === "string" && value.trim()) return value;
+  return "—";
 };
 
-const toRelative = (ms?: number) => {
-  if (!ms) return "—";
-  const diff = ms - Date.now();
-  const abs = Math.abs(diff);
-  const mins = Math.round(abs / 60000);
-  if (mins < 1) return diff >= 0 ? "in <1m" : "<1m ago";
-  if (mins < 60) return diff >= 0 ? `in ${mins}m` : `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return diff >= 0 ? `in ${hours}h` : `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return diff >= 0 ? `in ${days}d` : `${days}d ago`;
+const formatRunStatus = (run: CronRun) => {
+  const value = getRunValue(run, ["status", "result", "state"]);
+  return typeof value === "string" && value.trim() ? value : "unknown";
 };
 
-const scheduleToText = (job: CronJob) => {
-  const s = job.schedule;
-  if (!s) return "—";
-  if (s.kind === "cron") return `cron: ${s.expr || "—"}`;
-  if (s.kind === "every") return `every: ${s.expr || (s.everyMs ? `${Math.round(s.everyMs / 1000)}s` : "—")}`;
-  if (s.kind === "at") return `at: ${s.expr || s.at || "—"}`;
-  return s.expr || "—";
+const formatRunDelivery = (run: CronRun) => {
+  const delivery = run.delivery as Record<string, unknown> | undefined;
+  if (delivery && typeof delivery.mode === "string") return delivery.mode;
+  const value = getRunValue(run, ["delivery", "deliveryMode", "deliveryStatus"]);
+  return typeof value === "string" && value.trim() ? value : "—";
 };
 
 export function CronClient() {
-  const [jobs, setJobs] = useState<CronJob[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(defaultForm);
-  const [saving, setSaving] = useState(false);
-  const [busyJobId, setBusyJobId] = useState<string | null>(null);
-  const [historyJob, setHistoryJob] = useState<CronJob | null>(null);
-  const [history, setHistory] = useState<RunHistoryItem[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [jobs, setJobs] = React.useState<CronJob[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [success, setSuccess] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState("");
+  const [filter, setFilter] = React.useState("all");
+  const [sortBy, setSortBy] = React.useState("nextRun");
+  const [formOpen, setFormOpen] = React.useState(false);
+  const [formMode, setFormMode] = React.useState<FormMode>("create");
+  const [formState, setFormState] = React.useState<FormState>(DEFAULT_FORM);
+  const [activeJob, setActiveJob] = React.useState<CronJob | null>(null);
+  const [deleteJob, setDeleteJob] = React.useState<CronJob | null>(null);
+  const [historyJob, setHistoryJob] = React.useState<CronJob | null>(null);
+  const [historyRuns, setHistoryRuns] = React.useState<CronRun[]>([]);
+  const [historyRaw, setHistoryRaw] = React.useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [actionId, setActionId] = React.useState<string | null>(null);
 
-  const loadJobs = async () => {
-    setLoading(true);
-    setError(null);
+  const loadJobs = React.useCallback(async () => {
     try {
-      const response = await fetch("/api/cron", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
-      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      setLoading(true);
+      setError(null);
+      const payload = await requestJson<CronListResponse>("/api/cron");
+      setJobs(payload.jobs ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load cron jobs");
+      setError(err instanceof Error ? err.message : "Failed to load cron jobs.");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void loadJobs();
   }, []);
 
-  const filteredJobs = useMemo(() => {
-    return jobs.filter((job) => {
-      const hasErrors = (job.state?.consecutiveErrors ?? 0) > 0;
-      if (filter === "enabled" && !job.enabled) return false;
-      if (filter === "disabled" && job.enabled) return false;
-      if (filter === "errors" && !hasErrors) return false;
+  React.useEffect(() => {
+    void loadJobs();
+  }, [loadJobs]);
 
-      const q = search.trim().toLowerCase();
-      if (!q) return true;
-      return [job.name, scheduleToText(job), job.payload?.message, job.id]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q));
+  React.useEffect(() => {
+    if (!success) return;
+    const timer = setTimeout(() => setSuccess(null), 3000);
+    return () => clearTimeout(timer);
+  }, [success]);
+
+  const filteredJobs = React.useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const base = jobs.filter((job) => {
+      const name = getJobName(job).toLowerCase();
+      return !term || name.includes(term);
     });
-  }, [jobs, filter, search]);
+
+    const filtered = base.filter((job) => {
+      if (filter === "enabled") return getJobEnabled(job);
+      if (filter === "disabled") return !getJobEnabled(job);
+      if (filter === "errors") return getConsecutiveErrors(job) > 0;
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === "name") return getJobName(a).localeCompare(getJobName(b));
+      if (sortBy === "lastRun") return (getLastRunAt(b) ?? 0) - (getLastRunAt(a) ?? 0);
+      if (sortBy === "nextRun") return (getNextRunAt(a) ?? 0) - (getNextRunAt(b) ?? 0);
+      if (sortBy === "status") return getLastStatus(a).localeCompare(getLastStatus(b));
+      return 0;
+    });
+
+    return sorted;
+  }, [jobs, search, filter, sortBy]);
+
+  const summary = React.useMemo(() => {
+    const enabled = jobs.filter((job) => getJobEnabled(job)).length;
+    const disabled = jobs.length - enabled;
+    const errors = jobs.filter((job) => getConsecutiveErrors(job) > 0).length;
+    return { total: jobs.length, enabled, disabled, errors };
+  }, [jobs]);
+
+  const handleToggle = async (job: CronJob) => {
+    const id = getJobId(job);
+    if (!id) return;
+    const next = !getJobEnabled(job);
+
+    try {
+      setActionId(id);
+      setError(null);
+      await requestJson(`/api/cron/${encodeURIComponent(id)}/toggle`, {
+        method: "POST",
+        headers: REQUEST_HEADERS,
+        body: JSON.stringify({ enabled: next }),
+      });
+      setSuccess(`Cron ${next ? "enabled" : "disabled"}.`);
+      await loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to toggle cron.");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleRunNow = async (job: CronJob) => {
+    const id = getJobId(job);
+    if (!id) return;
+
+    try {
+      setActionId(id);
+      setError(null);
+      await requestJson(`/api/cron/${encodeURIComponent(id)}/run`, { method: "POST" });
+      setSuccess("Cron run started.");
+      await loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run cron.");
+    } finally {
+      setActionId(null);
+    }
+  };
 
   const openCreate = () => {
-    setForm(defaultForm);
-    setIsModalOpen(true);
+    setFormMode("create");
+    setFormState({ ...DEFAULT_FORM });
+    setFormOpen(true);
   };
 
   const openEdit = (job: CronJob) => {
-    setForm({
-      id: job.id,
-      name: job.name,
-      scheduleKind: job.schedule?.kind || "cron",
-      scheduleExpr: job.schedule?.expr || job.schedule?.at || (job.schedule?.everyMs ? `${job.schedule.everyMs}ms` : ""),
-      sessionTarget: job.session?.target || "main",
-      payloadKind: job.payload?.kind || "agentTurn",
-      payloadMessage: job.payload?.message || "",
-      model: job.payload?.model || "",
-      timeoutMs: job.payload?.timeoutMs ? String(job.payload.timeoutMs) : "30000",
-      deliveryMode: job.delivery?.mode || "none",
-      deliveryChannel: job.delivery?.channel || "last",
-      deliveryTo: job.delivery?.to || "",
-      agentId: job.payload?.agentId || "",
-      enabled: job.enabled,
-    });
-    setIsModalOpen(true);
+    setFormMode("edit");
+    setActiveJob(job);
+    setFormState(parseJobToForm(job));
+    setFormOpen(true);
   };
 
-  const saveForm = async () => {
-    if (!form.name.trim() || !form.scheduleExpr.trim()) return;
-    setSaving(true);
+  const handleSubmit = async () => {
     try {
-      const body = {
-        name: form.name.trim(),
-        enabled: form.enabled,
-        schedule: { kind: form.scheduleKind, expr: form.scheduleExpr.trim() },
-        session: form.sessionTarget,
-        payload: {
-          kind: form.payloadKind,
-          message: form.payloadMessage,
-          model: form.model || undefined,
-          timeoutMs: form.timeoutMs ? Number(form.timeoutMs) : undefined,
-          agentId: form.agentId || undefined,
-        },
-        delivery: {
-          mode: form.deliveryMode,
-          channel: form.deliveryChannel || undefined,
-          to: form.deliveryTo || undefined,
-        },
-      };
+      setError(null);
+      const payload = buildPayload(formState);
+      if (!payload.name) {
+        setError("Name is required.");
+        return;
+      }
 
-      const isEdit = Boolean(form.id);
-      const response = await fetch(isEdit ? `/api/cron/${form.id}` : "/api/cron", {
-        method: isEdit ? "PATCH" : "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
-      setIsModalOpen(false);
+      if (formMode === "create") {
+        await requestJson("/api/cron", {
+          method: "POST",
+          headers: REQUEST_HEADERS,
+          body: JSON.stringify(payload),
+        });
+        setSuccess("Cron job created.");
+      } else if (activeJob) {
+        const id = getJobId(activeJob);
+        await requestJson(`/api/cron/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: REQUEST_HEADERS,
+          body: JSON.stringify(payload),
+        });
+        setSuccess("Cron job updated.");
+      }
+
+      setFormOpen(false);
       await loadJobs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save cron job");
-    } finally {
-      setSaving(false);
+      setError(err instanceof Error ? err.message : "Failed to save cron job.");
     }
   };
 
-  const runNow = async (id: string) => {
-    setBusyJobId(id);
-    try {
-      const response = await fetch(`/api/cron/${id}/run`, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
-      await loadJobs();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run cron job");
-    } finally {
-      setBusyJobId(null);
-    }
-  };
+  const handleDelete = async () => {
+    if (!deleteJob) return;
+    const id = getJobId(deleteJob);
+    if (!id) return;
 
-  const toggleJob = async (job: CronJob) => {
-    setBusyJobId(job.id);
     try {
-      const response = await fetch(`/api/cron/${job.id}/toggle`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: !job.enabled }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
+      setActionId(id);
+      setError(null);
+      await requestJson(`/api/cron/${encodeURIComponent(id)}`, { method: "DELETE" });
+      setSuccess("Cron job deleted.");
+      setDeleteJob(null);
       await loadJobs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to toggle cron job");
+      setError(err instanceof Error ? err.message : "Failed to delete cron job.");
     } finally {
-      setBusyJobId(null);
-    }
-  };
-
-  const deleteJob = async (job: CronJob) => {
-    if (!confirm(`Delete cron job \"${job.name}\"?`)) return;
-    setBusyJobId(job.id);
-    try {
-      const response = await fetch(`/api/cron/${job.id}`, { method: "DELETE" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
-      await loadJobs();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete cron job");
-    } finally {
-      setBusyJobId(null);
+      setActionId(null);
     }
   };
 
   const openHistory = async (job: CronJob) => {
+    const id = getJobId(job);
+    if (!id) return;
     setHistoryJob(job);
     setHistoryLoading(true);
-    setHistory([]);
+    setHistoryError(null);
+    setHistoryRuns([]);
+    setHistoryRaw(null);
+
     try {
-      const response = await fetch(`/api/cron/${job.id}/runs`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.message || `Failed (${response.status})`);
-      setHistory(Array.isArray(data.runs) ? data.runs : []);
+      const payload = await requestJson<CronRunsResponse>(
+        `/api/cron/${encodeURIComponent(id)}/runs`
+      );
+      const runs = payload.runs ? getRunsRows(payload.runs) : [];
+      setHistoryRuns(runs);
+      setHistoryRaw(payload.raw ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load history");
+      setHistoryError(err instanceof Error ? err.message : "Failed to load run history.");
     } finally {
       setHistoryLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Cron Jobs</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Scheduler control room</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage OpenClaw cron jobs with run control and history.</p>
+          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
+            Cron Scheduler
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">Cron editor</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review schedules, trigger runs, and adjust delivery settings.
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => void loadJobs()}>
-            <RefreshCcw className="size-4" /> Refresh
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New job
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">Total {summary.total}</Badge>
+          <Badge variant="success">Enabled {summary.enabled}</Badge>
+          <Badge variant="outline">Disabled {summary.disabled}</Badge>
+          {summary.errors > 0 && <Badge variant="destructive">Errors {summary.errors}</Badge>}
         </div>
       </div>
 
       <Card>
         <CardHeader className="gap-3">
-          <CardTitle className="text-base">Jobs</CardTitle>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <Tabs value={filter} onValueChange={(value) => setFilter(value as FilterKey)}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="enabled">Enabled</TabsTrigger>
-                <TabsTrigger value="disabled">Disabled</TabsTrigger>
-                <TabsTrigger value="errors">Errors</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search jobs..."
-              className="w-full md:max-w-xs"
-            />
+          <CardTitle className="text-base">Schedule control</CardTitle>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex min-w-[200px] flex-1 items-center gap-2">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search cron jobs"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="min-w-[160px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Sort by name</SelectItem>
+                  <SelectItem value="lastRun">Sort by last run</SelectItem>
+                  <SelectItem value="nextRun">Sort by next run</SelectItem>
+                  <SelectItem value="status">Sort by status</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={loadJobs} disabled={loading}>
+                Refresh
+              </Button>
+              <Button onClick={openCreate}>Create cron</Button>
+            </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {error && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
+        <CardContent className="space-y-4">
+          <Tabs value={filter} onValueChange={setFilter} className="space-y-4">
+            <TabsList variant="line" className="w-full justify-start">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="enabled">Enabled</TabsTrigger>
+              <TabsTrigger value="disabled">Disabled</TabsTrigger>
+              <TabsTrigger value="errors">Errors</TabsTrigger>
+            </TabsList>
+            <TabsContent value={filter}>
+              {error && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
+              {success && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  {success}
+                </div>
+              )}
 
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading cron jobs...</p>
-          ) : filteredJobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No cron jobs match this filter.</p>
-          ) : (
-            <>
-              <div className="hidden md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Schedule</TableHead>
-                      <TableHead>Enabled</TableHead>
-                      <TableHead>Last run</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Errors</TableHead>
-                      <TableHead>Next run</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredJobs.map((job) => (
-                      <TableRow key={job.id}>
-                        <TableCell className="font-medium">⏱️ {job.name}</TableCell>
-                        <TableCell>{scheduleToText(job)}</TableCell>
-                        <TableCell>{job.enabled ? <Badge variant="success">Enabled</Badge> : <Badge variant="destructive">Disabled</Badge>}</TableCell>
-                        <TableCell>{toRelative(job.state?.lastRunAtMs)}</TableCell>
-                        <TableCell>{statusBadge(job.state?.lastStatus, job.enabled)}</TableCell>
-                        <TableCell>
-                          {(job.state?.consecutiveErrors ?? 0) > 0 ? (
-                            <Badge variant="destructive">{job.state?.consecutiveErrors}</Badge>
-                          ) : (
-                            <Badge variant="outline">0</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>{toRelative(job.state?.nextRunAtMs)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon-xs" variant="outline" onClick={() => void toggleJob(job)} disabled={busyJobId === job.id} title="Toggle">
-                              <Clock3 className="size-3" />
-                            </Button>
-                            <Button size="icon-xs" variant="outline" onClick={() => void runNow(job.id)} disabled={busyJobId === job.id} title="Run now">
-                              <Play className="size-3" />
-                            </Button>
-                            <Button size="icon-xs" variant="outline" onClick={() => openEdit(job)} title="Edit">
-                              <Pencil className="size-3" />
-                            </Button>
-                            <Button size="icon-xs" variant="outline" onClick={() => void openHistory(job)} title="History">
-                              <History className="size-3" />
-                            </Button>
-                            <Button size="icon-xs" variant="destructive" onClick={() => void deleteJob(job)} disabled={busyJobId === job.id} title="Delete">
-                              <Trash2 className="size-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {loading ? (
+                <div className="rounded-md border px-3 py-6 text-sm text-muted-foreground">
+                  Loading cron jobs...
+                </div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="rounded-md border px-3 py-6 text-sm text-muted-foreground">
+                  No cron jobs found for this view.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:hidden">
+                    {filteredJobs.map((job) => {
+                      const id = getJobId(job);
+                      const enabled = getJobEnabled(job);
+                      const lastRun = relativeTime(getLastRunAt(job));
+                      const nextRun = relativeTime(getNextRunAt(job));
+                      const status = getLastStatus(job);
+                      const errors = getConsecutiveErrors(job);
 
-              <div className="grid gap-3 md:hidden">
-                {filteredJobs.map((job) => (
-                  <Card key={job.id}>
-                    <CardContent className="space-y-3 pt-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium">⏱️ {job.name}</p>
-                          <p className="text-xs text-muted-foreground">{scheduleToText(job)}</p>
-                        </div>
-                        {job.enabled ? <Badge variant="success">Enabled</Badge> : <Badge variant="destructive">Disabled</Badge>}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Last run</p>
-                          <p>{toRelative(job.state?.lastRunAtMs)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Next run</p>
-                          <p>{toRelative(job.state?.nextRunAtMs)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Status</p>
-                          <div>{statusBadge(job.state?.lastStatus, job.enabled)}</div>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Errors</p>
-                          <div>{(job.state?.consecutiveErrors ?? 0) > 0 ? <Badge variant="destructive">{job.state?.consecutiveErrors}</Badge> : <Badge variant="outline">0</Badge>}</div>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        <Button size="xs" variant="outline" onClick={() => void toggleJob(job)} disabled={busyJobId === job.id}>Toggle</Button>
-                        <Button size="xs" variant="outline" onClick={() => void runNow(job.id)} disabled={busyJobId === job.id}>Run</Button>
-                        <Button size="xs" variant="outline" onClick={() => openEdit(job)}>Edit</Button>
-                        <Button size="xs" variant="outline" onClick={() => void openHistory(job)}>History</Button>
-                        <Button size="xs" variant="destructive" onClick={() => void deleteJob(job)} disabled={busyJobId === job.id}>Delete</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
+                      return (
+                        <Card key={id} className="border-border/60">
+                          <CardHeader className="space-y-2">
+                            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                              <span className="truncate">{getJobName(job)}</span>
+                              <Badge variant={enabled ? "success" : "outline"}>
+                                {enabled ? "Enabled" : "Disabled"}
+                              </Badge>
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground">{getScheduleText(job)}</p>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                              <div>
+                                <p className="uppercase tracking-wide">Last run</p>
+                                <p className="text-foreground">{lastRun}</p>
+                              </div>
+                              <div>
+                                <p className="uppercase tracking-wide">Next run</p>
+                                <p className="text-foreground">{nextRun}</p>
+                              </div>
+                              <div>
+                                <p className="uppercase tracking-wide">Last status</p>
+                                <Badge variant={statusVariant(status)}>{status}</Badge>
+                              </div>
+                              <div>
+                                <p className="uppercase tracking-wide">Errors</p>
+                                <Badge variant={errors > 0 ? "destructive" : "secondary"}>
+                                  {errors}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleToggle(job)}
+                                disabled={actionId === id}
+                              >
+                                {enabled ? "Disable" : "Enable"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handleRunNow(job)}
+                                disabled={actionId === id}
+                              >
+                                Run now
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => openEdit(job)}>
+                                Edit
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => openHistory(job)}>
+                                History
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDeleteJob(job)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+
+                  <div className="hidden rounded-md border md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Schedule</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Last run</TableHead>
+                          <TableHead>Last status</TableHead>
+                          <TableHead>Errors</TableHead>
+                          <TableHead>Next run</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredJobs.map((job) => {
+                          const id = getJobId(job);
+                          const enabled = getJobEnabled(job);
+                          const lastRun = relativeTime(getLastRunAt(job));
+                          const nextRun = relativeTime(getNextRunAt(job));
+                          const status = getLastStatus(job);
+                          const errors = getConsecutiveErrors(job);
+
+                          return (
+                            <TableRow key={id}>
+                              <TableCell>
+                                <div className="font-semibold text-foreground">
+                                  {getJobName(job)}
+                                </div>
+                                <div className="text-xs text-muted-foreground">{id}</div>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {getScheduleText(job)}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={enabled ? "success" : "outline"}>
+                                  {enabled ? "Enabled" : "Disabled"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{lastRun}</TableCell>
+                              <TableCell>
+                                <Badge variant={statusVariant(status)}>{status}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={errors > 0 ? "destructive" : "secondary"}>
+                                  {errors}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{nextRun}</TableCell>
+                              <TableCell>
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleToggle(job)}
+                                    disabled={actionId === id}
+                                  >
+                                    {enabled ? "Disable" : "Enable"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => handleRunNow(job)}
+                                    disabled={actionId === id}
+                                  >
+                                    Run
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => openEdit(job)}>
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => openHistory(job)}>
+                                    History
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => setDeleteJob(job)}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <Card className="max-h-[90vh] w-full max-w-2xl overflow-y-auto">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>{form.id ? "Edit cron job" : "Create cron job"}</CardTitle>
-              <Button size="icon-xs" variant="ghost" onClick={() => setIsModalOpen(false)}>
-                <X className="size-4" />
-              </Button>
+      {formOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <Card className="w-full max-w-3xl">
+            <CardHeader className="border-b">
+              <CardTitle className="text-base">
+                {formMode === "create" ? "Create cron job" : "Edit cron job"}
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6 pt-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Name</Label>
-                  <Input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+                  <Label htmlFor="cron-name">Name</Label>
+                  <Input
+                    id="cron-name"
+                    value={formState.name}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                    placeholder="daily-summary"
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label>Session target</Label>
-                  <Select value={form.sessionTarget} onValueChange={(value) => setForm((prev) => ({ ...prev, sessionTarget: value as "main" | "isolated" }))}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">main</SelectItem>
-                      <SelectItem value="isolated">isolated</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="cron-agent">Agent ID</Label>
+                  <Input
+                    id="cron-agent"
+                    value={formState.agentId}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, agentId: event.target.value }))
+                    }
+                    placeholder="agent-01"
+                  />
                 </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Schedule kind</Label>
-                  <Select value={form.scheduleKind} onValueChange={(value) => setForm((prev) => ({ ...prev, scheduleKind: value as FormState["scheduleKind"] }))}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <Select
+                    value={formState.scheduleKind}
+                    onValueChange={(value) =>
+                      setFormState((prev) => ({ ...prev, scheduleKind: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select kind" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cron">cron</SelectItem>
-                      <SelectItem value="every">every</SelectItem>
-                      <SelectItem value="at">at</SelectItem>
+                      <SelectItem value="cron">Cron expression</SelectItem>
+                      <SelectItem value="every">Every</SelectItem>
+                      <SelectItem value="at">At time</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Schedule expression</Label>
-                  <Input value={form.scheduleExpr} onChange={(e) => setForm((prev) => ({ ...prev, scheduleExpr: e.target.value }))} />
+                  <Label htmlFor="cron-expr">Schedule expression</Label>
+                  <Input
+                    id="cron-expr"
+                    value={formState.scheduleExpr}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, scheduleExpr: event.target.value }))
+                    }
+                    placeholder="*/15 * * * *"
+                  />
                 </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Payload kind</Label>
-                  <Select value={form.payloadKind} onValueChange={(value) => setForm((prev) => ({ ...prev, payloadKind: value as FormState["payloadKind"] }))}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="agentTurn">agentTurn</SelectItem>
-                      <SelectItem value="systemEvent">systemEvent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="cron-session">Session target</Label>
+                  <Input
+                    id="cron-session"
+                    value={formState.sessionTarget}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, sessionTarget: event.target.value }))
+                    }
+                    placeholder="assistant"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Delivery mode</Label>
-                  <Select value={form.deliveryMode} onValueChange={(value) => setForm((prev) => ({ ...prev, deliveryMode: value as FormState["deliveryMode"] }))}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <Select
+                    value={formState.deliveryMode}
+                    onValueChange={(value) =>
+                      setFormState((prev) => ({ ...prev, deliveryMode: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select delivery" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">none</SelectItem>
-                      <SelectItem value="announce">announce</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="channel">Channel</SelectItem>
+                      <SelectItem value="direct">Direct</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Model (optional)</Label>
-                  <Input value={form.model} onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Timeout ms (optional)</Label>
-                  <Input value={form.timeoutMs} onChange={(e) => setForm((prev) => ({ ...prev, timeoutMs: e.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Agent ID (optional)</Label>
-                  <Input value={form.agentId} onChange={(e) => setForm((prev) => ({ ...prev, agentId: e.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Delivery channel (optional)</Label>
-                  <Input value={form.deliveryChannel} onChange={(e) => setForm((prev) => ({ ...prev, deliveryChannel: e.target.value }))} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Delivery target (optional)</Label>
-                  <Input value={form.deliveryTo} onChange={(e) => setForm((prev) => ({ ...prev, deliveryTo: e.target.value }))} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Payload message</Label>
-                  <Textarea value={form.payloadMessage} onChange={(e) => setForm((prev) => ({ ...prev, payloadMessage: e.target.value }))} rows={4} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.enabled}
-                      onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Payload kind</Label>
+                    <Select
+                      value={formState.payloadKind}
+                      onValueChange={(value) =>
+                        setFormState((prev) => ({ ...prev, payloadKind: value }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select payload" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="message">Message</SelectItem>
+                        <SelectItem value="json">JSON</SelectItem>
+                        <SelectItem value="task">Task</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="payload-model">Payload model</Label>
+                    <Input
+                      id="payload-model"
+                      value={formState.payloadModel}
+                      onChange={(event) =>
+                        setFormState((prev) => ({ ...prev, payloadModel: event.target.value }))
+                      }
+                      placeholder="gpt-4.1"
                     />
-                    Enabled
-                  </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="payload-message">Payload message</Label>
+                  <Textarea
+                    id="payload-message"
+                    value={formState.payloadMessage}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, payloadMessage: event.target.value }))
+                    }
+                    placeholder="Enter payload instructions"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="payload-timeout">Payload timeout</Label>
+                  <Input
+                    id="payload-timeout"
+                    value={formState.payloadTimeout}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, payloadTimeout: event.target.value }))
+                    }
+                    placeholder="60000"
+                  />
                 </div>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formState.enabled}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, enabled: event.target.checked }))
+                    }
+                    className="h-4 w-4"
+                  />
+                  Enabled
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formState.isolated}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, isolated: event.target.checked }))
+                    }
+                    className="h-4 w-4"
+                  />
+                  Isolated
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formState.agentTurn}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, agentTurn: event.target.checked }))
+                    }
+                    className="h-4 w-4"
+                  />
+                  Agent turn
+                </label>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={() => setFormOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSubmit}>
+                  {formMode === "create" ? "Create job" : "Save changes"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {deleteJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <Card className="w-full max-w-md">
+            <CardHeader className="border-b">
+              <CardTitle className="text-base">Delete cron job</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6">
+              <p className="text-sm text-muted-foreground">
+                Delete {getJobName(deleteJob)}? This cannot be undone.
+              </p>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-                <Button onClick={() => void saveForm()} disabled={saving || !form.name.trim() || !form.scheduleExpr.trim()}>
-                  {saving ? "Saving..." : form.id ? "Save changes" : "Create job"}
+                <Button variant="outline" onClick={() => setDeleteJob(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDelete}
+                  disabled={actionId === getJobId(deleteJob)}
+                >
+                  Delete
                 </Button>
               </div>
             </CardContent>
@@ -556,43 +1027,64 @@ export function CronClient() {
       )}
 
       {historyJob && (
-        <div className="fixed inset-y-0 right-0 z-40 w-full max-w-xl border-l border-border bg-background p-4 shadow-2xl">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Run history</p>
-              <h2 className="text-lg font-semibold">{historyJob.name}</h2>
-            </div>
-            <Button size="icon-xs" variant="ghost" onClick={() => setHistoryJob(null)}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          {historyLoading ? (
-            <p className="text-sm text-muted-foreground">Loading run history...</p>
-          ) : history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent runs.</p>
-          ) : (
-            <div className="space-y-2 overflow-y-auto pr-1">
-              {history.map((run, index) => {
-                const stamp = run.at || run.runAt || run.startedAt;
-                const durationMs = run.durationMs ?? run.duration;
-                return (
-                  <Card key={`${stamp || "run"}-${index}`}>
-                    <CardContent className="space-y-2 pt-4 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">{stamp ? new Date(stamp).toLocaleString() : "—"}</span>
-                        {statusBadge(run.status)}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <p>Duration: {typeof durationMs === "number" ? `${Math.round(durationMs)}ms` : "—"}</p>
-                        <p>Delivery: {run.deliveryStatus || (typeof run.delivered === "boolean" ? String(run.delivered) : "—")}</p>
-                      </div>
-                      {run.raw && <p className="font-mono text-[11px] text-muted-foreground">{run.raw}</p>}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <Card className="w-full max-w-3xl">
+            <CardHeader className="border-b">
+              <CardTitle className="text-base">Run history: {getJobName(historyJob)}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6">
+              {historyLoading ? (
+                <p className="text-sm text-muted-foreground">Loading runs...</p>
+              ) : historyError ? (
+                <p className="text-sm text-destructive">{historyError}</p>
+              ) : historyRuns.length === 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">No runs found.</p>
+                  {historyRaw && (
+                    <Textarea
+                      readOnly
+                      value={historyRaw}
+                      className="min-h-[160px] font-mono text-xs"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Delivery</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {historyRuns.map((run, index) => {
+                        const status = formatRunStatus(run);
+                        return (
+                          <TableRow key={`${getJobId(historyJob)}-${index}`}>
+                            <TableCell>{formatRunTimestamp(run)}</TableCell>
+                            <TableCell>
+                              <Badge variant={statusVariant(status)}>{status}</Badge>
+                            </TableCell>
+                            <TableCell>{formatRunDuration(run)}</TableCell>
+                            <TableCell>{formatRunDelivery(run)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setHistoryJob(null)}>
+                  Close
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
