@@ -259,6 +259,12 @@ const buildPayload = (state: FormState, includeEmpty = false) => {
   return payload;
 };
 
+const toInputString = (value: unknown) => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+};
+
 const parseJobToForm = (job: CronJob): FormState => {
   const schedule = (job.schedule ?? {}) as Record<string, unknown>;
   const payload = (job.payload ?? {}) as Record<string, unknown>;
@@ -269,26 +275,26 @@ const parseJobToForm = (job: CronJob): FormState => {
     name: (job.name as string) || "",
     scheduleKind: (schedule.kind as string) || "cron",
     scheduleExpr:
-      (schedule.expr as string) ||
+      toInputString(schedule.expr) ||
       (typeof schedule.everyMs === "number" ? String(schedule.everyMs) : "") ||
-      (schedule.at as string) ||
-      "",
+      toInputString(schedule.at),
     sessionTarget:
-      (job.sessionTarget as string) || (session.target as string) || (job.target as string) || "",
-    payloadKind: (payload.kind as string) || "message",
-    payloadMessage: (payload.message as string) || "",
-    payloadModel: (payload.model as string) || "",
+      toInputString(job.sessionTarget) ||
+      toInputString(session.target) ||
+      toInputString(job.target),
+    payloadKind: toInputString(payload.kind) || "message",
+    payloadMessage: toInputString(payload.message),
+    payloadModel: toInputString(payload.model),
     payloadTimeout:
-      (payload.timeoutMs as string) ||
-      (payload.timeout as string) ||
-      (job.payloadTimeout as string) ||
-      "",
+      toInputString(payload.timeoutMs) ||
+      toInputString(payload.timeout) ||
+      toInputString(job.payloadTimeout),
     deliveryMode:
-      (delivery.mode as string) ||
-      (job.deliveryMode as string) ||
-      (delivery.type as string) ||
+      toInputString(delivery.mode) ||
+      toInputString(job.deliveryMode) ||
+      toInputString(delivery.type) ||
       "none",
-    agentId: (job.agentId as string) || (job.agent_id as string) || "",
+    agentId: toInputString(job.agentId) || toInputString(job.agent_id),
     enabled: getJobEnabled(job),
     isolated: typeof job.isolated === "boolean" ? job.isolated : true,
     agentTurn: typeof job.agentTurn === "boolean" ? job.agentTurn : true,
@@ -484,6 +490,11 @@ export function CronClient() {
         setSuccess("Cron job created.");
       } else if (activeJob) {
         const id = getJobId(activeJob);
+        if (!id) {
+          setError("Unable to edit this cron job because it has no id.");
+          return;
+        }
+
         await requestJson(`/api/cron/${encodeURIComponent(id)}`, {
           method: "PATCH",
           headers: REQUEST_HEADERS,
