@@ -118,6 +118,17 @@ export const normalizeStatus = (
   return "healthy";
 };
 
+export const normalizeDeliveryMode = (delivery?: JobDefinition["delivery"]) => {
+  const mode = delivery?.mode?.trim();
+  return mode ? mode : "none";
+};
+
+export const isNoReplyExpected = (delivery?: JobDefinition["delivery"]) => {
+  const target = delivery?.to;
+  if (!target) return false;
+  return String(target).trim().toUpperCase() === "NO_REPLY";
+};
+
 export const toScheduleText = (schedule?: JobSchedule) => {
   if (!schedule) return "—";
   if (schedule.kind === "cron") return (schedule as { expr?: string }).expr || "—";
@@ -204,6 +215,9 @@ export async function GET() {
 
     const nextFireMs = job.state?.nextRunAtMs ?? null;
 
+    const deliveryMode = normalizeDeliveryMode(job.delivery);
+    const noReplyExpected = isNoReplyExpected(job.delivery);
+
     return {
       name: job.name,
       schedule: toScheduleText(job.schedule),
@@ -213,7 +227,8 @@ export async function GET() {
       consecutive_failures: consecutiveFailures,
       last_duration_sec: typeof lastDurationSec === "number" ? Number(lastDurationSec) : null,
       last_error: status === "healthy" ? null : lastError,
-      delivery_mode: job.delivery?.mode || "none",
+      delivery_mode: deliveryMode,
+      no_reply_expected: noReplyExpected,
     };
   });
 
