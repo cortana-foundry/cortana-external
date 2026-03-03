@@ -3,6 +3,8 @@ import {
   parseCronIntervalMs,
   getExpectedIntervalMs,
   normalizeStatus,
+  normalizeDeliveryMode,
+  isNoReplyExpected,
   toScheduleText,
 } from "@/app/api/cron-health/route";
 
@@ -57,6 +59,23 @@ describe("normalizeStatus", () => {
   it("marks healthy when no failures and not late", () => {
     expect(normalizeStatus("completed", 0, false)).toBe("healthy");
     expect(normalizeStatus(undefined, 0, false)).toBe("healthy");
+  });
+});
+
+describe("delivery metadata", () => {
+  it("normalizes delivery mode defaults", () => {
+    expect(normalizeDeliveryMode()).toBe("none");
+    expect(normalizeDeliveryMode({})).toBe("none");
+    expect(normalizeDeliveryMode({ mode: "announce" })).toBe("announce");
+    expect(normalizeDeliveryMode({ mode: " announce " })).toBe("announce");
+    expect(normalizeDeliveryMode({ mode: "manual-send" })).toBe("manual-send");
+  });
+
+  it("detects NO_REPLY contracts", () => {
+    expect(isNoReplyExpected()).toBe(false);
+    expect(isNoReplyExpected({ to: "NO_REPLY" })).toBe(true);
+    expect(isNoReplyExpected({ to: " no_reply " })).toBe(true);
+    expect(isNoReplyExpected({ to: "telegram" })).toBe(false);
   });
 });
 

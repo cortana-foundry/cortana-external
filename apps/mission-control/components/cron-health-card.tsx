@@ -16,6 +16,7 @@ type CronHealthItem = {
   last_duration_sec: number | null;
   last_error: string | null;
   delivery_mode: string;
+  no_reply_expected: boolean;
 };
 
 type CronHealthResponse = {
@@ -39,6 +40,37 @@ const statusUi: Record<CronHealthStatus, { icon: string; label: string; classNam
     label: "Healthy",
     className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   },
+};
+
+const deliveryUi: Record<string, { label: string; className: string }> = {
+  announce: {
+    label: "Announce",
+    className: "bg-sky-500/15 text-sky-200 border-sky-500/30",
+  },
+  "manual-send": {
+    label: "Manual send",
+    className: "bg-indigo-500/15 text-indigo-200 border-indigo-500/30",
+  },
+  none: {
+    label: "No delivery",
+    className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+  },
+};
+
+const noReplyUi = {
+  label: "NO_REPLY expected",
+  className: "bg-zinc-500/15 text-zinc-200 border-zinc-500/30",
+  title: "Healthy runs may be silent by contract.",
+};
+
+const getDeliveryUi = (mode: string) => {
+  const normalized = (mode || "none").trim().toLowerCase();
+  if (deliveryUi[normalized]) return deliveryUi[normalized];
+  const label = mode?.trim() ? `Delivery: ${mode.trim()}` : "No delivery";
+  return {
+    label,
+    className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+  };
 };
 
 const toRelativeTime = (iso: string | null) => {
@@ -161,6 +193,7 @@ export function CronHealthCard() {
         <div className="space-y-3">
           {failedOrLateCrons.map((cron: CronHealthItem) => {
             const status = statusUi[cron.status];
+            const delivery = getDeliveryUi(cron.delivery_mode);
 
             return (
               <div
@@ -169,8 +202,16 @@ export function CronHealthCard() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-foreground">{cron.name} {cron.delivery_mode === "announce" ? <span className="ml-1 text-xs" title="Delivers to Telegram">📢</span> : <span className="ml-1 text-xs" title="Background only">🔇</span>}</p>
+                    <p className="truncate text-sm font-semibold text-foreground">{cron.name}</p>
                     <p className="font-mono text-[11px] text-zinc-400">{cron.schedule}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Badge className={delivery.className}>{delivery.label}</Badge>
+                      {cron.no_reply_expected && (
+                        <Badge className={noReplyUi.className} title={noReplyUi.title}>
+                          {noReplyUi.label}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Badge className={status.className}>
                     {status.icon} {status.label}
@@ -222,12 +263,25 @@ export function CronHealthCard() {
 
               {showHealthy && (
                 <div className="border-t">
-                  {healthyCrons.map((cron: CronHealthItem) => (
-                    <div
-                      key={cron.name}
-                      className="grid grid-cols-1 gap-1 px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-3"
-                    >
-                      <p className="truncate font-medium text-foreground">{cron.delivery_mode === "announce" ? "📢" : "🔇"} {cron.name}</p>
+                  {healthyCrons.map((cron: CronHealthItem) => {
+                    const delivery = getDeliveryUi(cron.delivery_mode);
+
+                    return (
+                      <div
+                        key={cron.name}
+                        className="grid grid-cols-1 gap-1 px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-foreground">{cron.name}</p>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            <Badge className={delivery.className}>{delivery.label}</Badge>
+                            {cron.no_reply_expected && (
+                              <Badge className={noReplyUi.className} title={noReplyUi.title}>
+                                {noReplyUi.label}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       <p className="font-mono text-muted-foreground">
                         {firedToday(cron.last_fire_time)
                           ? <><span className="text-muted-foreground/60">fired </span>{toShortTime(cron.last_fire_time)} <span className="text-muted-foreground/60">({toRelativeTime(cron.last_fire_time)})</span></>
@@ -237,11 +291,12 @@ export function CronHealthCard() {
                       <p className="font-mono text-muted-foreground">
                         <span className="text-muted-foreground/60">next </span>{cron.next_fire_time ? toShortTime(cron.next_fire_time) : "—"}
                       </p>
-                      {cron.last_duration_sec != null && (
-                        <p className="font-mono text-muted-foreground"><span className="text-muted-foreground/60">took </span>{formatDuration(cron.last_duration_sec)}</p>
-                      )}
-                    </div>
-                  ))}
+                        {cron.last_duration_sec != null && (
+                          <p className="font-mono text-muted-foreground"><span className="text-muted-foreground/60">took </span>{formatDuration(cron.last_duration_sec)}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
