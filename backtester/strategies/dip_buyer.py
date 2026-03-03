@@ -185,6 +185,9 @@ class DipBuyerStrategy(Strategy):
         """
         Generate buy/sell signals for the Dip Buyer strategy.
         """
+        data = data.copy()
+        data.columns = [c.lower() for c in data.columns]
+
         close = data['close']
         signals = pd.Series(0, index=data.index)
 
