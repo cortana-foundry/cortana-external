@@ -88,7 +88,12 @@ def _load_priority_symbols() -> list[str]:
 
 
 def _deterministic_universe(advisor: TradingAdvisor, universe_size: int) -> tuple[list[str], int]:
-    base = _run_quiet(advisor.screener.get_universe)
+    if hasattr(advisor, "screener"):
+        base = _run_quiet(advisor.screener.get_universe)
+    else:
+        scan_df = _run_quiet(advisor.scan_dip_opportunities, True, 0)
+        base = list(scan_df.get("symbol", []).tolist()) if hasattr(scan_df, "get") else []
+        return base[:universe_size], 0
     priority = _load_priority_symbols()
     ordered = []
     seen = set()
