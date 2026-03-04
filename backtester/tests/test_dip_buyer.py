@@ -192,7 +192,7 @@ def test_exit_rules_and_credit_veto_force_sell(price_data):
         signals = strategy.generate_signals(price_data)
 
     assert strategy.should_use_stop_loss() is True
-    assert strategy.stop_loss_pct() == pytest.approx(0.07)
+    assert strategy.stop_loss_pct() == pytest.approx(0.06)
     assert DIPBUYER_CONFIG["exits"]["trim_1"] == pytest.approx(0.08)
     assert DIPBUYER_CONFIG["exits"]["trim_2"] == pytest.approx(0.12)
     assert (signals == -1).all(), "Credit veto (HY>650) should trigger full exit"
@@ -323,8 +323,8 @@ def test_total_score_7_generates_buy_in_correction_regime(price_data):
     assert (signals == 1).all()
 
 
-def test_threshold_7_allows_signal_where_threshold_8_does_not(price_data):
-    """Calibrated threshold 7 should buy while threshold 8 should not for same 7-point setup."""
+def test_threshold_7_allows_signal_where_threshold_8_does_not(price_data, monkeypatch):
+    """Correction profile buy threshold should control whether 7-point setups can buy."""
     risk_df = pd.DataFrame(
         {
             "vix": [25.0] * len(price_data),
@@ -344,12 +344,13 @@ def test_threshold_7_allows_signal_where_threshold_8_does_not(price_data):
         risk_df,
         fundamentals={"eps_growth": 25, "revenue_growth": 0},
     )
-    s8.min_buy_score = 8
 
     with _patch_fillna_method_compat(), patch(
         "strategies.dip_buyer.rsi", return_value=pd.Series([30] * len(price_data), index=price_data.index)
     ):
         signals7 = s7.generate_signals(price_data)
+
+    monkeypatch.setitem(DIPBUYER_CONFIG["profiles"]["correction"]["score_thresholds"], "buy", 8)
 
     with _patch_fillna_method_compat(), patch(
         "strategies.dip_buyer.rsi", return_value=pd.Series([30] * len(price_data), index=price_data.index)
