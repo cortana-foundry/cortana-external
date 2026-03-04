@@ -52,10 +52,10 @@ describe("Sidebar", () => {
     render(<Sidebar />);
 
     for (const label of NAV_LABELS) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 
-    expect(screen.getAllByRole("link")).toHaveLength(NAV_LABELS.length);
+    expect(screen.getAllByRole("link").length).toBeGreaterThanOrEqual(NAV_LABELS.length);
   });
 
   it("renders navigation and toggle icons", () => {
@@ -69,17 +69,17 @@ describe("Sidebar", () => {
   it("applies active class to the exact dashboard route only", () => {
     const { container, rerender } = render(<Sidebar />);
 
-    const dashboardLink = screen.getByRole("link", { name: "Dashboard" });
-    expect(dashboardLink.className).toContain("bg-primary/10");
+    const dashboardLinks = screen.getAllByRole("link", { name: "Dashboard" });
+    expect(dashboardLinks.some((el) => el.className.includes("bg-primary/10"))).toBe(true);
 
     mockUsePathname.mockReturnValue("/docs");
     rerender(<Sidebar />);
 
-    const dashboardLinkAfter = screen.getByRole("link", { name: "Dashboard" });
-    const docsLink = screen.getByRole("link", { name: "Docs" });
+    const dashboardLinksAfter = screen.getAllByRole("link", { name: "Dashboard" });
+    const docsLinks = screen.getAllByRole("link", { name: "Docs" });
 
-    expect(dashboardLinkAfter.className).not.toContain("bg-primary/10");
-    expect(docsLink.className).toContain("bg-primary/10");
+    expect(dashboardLinksAfter.some((el) => el.className.includes("bg-primary/10"))).toBe(false);
+    expect(docsLinks.some((el) => el.className.includes("bg-primary/10"))).toBe(true);
 
     // Keep container referenced for lint/no-unused in some configs
     expect(container).toBeTruthy();
@@ -89,22 +89,21 @@ describe("Sidebar", () => {
     mockUsePathname.mockReturnValue("/jobs/123");
     render(<Sidebar />);
 
-    const jobsLink = screen.getByRole("link", { name: "Jobs & Runs" });
-    expect(jobsLink.className).toContain("bg-primary/10");
+    const jobsLinks = screen.getAllByRole("link", { name: "Jobs & Runs" });
+    expect(jobsLinks.some((el) => el.className.includes("bg-primary/10"))).toBe(true);
   });
 
-  it("supports collapsed state with hidden labels and toggle", () => {
+  it("supports collapsed state with hidden desktop labels and toggle", () => {
     localStorage.setItem("mc-sidebar-collapsed", "true");
     render(<Sidebar />);
 
     expect(screen.getByText("MC")).toBeInTheDocument();
-    expect(screen.queryByText("Mission Control")).not.toBeInTheDocument();
+    // Mobile header always shows Mission Control; ensure desktop collapsed marker is present.
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
 
-    // In collapsed mode, nav links get title attributes for labels.
-    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("title", "Dashboard");
-
-    const toggleButton = screen.getByRole("button", { name: "Expand sidebar" });
-    expect(toggleButton).toBeInTheDocument();
+    // In collapsed mode, at least one desktop nav link gets title attributes for labels.
+    const dashboardLinks = screen.getAllByRole("link", { name: "Dashboard" });
+    expect(dashboardLinks.some((el) => el.getAttribute("title") === "Dashboard")).toBe(true);
 
     const toggleText = screen.getByText("Expand");
     expect(toggleText.className).toContain("hidden");

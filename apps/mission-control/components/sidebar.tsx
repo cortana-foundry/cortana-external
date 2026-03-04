@@ -62,11 +62,35 @@ export function Sidebar() {
 
   return (
     <>
-      <div className={cn("shrink-0 w-16 transition-all duration-300", desktopWidthClass)} />
+      <div className={cn("hidden shrink-0 w-16 transition-all duration-300 md:block", desktopWidthClass)} />
+
+      <div className="fixed inset-x-0 top-0 z-40 border-b border-border bg-background/95 backdrop-blur md:hidden">
+        <div className="px-4 py-2 text-sm font-semibold text-foreground">Mission Control</div>
+        <nav className="flex items-center gap-1 overflow-x-auto px-2 pb-2">
+          {links.map((link) => {
+            const isActive = link.href === "/" ? pathname === link.href : pathname?.startsWith(link.href);
+            const Icon = link.icon;
+            return (
+              <Link
+                key={`mobile-${link.href}`}
+                href={link.href}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground",
+                  "hover:bg-muted hover:text-foreground",
+                  isActive && "bg-primary/10 text-foreground"
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span>{link.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-16 flex-col overflow-hidden border-r border-border bg-background transition-all duration-300",
+          "fixed inset-y-0 left-0 z-40 hidden w-16 flex-col overflow-hidden border-r border-border bg-background transition-all duration-300 md:flex",
           desktopWidthClass
         )}
       >
