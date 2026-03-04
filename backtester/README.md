@@ -122,6 +122,24 @@ Alpaca keys stored at: `~/Developer/cortana-external/backtester/alpaca_keys.json
 }
 ```
 
+## FRED HY Spread Reliability (Dip Buyer)
+
+Dip Buyer reads HY spreads from FRED (`BAMLH0A0HYM2`).
+
+Recommended env vars:
+
+```bash
+export FRED_API_KEY=your_key_here            # recommended (reduces unauthenticated limits)
+export RISK_FRED_RETRIES=3                   # default: 3
+export RISK_FRED_TIMEOUT_SECONDS=12          # default: 12
+export RISK_FRED_BACKOFF_SECONDS=1.5         # default: 1.5
+```
+
+If FRED fails after retries, the system now reports fallback explicitly:
+- HY source becomes `fallback_default_450`
+- alert includes fallback impact note (`neutral-credit assumption`)
+- credit gate behavior remains strict; this only prevents silent ambiguity.
+
 ## Dependencies
 
 ```bash

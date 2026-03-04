@@ -124,6 +124,9 @@ def test_get_snapshot_returns_expected_dict_structure():
         "hy_spread_percentile",
         "spy_distance_score",
         "hy_spread_change_10d",
+        "hy_spread_source",
+        "hy_spread_fallback",
+        "hy_spread_warning",
     }
     assert expected_keys.issubset(set(snap.keys()))
 
@@ -258,6 +261,25 @@ def test_fear_proxy_always_numeric_and_bounded_0_100():
     assert ((history["fear_greed"] >= 0) & (history["fear_greed"] <= 100)).all()
 
 
+def test_fred_fallback_metadata_is_exposed_in_snapshot():
+    """Snapshot should surface HY fallback source/warning when FRED data is unavailable."""
+    fetcher = RiskSignalFetcher()
+    idx = pd.date_range("2026-01-01", periods=20, freq="B")
+    vix = pd.Series(np.linspace(20, 24, len(idx)), index=idx, name="vix")
+    spy = pd.Series(np.linspace(400, 410, len(idx)), index=idx, name="spy_close")
+
+    with patch.object(fetcher, "_fetch_vix_history", return_value=vix), patch.object(
+        fetcher, "_fetch_spy_history", return_value=spy
+    ), patch.object(fetcher, "_fetch_fred_series", return_value=pd.Series(dtype=float)), patch.object(
+        fetcher, "_fetch_put_call_history", return_value=pd.Series(dtype=float)
+    ):
+        snap = fetcher.get_snapshot()
+
+    assert snap["hy_spread_source"] == "fallback_default_450"
+    assert snap["hy_spread_fallback"] is True
+    assert "neutral" in snap["hy_spread_warning"].lower()
+
+
 def test_get_snapshot_all_keys_present_and_numeric_non_nan():
     """Snapshot should include expected keys and numeric fields must be real numbers (no NaN)."""
     fetcher = RiskSignalFetcher()
@@ -288,9 +310,17 @@ def test_get_snapshot_all_keys_present_and_numeric_non_nan():
         "hy_spread_percentile",
         "spy_distance_score",
         "hy_spread_change_10d",
+        "hy_spread_source",
+        "hy_spread_fallback",
+        "hy_spread_warning",
     }
     assert expected_keys == set(snap.keys())
 
-    for key in expected_keys - {"timestamp"}:
+    numeric_keys = expected_keys - {"timestamp", "hy_spread_source", "hy_spread_fallback", "hy_spread_warning"}
+    for key in numeric_keys:
         assert isinstance(snap[key], float)
         assert not np.isnan(snap[key])
+
+    assert snap["hy_spread_source"] == "unknown"
+    assert snap["hy_spread_fallback"] is False
+    assert snap["hy_spread_warning"] == ""

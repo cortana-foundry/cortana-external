@@ -56,13 +56,23 @@ def _macro_gate_line(snapshot: dict) -> str:
 
     gate = "CLOSED" if credit_veto else "OPEN"
 
-    return (
+    hy_source = snapshot.get("hy_spread_source", "unknown")
+    hy_warning = snapshot.get("hy_spread_warning", "")
+
+    line = (
         "Macro Gate: "
         f"{gate} | VIX {_fmt_value(vix)} | "
         f"PCR {_fmt_value(put_call, 2)} | "
-        f"HY {_fmt_value(hy_spread, 0)} bps | "
+        f"HY {_fmt_value(hy_spread, 0)} bps ({hy_source}) | "
         f"Fear {_fmt_value(fear, 0)}"
     )
+
+    if snapshot.get("hy_spread_fallback"):
+        line = f"{line} | Fallback impact: neutral-credit assumption"
+    if hy_warning:
+        line = f"{line}\nHY Note: {hy_warning}"
+
+    return line
 
 
 def _sentiment_tag(sentiment: str) -> str:

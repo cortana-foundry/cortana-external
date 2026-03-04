@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import requests
 import yfinance as yf
+import time
 
 
 class RiskSignalFetcher:
@@ -45,6 +46,14 @@ class RiskSignalFetcher:
         self.fred_series = fred_series
         self.fred_api_key = os.getenv(fred_api_key_env)
         self.logger = logging.getLogger(__name__)
+        self.fred_retries = int(os.getenv("RISK_FRED_RETRIES", "3"))
+        self.fred_timeout_seconds = float(os.getenv("RISK_FRED_TIMEOUT_SECONDS", "12"))
+        self.fred_backoff_seconds = float(os.getenv("RISK_FRED_BACKOFF_SECONDS", "1.5"))
+        self._hy_spread_meta = {
+            "source": "unknown",
+            "fallback": False,
+            "warning": "",
+        }
 
     # ---------------------------------------------------------------------
     # Fetch helpers
@@ -90,45 +99,57 @@ class RiskSignalFetcher:
         }
         if self.fred_api_key:
             params["api_key"] = self.fred_api_key
+        else:
+            self.logger.info("FRED_API_KEY not set. Using unauthenticated FRED access (stricter limits may apply).")
 
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-        except Exception as exc:
-            self.logger.warning(
-                "FRED fetch failed for %s: %s. Falling back to neutral HY spread.",
-                series_id,
-                exc,
-            )
-            return pd.Series(dtype=float, name=series_id)
+        last_error = "unknown error"
+        for attempt in range(1, self.fred_retries + 1):
+            try:
+                response = requests.get(url, params=params, timeout=self.fred_timeout_seconds)
+                response.raise_for_status()
+                payload = response.json()
 
-        payload = response.json()
-        if isinstance(payload, dict) and payload.get("error_code"):
-            self.logger.warning(
-                "FRED API returned error for %s: %s. Falling back to neutral HY spread.",
-                series_id,
-                payload.get("error_message", payload.get("error_code")),
-            )
-            return pd.Series(dtype=float, name=series_id)
+                if isinstance(payload, dict) and payload.get("error_code"):
+                    last_error = str(payload.get("error_message", payload.get("error_code")))
+                    self.logger.warning(
+                        "FRED API error for %s (attempt %d/%d): %s",
+                        series_id,
+                        attempt,
+                        self.fred_retries,
+                        last_error,
+                    )
+                else:
+                    observations = payload.get("observations", [])
+                    if observations:
+                        df = pd.DataFrame(observations)
+                        if "date" in df.columns and "value" in df.columns:
+                            df['value'] = pd.to_numeric(df['value'], errors='coerce')
+                            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                            series = df.set_index('date')['value'].dropna()
+                            series.name = series_id
+                            series.index = pd.to_datetime(series.index).tz_localize(None)
+                            return series
+                    last_error = "FRED returned no usable observations"
+            except Exception as exc:
+                last_error = str(exc)
+                self.logger.warning(
+                    "FRED fetch failed for %s (attempt %d/%d): %s",
+                    series_id,
+                    attempt,
+                    self.fred_retries,
+                    exc,
+                )
 
-        observations = payload.get("observations", [])
-        if not observations:
-            self.logger.warning(
-                "FRED returned no observations for %s. Falling back to neutral HY spread.",
-                series_id,
-            )
-            return pd.Series(dtype=float, name=series_id)
+            if attempt < self.fred_retries:
+                sleep_seconds = self.fred_backoff_seconds * attempt
+                time.sleep(sleep_seconds)
 
-        df = pd.DataFrame(observations)
-        if "date" not in df.columns or "value" not in df.columns:
-            return pd.Series(dtype=float, name=series_id)
-
-        df['value'] = pd.to_numeric(df['value'], errors='coerce')
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        series = df.set_index('date')['value'].dropna()
-        series.name = series_id
-        series.index = pd.to_datetime(series.index).tz_localize(None)
-        return series
+        self.logger.error(
+            "FRED fetch exhausted retries for %s. Using neutral HY fallback (450 bps). Last error: %s",
+            series_id,
+            last_error,
+        )
+        return pd.Series(dtype=float, name=series_id)
 
     def _validate_put_call_series(self, series: pd.Series) -> pd.Series:
         if series.empty:
@@ -319,8 +340,18 @@ class RiskSignalFetcher:
 
         if hy_spread.empty:
             df['hy_spread'] = 450.0
+            self._hy_spread_meta = {
+                "source": "fallback_default_450",
+                "fallback": True,
+                "warning": "FRED HY spread unavailable after retries; using neutral 450 bps fallback (credit gate may be less sensitive).",
+            }
         else:
             df['hy_spread'] = hy_spread.reindex(df.index).ffill().fillna(450.0)
+            self._hy_spread_meta = {
+                "source": "fred",
+                "fallback": False,
+                "warning": "",
+            }
 
         if put_call.empty:
             df['put_call'] = 1.0
@@ -368,6 +399,9 @@ class RiskSignalFetcher:
             'hy_spread_percentile': float(latest.get('hy_spread_percentile', np.nan)),
             'spy_distance_score': float(latest.get('spy_distance_score', np.nan)),
             'hy_spread_change_10d': float(hy_change_10d) if pd.notna(hy_change_10d) else np.nan,
+            'hy_spread_source': self._hy_spread_meta.get('source', 'unknown'),
+            'hy_spread_fallback': bool(self._hy_spread_meta.get('fallback', False)),
+            'hy_spread_warning': self._hy_spread_meta.get('warning', ''),
         }
 
 

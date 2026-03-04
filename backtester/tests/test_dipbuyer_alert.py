@@ -34,11 +34,24 @@ class _FakeAdvisor:
 
 def test_macro_gate_line_displays_open_and_closed_states():
     """Validate macro gate text toggles OPEN/CLOSED based on HY spread credit veto."""
-    open_line = _macro_gate_line({"vix": 24, "put_call": 1.0, "hy_spread": 500, "fear_greed": 30})
-    closed_line = _macro_gate_line({"vix": 24, "put_call": 1.0, "hy_spread": 700, "fear_greed": 30})
+    open_line = _macro_gate_line({"vix": 24, "put_call": 1.0, "hy_spread": 500, "fear_greed": 30, "hy_spread_source": "fred"})
+    closed_line = _macro_gate_line(
+        {
+            "vix": 24,
+            "put_call": 1.0,
+            "hy_spread": 700,
+            "fear_greed": 30,
+            "hy_spread_source": "fallback_default_450",
+            "hy_spread_fallback": True,
+            "hy_spread_warning": "FRED unavailable",
+        }
+    )
 
     assert "Macro Gate: OPEN" in open_line
+    assert "(fred)" in open_line
     assert "Macro Gate: CLOSED" in closed_line
+    assert "Fallback impact" in closed_line
+    assert "HY Note:" in closed_line
 
 
 def test_format_alert_output_structure_and_tags_buy_watch_no_buy():
