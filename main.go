@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -60,11 +61,16 @@ func main() {
 	router.GET("/tonal/health", tonalSvc.HealthHandler)
 	router.GET("/tonal/data", tonalSvc.DataHandler)
 
+	keysPath := strings.TrimSpace(os.Getenv("ALPACA_KEYS_PATH"))
+	if keysPath == "" {
+		keysPath = filepath.Join(os.Getenv("HOME"), "Desktop", "services", "alpaca_keys.json")
+	}
+
 	// Alpaca trading service
 	alpacaSvc := &alpaca.Service{
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		Logger:     log.New(os.Stdout, "[alpaca] ", log.LstdFlags),
-		KeysPath:   "alpaca_keys.json",
+		KeysPath:   keysPath,
 		TradesPath: "alpaca_trades.json",
 	}
 

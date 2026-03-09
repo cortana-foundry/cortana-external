@@ -758,6 +758,65 @@ class TradingAdvisor:
         print("="*70)
 
 
+
+def _resilient_scan_dip_opportunities(self, quick: bool = False, min_score: int = 6) -> pd.DataFrame:
+    """Scan for Dip Buyer candidates using the resilient market/risk path."""
+    print("\n" + "="*60)
+    print("📉 SCANNING FOR DIP BUYER OPPORTUNITIES")
+    print("="*60 + "\n")
+
+    market = self.get_market_status(refresh=True)
+    print(market)
+
+    if market.regime not in [MarketRegime.CORRECTION, MarketRegime.UPTREND_UNDER_PRESSURE]:
+        print("⚠️  Dip Buyer only active in correction / under-pressure regimes.")
+        return pd.DataFrame()
+
+    risk_snapshot = self.risk_fetcher.get_snapshot()
+    symbols = GROWTH_WATCHLIST if quick else self.screener.get_universe()
+
+    print("\n📊 Scoring candidates with Dip Buyer strategy...")
+
+    enriched = []
+    for symbol in symbols[:20]:
+        try:
+            analysis = self._analyze_dip_with_context(symbol, market, risk_snapshot, quiet=True)
+            if 'error' in analysis:
+                continue
+            rec = analysis.get('recommendation', {})
+            enriched.append({
+                'symbol': symbol,
+                'price': analysis.get('price'),
+                'rsi': analysis.get('rsi'),
+                'Q_score': analysis.get('scores', {}).get('Q', 0),
+                'V_score': analysis.get('scores', {}).get('V', 0),
+                'C_credit_score': analysis.get('scores', {}).get('C', 0),
+                'total_score': analysis.get('total_score', 0),
+                'action': rec.get('action', 'NO_BUY'),
+            })
+        except Exception as e:
+            print(f"   ⚠️ Error scoring {symbol}: {e}")
+            continue
+
+    if not enriched:
+        return pd.DataFrame()
+
+    enriched_df = pd.DataFrame(enriched)
+    enriched_df = enriched_df.sort_values('total_score', ascending=False)
+    enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
+    return enriched_df
+
+
+def _resilient_analyze_dip_stock(self, symbol: str) -> Dict:
+    """Full Dip Buyer analysis using the resilient helper path."""
+    market = self.get_market_status()
+    risk_snapshot = self.risk_fetcher.get_snapshot()
+    return self._analyze_dip_with_context(symbol, market, risk_snapshot)
+
+
+TradingAdvisor.scan_dip_opportunities = _resilient_scan_dip_opportunities
+TradingAdvisor.analyze_dip_stock = _resilient_analyze_dip_stock
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Trading Advisor')

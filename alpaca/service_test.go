@@ -158,6 +158,45 @@ func TestFetchLatestTradePrice(t *testing.T) {
 	}
 }
 
+func TestLoadKeys_UsesEnvOverrideAndTargetEnvironmentGuard(t *testing.T) {
+	keysPath := writeTestKeys(t, "https://paper-api.alpaca.markets", "https://data.alpaca.markets")
+	t.Setenv("ALPACA_KEYS_PATH", keysPath)
+	t.Setenv("ALPACA_TARGET_ENVIRONMENT", "live")
+	svc := newTestService(t, "", &http.Client{})
+	err := svc.LoadKeys()
+	if err == nil || !strings.Contains(err.Error(), "target=live actual=paper") {
+		t.Fatalf("expected target mismatch error, got %v", err)
+	}
+}
+
+func TestPortfolioHandler_ExposesEnvironmentMetadata(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/account", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"acct1","cash":"1000","portfolio_value":"1500"}`))
+	})
+	mux.HandleFunc("/v2/positions", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	keysPath := writeTestKeys(t, ts.URL, ts.URL)
+	t.Setenv("ALPACA_KEYS_PATH", keysPath)
+	t.Setenv("ALPACA_TARGET_ENVIRONMENT", "live")
+	svc := newTestService(t, "", ts.Client())
+
+	out := performJSONRequest(t, svc.PortfolioHandler, http.MethodGet, "/alpaca/portfolio")
+	if out["environment"] != "live" {
+		t.Fatalf("expected live environment got %#v", out["environment"])
+	}
+	if out["keys_path"] != keysPath {
+		t.Fatalf("expected keys_path %s got %#v", keysPath, out["keys_path"])
+	}
+	if out["target_environment"] != "live" {
+		t.Fatalf("expected target_environment live got %#v", out["target_environment"])
+	}
+}
+
 func TestHealthHandler(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/account", func(w http.ResponseWriter, r *http.Request) {
