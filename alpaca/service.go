@@ -2,6 +2,7 @@ package alpaca
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -151,9 +152,50 @@ CREATE TABLE IF NOT EXISTS cortana_trades (
   metadata JSONB DEFAULT '{}'
 );`
 
+func (s *Service) resolvedKeysPath() string {
+	if envPath := strings.TrimSpace(os.Getenv("ALPACA_KEYS_PATH")); envPath != "" {
+		return envPath
+	}
+	if strings.TrimSpace(s.KeysPath) != "" {
+		return s.KeysPath
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return home + "/Desktop/services/alpaca_keys.json"
+	}
+	return "alpaca_keys.json"
+}
+
+func configuredAlpacaEnvironment(baseURL string) string {
+	if strings.Contains(strings.ToLower(baseURL), "paper-api.alpaca.markets") {
+		return "paper"
+	}
+	return "live"
+}
+
+func redactKeyID(keyID string) string {
+	trimmed := strings.TrimSpace(keyID)
+	if trimmed == "" {
+		return ""
+	}
+	if len(trimmed) <= 6 {
+		return trimmed
+	}
+	return trimmed[:4] + "…" + trimmed[len(trimmed)-2:]
+}
+
+func keyFingerprint(keyID string) string {
+	trimmed := strings.TrimSpace(keyID)
+	if trimmed == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	return fmt.Sprintf("%x", sum[:6])
+}
+
 // LoadKeys loads API keys from file
 func (s *Service) LoadKeys() error {
-	data, err := os.ReadFile(s.KeysPath)
+	keysPath := s.resolvedKeysPath()
+	data, err := os.ReadFile(keysPath)
 	if err != nil {
 		return fmt.Errorf("failed to read keys: %w", err)
 	}
@@ -174,6 +216,13 @@ func (s *Service) LoadKeys() error {
 		keys.DataURL = "https://data.alpaca.markets"
 	}
 	keys.DataURL = strings.TrimRight(keys.DataURL, "/")
+
+	if target := strings.ToLower(strings.TrimSpace(os.Getenv("ALPACA_TARGET_ENVIRONMENT"))); target != "" {
+		actual := configuredAlpacaEnvironment(keys.BaseURL)
+		if target != actual {
+			return fmt.Errorf("alpaca account target mismatch: target=%s actual=%s keys_path=%s", target, actual, keysPath)
+		}
+	}
 
 	s.keys = &keys
 	return nil
@@ -515,14 +564,14 @@ func (s *Service) HealthHandler(c *gin.Context) {
 		return
 	}
 
+	environment := configuredAlpacaEnvironment(s.keys.BaseURL)
 	c.JSON(http.StatusOK, gin.H{
-		"status": "healthy",
-		"environment": func() string {
-			if strings.Contains(s.keys.BaseURL, "paper-api.alpaca.markets") {
-				return "paper"
-			}
-			return "live"
-		}(),
+		"status":             "healthy",
+		"environment":        environment,
+		"keys_path":          s.resolvedKeysPath(),
+		"key_id_redacted":    redactKeyID(s.keys.KeyID),
+		"key_fingerprint":    keyFingerprint(s.keys.KeyID),
+		"target_environment": strings.ToLower(strings.TrimSpace(os.Getenv("ALPACA_TARGET_ENVIRONMENT"))),
 	})
 }
 
@@ -537,12 +586,16 @@ func (s *Service) CheckHealth() (map[string]any, error) {
 		return map[string]any{"status": "unhealthy", "error": err.Error()}, err
 	}
 
-	environment := "live"
-	if strings.Contains(s.keys.BaseURL, "paper-api.alpaca.markets") {
-		environment = "paper"
-	}
+	environment := configuredAlpacaEnvironment(s.keys.BaseURL)
 
-	return map[string]any{"status": "healthy", "environment": environment}, nil
+	return map[string]any{
+		"status":             "healthy",
+		"environment":        environment,
+		"keys_path":          s.resolvedKeysPath(),
+		"key_id_redacted":    redactKeyID(s.keys.KeyID),
+		"key_fingerprint":    keyFingerprint(s.keys.KeyID),
+		"target_environment": strings.ToLower(strings.TrimSpace(os.Getenv("ALPACA_TARGET_ENVIRONMENT"))),
+	}, nil
 }
 
 // AccountHandler returns account summary
@@ -622,7 +675,16 @@ func (s *Service) PortfolioHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"account": account, "positions": positions, "timestamp": time.Now().Format(time.RFC3339)})
+	c.JSON(http.StatusOK, gin.H{
+		"account":            account,
+		"positions":          positions,
+		"timestamp":          time.Now().Format(time.RFC3339),
+		"environment":        configuredAlpacaEnvironment(s.keys.BaseURL),
+		"keys_path":          s.resolvedKeysPath(),
+		"key_id_redacted":    redactKeyID(s.keys.KeyID),
+		"key_fingerprint":    keyFingerprint(s.keys.KeyID),
+		"target_environment": strings.ToLower(strings.TrimSpace(os.Getenv("ALPACA_TARGET_ENVIRONMENT"))),
+	})
 }
 
 // EarningsHandler returns upcoming earnings dates for provided symbols.
