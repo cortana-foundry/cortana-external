@@ -163,10 +163,24 @@ func TestLoadKeys_UsesEnvOverrideAndTargetEnvironmentGuard(t *testing.T) {
 	keysPath := writeTestKeys(t, "https://paper-api.alpaca.markets", "https://data.alpaca.markets")
 	t.Setenv("ALPACA_KEYS_PATH", keysPath)
 	t.Setenv("ALPACA_TARGET_ENVIRONMENT", "live")
+	t.Setenv("ALPACA_KEY", "AKLIVE123456")
+	t.Setenv("ALPACA_SECRET_KEY", "secret-live")
+	t.Setenv("ALPACA_ENDPOINT", "https://api.alpaca.markets")
 	svc := newTestService(t, "", &http.Client{})
-	err := svc.LoadKeys()
-	if err == nil || !strings.Contains(err.Error(), "target=live actual=paper") {
-		t.Fatalf("expected target mismatch error, got %v", err)
+	if err := svc.LoadKeys(); err != nil {
+		t.Fatalf("LoadKeys with env override: %v", err)
+	}
+	if svc.keys == nil {
+		t.Fatal("expected keys to be loaded")
+	}
+	if svc.keys.KeyID != "AKLIVE123456" {
+		t.Fatalf("expected env key id, got %q", svc.keys.KeyID)
+	}
+	if got := configuredAlpacaEnvironment(svc.keys.BaseURL); got != "live" {
+		t.Fatalf("expected live environment from env override, got %q", got)
+	}
+	if svc.KeysPath != "env:ALPACA_KEY/ALPACA_SECRET_KEY" {
+		t.Fatalf("expected env source marker, got %q", svc.KeysPath)
 	}
 }
 

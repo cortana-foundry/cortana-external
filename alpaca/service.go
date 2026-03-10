@@ -204,18 +204,34 @@ func (s *Service) validateKeys(keys *Keys, keysPath string) error {
 	return nil
 }
 
-func (s *Service) LoadKeys() error {
-	keysPath := s.resolvedKeysPath()
-	data, err := os.ReadFile(keysPath)
-	if err != nil {
-		return fmt.Errorf("failed to read keys: %w", err)
+func loadKeysFromEnv() *Keys {
+	keyID := strings.TrimSpace(os.Getenv("ALPACA_KEY"))
+	if keyID == "" {
+		keyID = strings.TrimSpace(os.Getenv("ALPACA_KEY_ID"))
+	}
+	secret := strings.TrimSpace(os.Getenv("ALPACA_SECRET_KEY"))
+	baseURL := strings.TrimSpace(os.Getenv("ALPACA_ENDPOINT"))
+	dataURL := strings.TrimSpace(os.Getenv("ALPACA_DATA_URL"))
+
+	if keyID == "" || secret == "" {
+		return nil
+	}
+	if baseURL == "" {
+		baseURL = "https://api.alpaca.markets"
+	}
+	if dataURL == "" {
+		dataURL = "https://data.alpaca.markets"
 	}
 
-	var keys Keys
-	if err := json.Unmarshal(data, &keys); err != nil {
-		return fmt.Errorf("failed to parse keys: %w", err)
+	return &Keys{
+		KeyID:     keyID,
+		SecretKey: secret,
+		BaseURL:   baseURL,
+		DataURL:   dataURL,
 	}
+}
 
+func normalizeKeys(keys *Keys) {
 	if keys.BaseURL == "" {
 		keys.BaseURL = "https://paper-api.alpaca.markets"
 	}
@@ -227,11 +243,34 @@ func (s *Service) LoadKeys() error {
 		keys.DataURL = "https://data.alpaca.markets"
 	}
 	keys.DataURL = strings.TrimRight(keys.DataURL, "/")
+}
 
-	if err := s.validateKeys(&keys, keysPath); err != nil {
+func (s *Service) LoadKeys() error {
+	keysPath := s.resolvedKeysPath()
+	var keys Keys
+	actualSource := keysPath
+
+	if envKeys := loadKeysFromEnv(); envKeys != nil {
+		keys = *envKeys
+		actualSource = "env:ALPACA_KEY/ALPACA_SECRET_KEY"
+	} else {
+		data, err := os.ReadFile(keysPath)
+		if err != nil {
+			return fmt.Errorf("failed to read keys: %w", err)
+		}
+
+		if err := json.Unmarshal(data, &keys); err != nil {
+			return fmt.Errorf("failed to parse keys: %w", err)
+		}
+	}
+
+	normalizeKeys(&keys)
+
+	if err := s.validateKeys(&keys, actualSource); err != nil {
 		return err
 	}
 
+	s.KeysPath = actualSource
 	s.keys = &keys
 	return nil
 }
