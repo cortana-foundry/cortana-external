@@ -59,5 +59,5 @@ from .fetcher import (
     get_spy_benchmark,
 )
 from .fundamentals import FundamentalsCache, FundamentalsFetcher
-from .market_regime import MarketRegime, MarketRegimeDetector, MarketStatus
+from .market_regime import MarketRegime, MarketRegimeDetector, MarketStatus, RegimeScorecard
 from .universe import GROWTH_WATCHLIST, SP500_TICKERS, UniverseScreener

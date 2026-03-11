@@ -28,6 +28,8 @@ import numpy as np
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
+from outcomes import annotate_trade_outcomes, summarize_outcomes
+
 
 @dataclass
 class BacktestMetrics:
@@ -345,7 +347,10 @@ def analyze_trades(trades: pd.DataFrame) -> Dict:
             'avg_loss': 0.0,
             'profit_factor': 0.0,
             'avg_trade': 0.0,
+            'outcome_breakdown': {},
         }
+
+    trades = annotate_trade_outcomes(trades)
     
     # Separate winners and losers
     winners = trades[trades['pnl_pct'] > 0]
@@ -373,6 +378,7 @@ def analyze_trades(trades: pd.DataFrame) -> Dict:
         'avg_loss': avg_loss,
         'profit_factor': profit_factor,
         'avg_trade': avg_trade,
+        'outcome_breakdown': summarize_outcomes(trades),
     }
 
 

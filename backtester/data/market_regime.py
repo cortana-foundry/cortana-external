@@ -36,6 +36,12 @@ class MarketStatus:
     degraded_reason: str = ""
     snapshot_age_seconds: float = 0.0
     next_action: str = ""
+    regime_score: int = 0
+    drawdown_pct: float = 0.0
+    recent_return_pct: float = 0.0
+    price_vs_21d_pct: float = 0.0
+    price_vs_50d_pct: float = 0.0
+    follow_through_active: bool = False
 
     def __str__(self) -> str:
         emoji = {
@@ -56,10 +62,29 @@ class MarketStatus:
 ║ Last Follow-Through: {self.last_ftd or 'None recent'}
 ║ Trend: {self.trend_direction}
 ║ Position Sizing: {self.position_sizing * 100:.0f}%
+║ Regime Score: {self.regime_score:+d} | Drawdown: {self.drawdown_pct:.1f}% | 20d Return: {self.recent_return_pct:.1f}%
 ║
 ║ Notes: {self.notes}{degraded_reason}{age_line}
 ╚══════════════════════════════════════════════════════════════╝
 """
+
+
+@dataclass(frozen=True)
+class RegimeScorecard:
+    """Reusable market-regime score snapshot derived from index price action."""
+
+    distribution_days: int
+    trend_direction: str
+    trend_score: int
+    distribution_penalty: int
+    drawdown_penalty: int
+    follow_through_bonus: int
+    regime_score: int
+    drawdown_pct: float
+    recent_return_pct: float
+    price_vs_21d_pct: float
+    price_vs_50d_pct: float
+    follow_through_active: bool
 
 
 class MarketDataFetchError(RuntimeError):
@@ -109,7 +134,7 @@ class MarketRegimeDetector:
 
     def _write_snapshot_cache(self, status: MarketStatus) -> None:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "symbol": self.symbol,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "ttl_seconds": self.cache_ttl_seconds,
@@ -121,6 +146,12 @@ class MarketRegimeDetector:
                 "position_sizing": status.position_sizing,
                 "notes": status.notes,
                 "data_source": status.data_source,
+                "regime_score": status.regime_score,
+                "drawdown_pct": status.drawdown_pct,
+                "recent_return_pct": status.recent_return_pct,
+                "price_vs_21d_pct": status.price_vs_21d_pct,
+                "price_vs_50d_pct": status.price_vs_50d_pct,
+                "follow_through_active": status.follow_through_active,
             },
         }
         try:
@@ -177,6 +208,12 @@ class MarketRegimeDetector:
             degraded_reason=f"{failure_reason}. Using cached market snapshot ({stale_age} old).",
             snapshot_age_seconds=age_seconds,
             next_action=f"Retry market fetch after cooldown ({self.cooldown_seconds}s) or refresh cache.",
+            regime_score=int(cached.get("regime_score", 0)),
+            drawdown_pct=float(cached.get("drawdown_pct", 0.0)),
+            recent_return_pct=float(cached.get("recent_return_pct", 0.0)),
+            price_vs_21d_pct=float(cached.get("price_vs_21d_pct", 0.0)),
+            price_vs_50d_pct=float(cached.get("price_vs_50d_pct", 0.0)),
+            follow_through_active=bool(cached.get("follow_through_active", False)),
         )
 
     def fetch_data(self, days: int = 90) -> pd.DataFrame:
@@ -230,6 +267,76 @@ class MarketRegimeDetector:
             return "down"
         return "sideways"
 
+    def build_regime_scorecard(self) -> RegimeScorecard:
+        """Build a reusable scorecard from recent index internals."""
+        if self._data is None:
+            self.fetch_data()
+
+        close = self._data["Close"].astype(float)
+        current = float(close.iloc[-1])
+        sma_21 = float(close.rolling(21, min_periods=5).mean().iloc[-1])
+        sma_50 = float(close.rolling(50, min_periods=10).mean().iloc[-1])
+
+        recent_high = float(close.rolling(20, min_periods=5).max().iloc[-1])
+        drawdown_pct = ((current / recent_high) - 1) * 100 if recent_high else 0.0
+
+        lookback_offset = min(20, len(close) - 1)
+        recent_base = float(close.iloc[-1 - lookback_offset]) if lookback_offset > 0 else current
+        recent_return_pct = ((current / recent_base) - 1) * 100 if recent_base else 0.0
+
+        price_vs_21d_pct = ((current / sma_21) - 1) * 100 if sma_21 else 0.0
+        price_vs_50d_pct = ((current / sma_50) - 1) * 100 if sma_50 else 0.0
+
+        distribution_days = len(self._distribution_days) if self._distribution_days else len(self.count_distribution_days(25))
+        ftd_dates = self._ftd_dates if self._ftd_dates else self.find_follow_through_days(60)
+        trend_direction = self.get_trend_direction()
+
+        trend_score = 0
+        trend_score += 1 if current > sma_21 else -1
+        trend_score += 1 if current > sma_50 else -1
+        if sma_21 > sma_50:
+            trend_score += 1
+        elif sma_21 < sma_50:
+            trend_score -= 1
+
+        if distribution_days <= 2:
+            distribution_penalty = 0
+        elif distribution_days <= 4:
+            distribution_penalty = 1
+        elif distribution_days <= 5:
+            distribution_penalty = 2
+        else:
+            distribution_penalty = 3
+
+        if drawdown_pct >= -3:
+            drawdown_penalty = 0
+        elif drawdown_pct >= -7:
+            drawdown_penalty = 1
+        elif drawdown_pct >= -12:
+            drawdown_penalty = 2
+        else:
+            drawdown_penalty = 3
+
+        follow_through_active = bool(ftd_dates and (self._data.index[-1] - ftd_dates[-1]).days <= 15)
+        follow_through_bonus = 1 if follow_through_active else 0
+
+        regime_score = trend_score + follow_through_bonus - distribution_penalty - drawdown_penalty
+
+        return RegimeScorecard(
+            distribution_days=distribution_days,
+            trend_direction=trend_direction,
+            trend_score=trend_score,
+            distribution_penalty=distribution_penalty,
+            drawdown_penalty=drawdown_penalty,
+            follow_through_bonus=follow_through_bonus,
+            regime_score=regime_score,
+            drawdown_pct=drawdown_pct,
+            recent_return_pct=recent_return_pct,
+            price_vs_21d_pct=price_vs_21d_pct,
+            price_vs_50d_pct=price_vs_50d_pct,
+            follow_through_active=follow_through_active,
+        )
+
     def get_status(self) -> MarketStatus:
         try:
             self.fetch_data()
@@ -239,35 +346,63 @@ class MarketRegimeDetector:
             raise
 
         dist_days = self.count_distribution_days(25)
-        dist_count = len(dist_days)
         ftd_dates = self.find_follow_through_days(60)
         last_ftd = ftd_dates[-1].strftime("%Y-%m-%d") if ftd_dates else None
-        trend = self.get_trend_direction()
+        scorecard = self.build_regime_scorecard()
 
-        if dist_count >= 5:
-            if trend == "down":
-                regime, sizing, notes = MarketRegime.CORRECTION, 0.0, f"{dist_count} distribution days + downtrend. Stay out."
-            else:
-                regime, sizing, notes = MarketRegime.UPTREND_UNDER_PRESSURE, 0.5, f"{dist_count} distribution days. Reduce exposure."
-        elif dist_count >= 3:
-            regime, sizing, notes = MarketRegime.UPTREND_UNDER_PRESSURE, 0.75, f"{dist_count} distribution days. Be cautious."
+        if (
+            scorecard.regime_score <= -2
+            or (scorecard.trend_direction == "down" and scorecard.drawdown_pct <= -8)
+            or scorecard.distribution_days >= 6
+        ):
+            regime, sizing = MarketRegime.CORRECTION, 0.0
+            notes = (
+                f"Regime score {scorecard.regime_score:+d}: "
+                f"{scorecard.distribution_days} distribution days and {scorecard.drawdown_pct:.1f}% drawdown. Stay defensive."
+            )
+        elif (
+            scorecard.regime_score >= 3
+            and scorecard.trend_direction == "up"
+            and scorecard.distribution_days <= 2
+        ):
+            regime, sizing = MarketRegime.CONFIRMED_UPTREND, 1.0
+            notes = (
+                f"Regime score {scorecard.regime_score:+d}: trend intact, "
+                f"{scorecard.distribution_days} distribution days."
+            )
+        elif (
+            scorecard.trend_direction == "sideways"
+            and scorecard.regime_score <= 1
+            and scorecard.distribution_days <= 2
+        ):
+            regime, sizing = MarketRegime.RALLY_ATTEMPT, 0.5
+            notes = (
+                f"Regime score {scorecard.regime_score:+d}: sideways action with "
+                f"{scorecard.drawdown_pct:.1f}% drawdown. Wait for confirmation."
+            )
         else:
-            if trend == "up":
-                regime, sizing, notes = MarketRegime.CONFIRMED_UPTREND, 1.0, "Market healthy. Full position sizing."
-            elif trend == "sideways":
-                regime, sizing, notes = MarketRegime.RALLY_ATTEMPT, 0.5, "Market sideways. Wait for confirmation."
-            else:
-                regime, sizing, notes = MarketRegime.CORRECTION, 0.0, "Downtrend. No new buys."
+            sizing = 0.75 if scorecard.regime_score >= 1 else 0.5
+            regime = MarketRegime.UPTREND_UNDER_PRESSURE
+            notes = (
+                f"Regime score {scorecard.regime_score:+d}: trend still tradable, "
+                f"but {scorecard.distribution_days} distribution days require selectivity."
+            )
 
         status = MarketStatus(
             regime=regime,
-            distribution_days=dist_count,
+            distribution_days=len(dist_days),
             last_ftd=last_ftd,
-            trend_direction=trend,
+            trend_direction=scorecard.trend_direction,
             position_sizing=sizing,
             notes=notes,
             data_source=self.last_data_source,
             snapshot_age_seconds=self.last_data_staleness_seconds,
+            regime_score=scorecard.regime_score,
+            drawdown_pct=scorecard.drawdown_pct,
+            recent_return_pct=scorecard.recent_return_pct,
+            price_vs_21d_pct=scorecard.price_vs_21d_pct,
+            price_vs_50d_pct=scorecard.price_vs_50d_pct,
+            follow_through_active=scorecard.follow_through_active,
         )
         self._write_snapshot_cache(status)
         return status

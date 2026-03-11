@@ -202,7 +202,10 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
                     sentiment_checked += 1
                 if sentiment.get("sentiment") == "VERY_BEARISH":
                     contrarian_count += 1
-                sentiment_tag = _sentiment_tag(sentiment.get("sentiment", ""))
+                sentiment_value = sentiment.get("sentiment", "")
+                if sentiment_value == "UNAVAILABLE":
+                    sentiment_value = "NEUTRAL"
+                sentiment_tag = _sentiment_tag(sentiment_value)
             passed.append({"symbol": symbol, "score": score, "action": action, "reason": reason, "rec": rec, "sentiment_tag": sentiment_tag})
         else:
             rejected.append({"symbol": symbol, "reason": f"Below min-score filter ({score}<{min_score})"})
@@ -235,7 +238,10 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
     for c in candidates[: min(limit, 3)]:
         suffix = f" {c['sentiment_tag']}" if c['sentiment_tag'] else ""
         preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12){suffix}")
-    lines.append("Top leaders: " + (" | ".join(preview) if preview else "none"))
+    leaders_line = " | ".join(preview) if preview else "none"
+    lines.append("Top leaders: " + leaders_line)
+    if sentiment_checked > 0:
+        lines.append("Leaders: " + leaders_line)
 
     if buy_count == 0:
         veto_reason = _dedupe_reason(market.notes or 'market correction gate')
