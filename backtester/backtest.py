@@ -51,6 +51,7 @@ from datetime import datetime
 
 from strategies.base import Strategy
 from metrics import calculate_metrics, BacktestMetrics, quick_summary
+from outcomes import annotate_trade_outcomes, label_trade_outcome
 
 
 @dataclass
@@ -68,6 +69,9 @@ class Trade:
     pnl: float              # Dollar profit/loss
     pnl_pct: float          # Percentage profit/loss
     exit_reason: str        # 'signal', 'stop_loss', 'end_of_data'
+    holding_days: int
+    outcome_label: str
+    outcome_bucket: str
 
 
 class Backtester:
@@ -205,9 +209,13 @@ class Backtester:
                     'pnl': t.pnl,
                     'pnl_pct': t.pnl_pct,
                     'exit_reason': t.exit_reason,
+                    'holding_days': t.holding_days,
+                    'outcome_label': t.outcome_label,
+                    'outcome_bucket': t.outcome_bucket,
                 }
                 for t in self.trades
             ])
+            trades_df = annotate_trade_outcomes(trades_df)
         else:
             trades_df = pd.DataFrame()
         
@@ -283,7 +291,9 @@ class Backtester:
         # Calculate profit/loss
         pnl = (fill_price - self.entry_price) * self.position
         pnl_pct = ((fill_price / self.entry_price) - 1) * 100
-        
+        holding_days = max(int(np.busday_count(self.entry_date.date(), date.date())), 0)
+        outcome = label_trade_outcome(pnl_pct, reason, holding_days)
+
         # Record the completed trade
         trade = Trade(
             entry_date=self.entry_date,
@@ -294,6 +304,9 @@ class Backtester:
             pnl=pnl,
             pnl_pct=pnl_pct,
             exit_reason=reason,
+            holding_days=holding_days,
+            outcome_label=outcome.label,
+            outcome_bucket=outcome.bucket,
         )
         self.trades.append(trade)
         
@@ -336,7 +349,10 @@ class BacktestResult:
             emoji = "✅" if trade.pnl >= 0 else "❌"
             print(f"{emoji} {trade.entry_date.strftime('%Y-%m-%d')} → {trade.exit_date.strftime('%Y-%m-%d')}")
             print(f"   Entry: ${trade.entry_price:.2f} | Exit: ${trade.exit_price:.2f}")
-            print(f"   P&L: ${trade.pnl:+.2f} ({trade.pnl_pct:+.2f}%) | Reason: {trade.exit_reason}")
+            print(
+                f"   P&L: ${trade.pnl:+.2f} ({trade.pnl_pct:+.2f}%) | "
+                f"Reason: {trade.exit_reason} | Outcome: {trade.outcome_label}"
+            )
             print()
     
     def summary(self) -> str:

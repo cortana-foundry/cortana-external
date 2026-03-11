@@ -359,3 +359,37 @@ def test_threshold_7_allows_signal_where_threshold_8_does_not(price_data, monkey
 
     assert (signals7 == 1).all()
     assert (signals8 != 1).all()
+
+
+def test_recovery_ready_setup_can_buy_on_confirmed_bounce():
+    """A valid dip with rebound confirmation should pass the new recovery filter."""
+    idx = pd.date_range("2026-01-02", periods=30, freq="B")
+    closes = [100 + i for i in range(20)] + [117, 115, 112, 110, 108, 109, 110, 111, 112, 113]
+    data = pd.DataFrame({"close": closes}, index=idx)
+    risk_df = _risk_history(idx, hy_spread=430.0)
+    strategy = _build_strategy(MarketRegime.CORRECTION, risk_df)
+
+    with patch("strategies.dip_buyer.rsi", return_value=pd.Series([30.0] * len(idx), index=idx)):
+        signals = strategy.generate_signals(data)
+
+    latest = strategy.get_current_scores().iloc[-1]
+    assert signals.iloc[-1] == 1
+    assert bool(latest["Recovery_Ready"]) is True
+    assert bool(latest["Falling_Knife"]) is False
+
+
+def test_falling_knife_filter_blocks_buy_and_forces_exit_signal():
+    """A still-falling dip should be vetoed even when the score is otherwise high."""
+    idx = pd.date_range("2026-01-02", periods=30, freq="B")
+    closes = [100 + i for i in range(20)] + [118, 116, 114, 112, 110, 108, 107, 106, 105, 104]
+    data = pd.DataFrame({"close": closes}, index=idx)
+    risk_df = _risk_history(idx, hy_spread=430.0)
+    strategy = _build_strategy(MarketRegime.CORRECTION, risk_df)
+
+    with patch("strategies.dip_buyer.rsi", return_value=pd.Series([30.0] * len(idx), index=idx)):
+        signals = strategy.generate_signals(data)
+
+    latest = strategy.get_current_scores().iloc[-1]
+    assert signals.iloc[-1] == -1
+    assert bool(latest["Recovery_Ready"]) is False
+    assert bool(latest["Falling_Knife"]) is True

@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -43,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from strategies.base import Strategy
 from indicators import rsi
 from data.fundamentals import FundamentalsFetcher
-from data.market_regime import MarketRegimeDetector, MarketRegime
+from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.risk_signals import RiskSignalFetcher
 
 
@@ -90,6 +91,15 @@ DIPBUYER_CONFIG = {
         "hy_spread_moderate": 550,
         "hy_spread_weak": 650,
         "spread_widening_bps": 75,
+    },
+    "dip_recovery": {
+        "lookback_high_days": 20,
+        "lookback_low_days": 10,
+        "short_ma_period": 5,
+        "min_pullback_pct": 0.05,
+        "max_pullback_pct": 0.25,
+        "min_rebound_pct": 0.02,
+        "max_5d_drop_pct": -0.08,
     },
     "entries": {
         "tranches": 3,
@@ -263,17 +273,74 @@ class DipBuyerStrategy(Strategy):
 
         return credit_score
 
-    def generate_signals(self, data: pd.DataFrame, verbose: bool = False) -> pd.Series:
-        """
-        Generate buy/sell signals for the Dip Buyer strategy.
-        """
+    def _prepare_risk_frame(self, data_index: pd.Index, risk_snapshot: Optional[dict] = None) -> pd.DataFrame:
+        risk_history = self.risk_fetcher.get_history(days=max(len(data_index), 200))
+        risk_history.index = pd.to_datetime(risk_history.index).tz_localize(None)
+        clean_index = pd.to_datetime(data_index).tz_localize(None)
+        risk = risk_history.reindex(clean_index, method='ffill')
+        risk.index = data_index
+        risk = risk.ffill().bfill()
+
+        risk = risk.fillna({
+            'put_call': 1.0,
+            'hy_spread': 450.0,
+            'fear_greed': 50.0,
+        })
+
+        if risk_snapshot:
+            latest_idx = risk.index[-1]
+            for field in ('vix', 'put_call', 'hy_spread', 'fear_greed'):
+                value = risk_snapshot.get(field)
+                if value is not None:
+                    risk.loc[latest_idx, field] = value
+
+        risk['hy_spread_change_10d'] = pd.to_numeric(risk['hy_spread'], errors='coerce').diff(10).fillna(0)
+        return risk
+
+    def _dip_recovery_features(self, close: pd.Series) -> pd.DataFrame:
+        cfg = DIPBUYER_CONFIG["dip_recovery"]
+        recent_high = close.rolling(cfg["lookback_high_days"], min_periods=cfg["lookback_high_days"]).max()
+        recent_low = close.rolling(cfg["lookback_low_days"], min_periods=cfg["lookback_low_days"]).min()
+        short_ma = close.rolling(cfg["short_ma_period"], min_periods=cfg["short_ma_period"]).mean()
+        five_day_return = close.pct_change(5)
+
+        pullback_pct = 1 - (close / recent_high)
+        rebound_pct = (close / recent_low) - 1
+
+        context_available = recent_high.notna() & recent_low.notna() & short_ma.notna()
+        valid_pullback = pullback_pct.between(cfg["min_pullback_pct"], cfg["max_pullback_pct"], inclusive="both")
+        recovery_ready = (~context_available) | (
+            valid_pullback & (rebound_pct >= cfg["min_rebound_pct"]) & (close >= short_ma)
+        )
+        falling_knife = context_available & valid_pullback & (
+            (five_day_return <= cfg["max_5d_drop_pct"])
+            | (close < short_ma)
+            | (rebound_pct < cfg["min_rebound_pct"])
+        )
+
+        return pd.DataFrame(
+            {
+                "Pullback_Pct": pullback_pct.fillna(0.0),
+                "Rebound_Pct": rebound_pct.fillna(0.0),
+                "FiveDay_Return": five_day_return.fillna(0.0),
+                "Recovery_Ready": recovery_ready.fillna(False),
+                "Falling_Knife": falling_knife.fillna(False),
+            },
+            index=close.index,
+        )
+
+    def build_score_frame(
+        self,
+        data: pd.DataFrame,
+        market: Optional[MarketStatus] = None,
+        risk_snapshot: Optional[dict] = None,
+    ) -> pd.DataFrame:
+        """Build a reusable Dip Buyer score frame for scans, advisor analysis, and backtests."""
         data = data.copy()
         data.columns = [c.lower() for c in data.columns]
-
         close = data['close']
-        signals = pd.Series(0, index=data.index)
 
-        market = self.market_detector.get_status()
+        market = market or self.market_detector.get_status()
         profile_name, profile = self._select_profile(market.regime)
         self.active_profile = profile_name
         self.active_profile_config = profile
@@ -286,57 +353,165 @@ class DipBuyerStrategy(Strategy):
         rsi_values = rsi(close, self.rsi_period)
         q_score = self._quality_score(rsi_values)
 
-        risk_history = self.risk_fetcher.get_history(days=max(len(data), 200))
-        risk_history.index = pd.to_datetime(risk_history.index).tz_localize(None)
-        data_index = pd.to_datetime(data.index).tz_localize(None)
-        risk = risk_history.reindex(data_index, method='ffill')
-        risk.index = data.index
-        risk = risk.ffill().bfill()
-
-        # Fill missing values with neutral defaults (except where NaN semantics are intentional in scoring).
-        risk = risk.fillna({
-            'put_call': 1.0,
-            'hy_spread': 450.0,
-            'fear_greed': 50.0,
-        })
-        risk['hy_spread_change_10d'] = pd.to_numeric(risk['hy_spread'], errors='coerce').diff(10).fillna(0)
-
+        risk = self._prepare_risk_frame(data.index, risk_snapshot=risk_snapshot)
         v_score = self._volatility_score(risk)
         c_score = self._credit_score(risk)
+        recovery = self._dip_recovery_features(close)
 
         total_score = q_score + v_score + c_score
-
         credit_veto = pd.to_numeric(risk['hy_spread'], errors='coerce') > DIPBUYER_CONFIG["credit"]["hy_spread_weak"]
 
         buy_threshold = profile.get("score_thresholds", {}).get("buy", self.min_buy_score)
         watch_threshold = profile.get("score_thresholds", {}).get("watch", self.min_watch_score)
 
-        buy_condition = market_active & (total_score >= buy_threshold) & (~credit_veto)
-        sell_condition = (not market_active) | credit_veto
+        return pd.DataFrame(
+            {
+                'Q': q_score,
+                'V': v_score,
+                'C': c_score,
+                'Total': total_score,
+                'RSI': rsi_values,
+                'VIX': risk['vix'],
+                'PutCall': risk['put_call'],
+                'HY_Spread': risk['hy_spread'],
+                'FearProxy': risk['fear_greed'],
+                'Market_Active': market_active,
+                'Credit_Veto': credit_veto.fillna(False),
+                'Buy_Threshold': buy_threshold,
+                'Watch_Threshold': watch_threshold,
+                'Profile': profile_name,
+                'Pullback_Pct': recovery['Pullback_Pct'],
+                'Rebound_Pct': recovery['Rebound_Pct'],
+                'FiveDay_Return': recovery['FiveDay_Return'],
+                'Recovery_Ready': recovery['Recovery_Ready'],
+                'Falling_Knife': recovery['Falling_Knife'],
+            },
+            index=data.index,
+        )
+
+    def evaluate_setup(
+        self,
+        data: pd.DataFrame,
+        market: Optional[MarketStatus] = None,
+        risk_snapshot: Optional[dict] = None,
+    ) -> dict:
+        """Evaluate the latest Dip Buyer setup using the shared score frame."""
+        data = data.copy()
+        data.columns = [c.lower() for c in data.columns]
+        scores = self.build_score_frame(data, market=market, risk_snapshot=risk_snapshot)
+        latest = scores.iloc[-1]
+
+        market = market or self.market_detector.get_status()
+        price = float(data['close'].iloc[-1])
+        total_score = int(latest['Total'])
+        buy_threshold = int(latest['Buy_Threshold'])
+        watch_threshold = int(latest['Watch_Threshold'])
+        profile_name, profile_cfg = self.get_active_profile()
+        profile_risk = profile_cfg.get('risk', {}) if isinstance(profile_cfg, dict) else {}
+        stop_loss_pct = float(profile_risk.get('hard_stop', self.stop_loss_pct()))
+        max_position_pct_cfg = float(profile_risk.get('max_position_pct', DIPBUYER_CONFIG['risk']['max_position_pct']))
+
+        credit_veto = bool(latest['Credit_Veto'])
+        market_active = bool(latest['Market_Active'])
+        recovery_ready = bool(latest['Recovery_Ready'])
+        falling_knife = bool(latest['Falling_Knife'])
+
+        if credit_veto:
+            recommendation = {
+                'action': 'NO_BUY',
+                'reason': 'Credit veto active (HY spread too high).',
+            }
+        elif falling_knife:
+            recommendation = {
+                'action': 'NO_BUY',
+                'reason': 'Falling-knife filter active: wait for bounce confirmation above the short-term trend.',
+            }
+        elif not market_active:
+            recommendation = {
+                'action': 'NO_BUY',
+                'reason': 'Dip Buyer inactive outside correction / under-pressure regimes.',
+            }
+        elif total_score >= buy_threshold and recovery_ready:
+            stop_price = price * (1 - stop_loss_pct)
+            recommendation = {
+                'action': 'BUY',
+                'entry': price,
+                'stop_loss': stop_price,
+                'stop_loss_pct': stop_loss_pct * 100,
+                'position_size_pct': max_position_pct_cfg * market.position_sizing * 100,
+                'score': total_score,
+                'market_note': market.notes,
+                'reasons': [
+                    f"Quality score {int(latest['Q'])}/4",
+                    f"Sentiment score {int(latest['V'])}/4",
+                    f"Credit score {int(latest['C'])}/4",
+                    f"Recovered {latest['Rebound_Pct'] * 100:.1f}% off the recent low",
+                ],
+            }
+        elif total_score >= buy_threshold and not recovery_ready:
+            recommendation = {
+                'action': 'WATCH',
+                'reason': f'Score {total_score}/12 is buyable, but recovery confirmation is still missing.',
+            }
+        elif total_score >= watch_threshold:
+            recommendation = {
+                'action': 'WATCH',
+                'reason': f'Score {total_score}/12 in watch zone (need >= {buy_threshold} plus recovery confirmation for BUY).',
+            }
+        else:
+            recommendation = {
+                'action': 'NO_BUY',
+                'reason': f'Score too low ({total_score}/12). Need >= {watch_threshold} to WATCH.',
+            }
+
+        return {
+            'price': price,
+            'scores': {
+                'Q': int(latest['Q']),
+                'V': int(latest['V']),
+                'C': int(latest['C']),
+            },
+            'total_score': total_score,
+            'rsi': float(latest['RSI']) if pd.notna(latest['RSI']) else float('nan'),
+            'market_active': market_active,
+            'credit_veto': credit_veto,
+            'recovery_ready': recovery_ready,
+            'falling_knife': falling_knife,
+            'pullback_pct': float(latest['Pullback_Pct']),
+            'rebound_pct': float(latest['Rebound_Pct']),
+            'five_day_return_pct': float(latest['FiveDay_Return']) * 100,
+            'profile': profile_name,
+            'buy_threshold': buy_threshold,
+            'watch_threshold': watch_threshold,
+            'recommendation': recommendation,
+            'score_frame': scores,
+        }
+
+    def generate_signals(self, data: pd.DataFrame, verbose: bool = False) -> pd.Series:
+        """
+        Generate buy/sell signals for the Dip Buyer strategy.
+        """
+        data = data.copy()
+        data.columns = [c.lower() for c in data.columns]
+        signals = pd.Series(0, index=data.index)
+        market = self.market_detector.get_status()
+        self._scores = self.build_score_frame(data, market=market)
+
+        buy_condition = (
+            self._scores['Market_Active']
+            & (self._scores['Total'] >= self._scores['Buy_Threshold'])
+            & (~self._scores['Credit_Veto'])
+            & self._scores['Recovery_Ready']
+            & (~self._scores['Falling_Knife'])
+        )
+        sell_condition = (~self._scores['Market_Active']) | self._scores['Credit_Veto'] | self._scores['Falling_Knife']
 
         signals[buy_condition] = 1
         signals[sell_condition] = -1
 
-        self._scores = pd.DataFrame({
-            'Q': q_score,
-            'V': v_score,
-            'C': c_score,
-            'Total': total_score,
-            'RSI': rsi_values,
-            'VIX': risk['vix'],
-            'PutCall': risk['put_call'],
-            'HY_Spread': risk['hy_spread'],
-            'FearProxy': risk['fear_greed'],
-            'Market_Active': market_active,
-            'Credit_Veto': credit_veto,
-            'Buy_Threshold': buy_threshold,
-            'Watch_Threshold': watch_threshold,
-            'Profile': profile_name,
-        }, index=data.index)
-
         if verbose:
             latest = self._scores.iloc[-1]
-            print(f"[DipBuyer] Regime: {market.regime.value} | Market Active: {market_active}")
+            print(f"[DipBuyer] Regime: {market.regime.value} | Market Active: {bool(latest['Market_Active'])}")
             print(
                 "[DipBuyer] Risk Snapshot: "
                 f"VIX={latest['VIX']:.2f}, Put/Call={latest['PutCall']:.2f}, "
@@ -345,6 +520,13 @@ class DipBuyerStrategy(Strategy):
             print(
                 "[DipBuyer] Score Breakdown (latest): "
                 f"Q={latest['Q']}, V={latest['V']}, C={latest['C']}, Total={latest['Total']}"
+            )
+            print(
+                "[DipBuyer] Recovery Filter (latest): "
+                f"RecoveryReady={bool(latest['Recovery_Ready'])}, "
+                f"FallingKnife={bool(latest['Falling_Knife'])}, "
+                f"Pullback={latest['Pullback_Pct'] * 100:.1f}%, "
+                f"Rebound={latest['Rebound_Pct'] * 100:.1f}%"
             )
             print("[DipBuyer] Total Score Distribution:")
             print(self._scores['Total'].value_counts().sort_index().to_string())

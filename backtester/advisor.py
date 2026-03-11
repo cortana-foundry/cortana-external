@@ -41,7 +41,6 @@ from data.market_data_provider import MarketDataProvider
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.fundamentals import FundamentalsFetcher
 from data.risk_signals import RiskSignalFetcher
-from indicators import rsi
 from strategies.dip_buyer import DipBuyerStrategy, DIPBUYER_CONFIG
 
 
@@ -146,139 +145,34 @@ class TradingAdvisor:
         if hist is None or hist.empty or len(hist) < 30:
             return {'symbol': symbol, 'error': 'Insufficient price data'}
 
-        close = hist['Close']
-        price = close.iloc[-1]
-
-        rsi_values = rsi(close, DIPBUYER_CONFIG['quality']['rsi_period'])
-        current_rsi = rsi_values.iloc[-1]
-
-        fund = self.fundamentals.get_fundamentals(symbol)
-        eps_growth = fund.get('eps_growth')
-        rev_growth = fund.get('revenue_growth')
-
-        cfg = DIPBUYER_CONFIG
-
-        # Quality score
-        if current_rsi <= cfg['quality']['rsi_strong']:
-            rsi_score = 2
-        elif current_rsi <= cfg['quality']['rsi_soft']:
-            rsi_score = 1
-        else:
-            rsi_score = 0
-
-        eps_score = 1 if eps_growth is not None and eps_growth >= cfg['quality']['eps_growth_min'] else 0
-        rev_score = 1 if rev_growth is not None and rev_growth >= cfg['quality']['revenue_growth_min'] else 0
-        q_score = rsi_score + eps_score + rev_score
-
-        # Volatility / sentiment score
-        vix = risk_snapshot.get('vix', np.nan)
-        put_call = risk_snapshot.get('put_call', np.nan)
-        fear = risk_snapshot.get('fear_greed', np.nan)
-
-        vix_score = 0
-        if vix == vix:
-            if cfg['volatility']['vix_strong'][0] <= vix <= cfg['volatility']['vix_strong'][1]:
-                vix_score = 2
-            elif (cfg['volatility']['vix_soft'][0][0] <= vix < cfg['volatility']['vix_soft'][0][1]) or (
-                cfg['volatility']['vix_soft'][1][0] < vix <= cfg['volatility']['vix_soft'][1][1]
-            ):
-                vix_score = 1
-
-        put_call_score = 0
-        if put_call == put_call and cfg['volatility']['put_call_range'][0] <= put_call <= cfg['volatility']['put_call_range'][1]:
-            put_call_score = 1
-
-        fear_score = 0
-        if fear == fear and fear <= cfg['volatility']['fear_proxy_max']:
-            fear_score = 1
-
-        v_score = vix_score + put_call_score + fear_score
-
-        # Credit score
-        hy_spread = risk_snapshot.get('hy_spread', np.nan)
-        hy_change_10d = risk_snapshot.get('hy_spread_change_10d', np.nan)
-
-        credit_veto = False
-        if hy_spread == hy_spread:
-            if hy_spread < cfg['credit']['hy_spread_strong']:
-                c_score = 4
-            elif hy_spread < cfg['credit']['hy_spread_moderate']:
-                c_score = 2
-            elif hy_spread < cfg['credit']['hy_spread_weak']:
-                c_score = 1
-            else:
-                c_score = 0
-                credit_veto = True
-        else:
-            c_score = 0
-
-        if hy_change_10d == hy_change_10d and hy_change_10d > cfg['credit']['spread_widening_bps']:
-            c_score = max(c_score - 1, 0)
-
-        total_score = q_score + v_score + c_score
-
-        market_active = market.regime in [
-            MarketRegime.CORRECTION,
-            MarketRegime.UPTREND_UNDER_PRESSURE,
-        ]
-
-        if not market_active:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': 'Dip Buyer only active in corrections or pressured uptrends.',
-            }
-        elif credit_veto:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': 'Credit veto: HY spreads above 650 bps.',
-            }
-        elif total_score >= cfg['score_thresholds']['buy']:
-            stop_loss_pct = cfg['exits']['hard_stop']
-            stop_price = price * (1 - stop_loss_pct)
-
-            max_exposure = cfg['risk']['max_exposure_correction']
-            if market.regime == MarketRegime.UPTREND_UNDER_PRESSURE:
-                max_exposure = cfg['risk']['max_exposure_under_pressure']
-
-            recommendation = {
-                'action': 'BUY',
-                'entry': price,
-                'stop_loss': stop_price,
-                'stop_loss_pct': stop_loss_pct * 100,
-                'position_size_pct': cfg['risk']['max_position_pct'] * 100,
-                'max_exposure_pct': max_exposure * 100,
-                'tranches': '1/3 now, 1/3 at -3%, 1/3 on breadth stabilization',
-                'trim_targets': '+8%, +12%, trail runner',
-                'score': total_score,
-                'market_note': market.notes,
-            }
-        elif total_score >= cfg['score_thresholds']['watch']:
-            recommendation = {
-                'action': 'WATCH',
-                'reason': f'Score {total_score}/12 below buy threshold.',
-            }
-        else:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': f'Score too low ({total_score}/12).',
-            }
+        strategy = DipBuyerStrategy()
+        strategy.set_symbol(symbol)
+        strategy_data = pd.DataFrame({'close': hist['Close']}, index=hist.index)
+        setup = strategy.evaluate_setup(strategy_data, market=market, risk_snapshot=risk_snapshot)
+        scores = setup.get('scores', {})
 
         return {
             'symbol': symbol,
-            'price': price,
-            'rsi': current_rsi,
-            'fundamentals': fund,
-            'scores': {
-                'Q': q_score,
-                'V': v_score,
-                'C': c_score,
-            },
-            'total_score': total_score,
+            'price': setup.get('price'),
+            'rsi': setup.get('rsi'),
+            'fundamentals': strategy.fundamentals,
+            'scores': scores,
+            'total_score': setup.get('total_score', 0),
             'market_regime': market.regime.value,
             'data_source': hist_result.source,
             'data_staleness_seconds': hist_result.staleness_seconds,
             'data_status': hist_result.status,
-            'recommendation': recommendation,
+            'market_active': setup.get('market_active'),
+            'credit_veto': setup.get('credit_veto'),
+            'recovery_ready': setup.get('recovery_ready'),
+            'falling_knife': setup.get('falling_knife'),
+            'pullback_pct': setup.get('pullback_pct'),
+            'rebound_pct': setup.get('rebound_pct'),
+            'five_day_return_pct': setup.get('five_day_return_pct'),
+            'profile': setup.get('profile'),
+            'buy_threshold': setup.get('buy_threshold'),
+            'watch_threshold': setup.get('watch_threshold'),
+            'recommendation': setup.get('recommendation', {}),
         }
 
     def analyze_dip_stock(self, symbol: str) -> Dict:
