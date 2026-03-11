@@ -41,6 +41,13 @@ from data.market_data_provider import MarketDataProvider
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.fundamentals import FundamentalsFetcher
 from data.risk_signals import RiskSignalFetcher
+from data.wave2 import (
+    HeadlineSentimentAnalyzer,
+    build_sentiment_overlay,
+    score_breakout_follow_through,
+    score_exit_risk,
+)
+from data.x_sentiment import XSentimentAnalyzer
 from strategies.dip_buyer import DipBuyerStrategy, DIPBUYER_CONFIG
 
 
@@ -59,6 +66,8 @@ class TradingAdvisor:
         self.fundamentals = FundamentalsFetcher()
         self.risk_fetcher = RiskSignalFetcher()
         self.market_data = MarketDataProvider()
+        self.headline_sentiment = HeadlineSentimentAnalyzer()
+        self.x_sentiment = XSentimentAnalyzer()
         
         # Cache
         self._market_status: Optional[MarketStatus] = None
@@ -69,29 +78,101 @@ class TradingAdvisor:
             self._market_status = self.market_detector.get_status()
         return self._market_status
     
-    def analyze_stock(self, symbol: str) -> Dict:
+    def _calculate_technical_score_from_history(self, symbol: str, hist: pd.DataFrame) -> Dict:
+        """Reuse provider-backed history so Wave 2 analysis does not trigger another price fetch."""
+        if hist is None or hist.empty or len(hist) < 50:
+            return {'symbol': symbol, 'error': 'Insufficient data'}
+
+        close = pd.to_numeric(hist['Close'], errors='coerce')
+        volume = pd.to_numeric(hist['Volume'], errors='coerce')
+        current = float(close.iloc[-1])
+        high_52w = float(close.max())
+        pct_from_high = current / high_52w if high_52w > 0 else 0.0
+
+        if pct_from_high >= 0.95:
+            n_score = 2
+        elif pct_from_high >= 0.90:
+            n_score = 1
+        else:
+            n_score = 0
+
+        if len(close) >= 126:
+            momentum_6m = (current / float(close.iloc[-126]) - 1) * 100
+        else:
+            momentum_6m = (current / float(close.iloc[0]) - 1) * 100
+
+        if momentum_6m >= 25:
+            l_score = 2
+        elif momentum_6m >= 10:
+            l_score = 1
+        else:
+            l_score = 0
+
+        daily_return = close.pct_change()
+        up_days = daily_return > 0
+        avg_up_volume = float(volume[up_days].mean()) if up_days.any() else 0.0
+        avg_down_volume = float(volume[~up_days].mean()) if (~up_days).any() else 1.0
+        vol_ratio = avg_up_volume / avg_down_volume if avg_down_volume > 0 else 0.0
+
+        if vol_ratio >= 1.5:
+            s_score = 2 if vol_ratio >= 2.0 else 1
+        else:
+            s_score = 0
+
+        return {
+            'symbol': symbol,
+            'price': current,
+            '52w_high': high_52w,
+            'pct_from_high': pct_from_high * 100,
+            'momentum_6m': momentum_6m,
+            'volume_ratio': vol_ratio,
+            'N_score': n_score,
+            'L_score': l_score,
+            'S_score': s_score,
+            'technical_score': n_score + l_score + s_score,
+        }
+
+    @staticmethod
+    def _rank_score(total_score: int, breakout_score: int, sentiment_score: int, exit_risk_score: int) -> float:
+        return round(total_score + breakout_score * 0.75 + sentiment_score * 0.5 - exit_risk_score * 0.75, 2)
+
+    def analyze_stock(self, symbol: str, quiet: bool = False) -> Dict:
         """
         Full CANSLIM analysis of a single stock.
         
         Returns:
             Dictionary with all scores and recommendation
         """
-        print(f"\n{'='*60}")
-        print(f"📊 Analyzing {symbol}")
-        print(f"{'='*60}\n")
+        if not quiet:
+            print(f"\n{'='*60}")
+            print(f"📊 Analyzing {symbol}")
+            print(f"{'='*60}\n")
+
+        try:
+            history_result = self.market_data.get_history(symbol, period='1y', auto_adjust=False)
+            hist = history_result.frame
+        except Exception as e:
+            return {'symbol': symbol, 'error': str(e)}
         
         # Get fundamentals
         fund = self.fundamentals.get_fundamentals(symbol)
         fund_scores = self.fundamentals.score_canslim_fundamentals(fund)
         
         # Get technicals
-        tech = self.screener.calculate_technical_score(symbol)
+        tech = self._calculate_technical_score_from_history(symbol, hist)
         
         if 'error' in tech:
             return {'symbol': symbol, 'error': tech['error']}
         
         # Get market status
         market = self.get_market_status()
+        breakout = score_breakout_follow_through(hist)
+        sentiment_overlay = build_sentiment_overlay(
+            symbol,
+            headline_analyzer=self.headline_sentiment,
+            x_analyzer=self.x_sentiment,
+        )
+        exit_risk = score_exit_risk(hist, breakout)
         
         # Calculate total score
         total_score = (
@@ -102,6 +183,12 @@ class TradingAdvisor:
             tech.get('N_score', 0) +
             tech.get('L_score', 0)
         )
+        rank_score = self._rank_score(
+            total_score,
+            breakout.get('score', 0),
+            sentiment_overlay.get('score', 0),
+            exit_risk.get('score', 0),
+        )
         
         # Generate recommendation
         recommendation = self._generate_recommendation(
@@ -110,6 +197,10 @@ class TradingAdvisor:
             fund_scores=fund_scores,
             tech_scores=tech,
             market=market,
+            breakout=breakout,
+            sentiment_overlay=sentiment_overlay,
+            exit_risk=exit_risk,
+            rank_score=rank_score,
         )
         
         return {
@@ -119,8 +210,15 @@ class TradingAdvisor:
             'fundamental_scores': fund_scores,
             'technical_scores': tech,
             'total_score': total_score,
+            'rank_score': rank_score,
             'market_regime': market.regime.value,
             'position_sizing': market.position_sizing,
+            'breakout_follow_through': breakout,
+            'sentiment_overlay': sentiment_overlay,
+            'exit_risk': exit_risk,
+            'data_source': history_result.source,
+            'data_staleness_seconds': history_result.staleness_seconds,
+            'data_status': history_result.status,
             'recommendation': recommendation,
         }
 
@@ -262,6 +360,10 @@ class TradingAdvisor:
         fund_scores: Dict,
         tech_scores: Dict,
         market: MarketStatus,
+        breakout: Dict,
+        sentiment_overlay: Dict,
+        exit_risk: Dict,
+        rank_score: float,
     ) -> Dict:
         """
         Generate a specific trade recommendation.
@@ -271,33 +373,98 @@ class TradingAdvisor:
         """
         price = tech_scores.get('price', 0)
         pct_from_high = tech_scores.get('pct_from_high', 0)
+        breakout_score = int(breakout.get('score', 0))
+        sentiment_score = int(sentiment_overlay.get('score', 0))
+        exit_risk_score = int(exit_risk.get('score', 0))
+        confidence = int(
+            max(
+                5,
+                min(
+                    95,
+                    28 + total_score * 5 + breakout_score * 6 +
+                    int(sentiment_overlay.get('confidence_delta', 0)) -
+                    exit_risk_score * 7,
+                ),
+            )
+        )
+
+        base_fields = {
+            'score': total_score,
+            'rank_score': rank_score,
+            'confidence': confidence,
+            'breakout_score': breakout_score,
+            'sentiment_score': sentiment_score,
+            'exit_risk_score': exit_risk_score,
+            'market_note': market.notes,
+        }
         
         # Check if we should buy
         if market.regime == MarketRegime.CORRECTION:
             return {
                 'action': 'NO_BUY',
                 'reason': 'Market in correction. No new positions.',
+                **base_fields,
             }
         
         if total_score < 7:
             return {
                 'action': 'NO_BUY',
                 'reason': f'Score too low ({total_score}/12). Need >= 7.',
+                **base_fields,
             }
-        
+
+        if sentiment_overlay.get('veto'):
+            return {
+                'action': 'WATCH',
+                'reason': f"Sentiment overlay veto: {sentiment_overlay.get('reason', 'bearish sentiment.')}",
+                **base_fields,
+            }
+
+        if exit_risk.get('veto'):
+            action = 'WATCH' if total_score >= 8 and breakout_score >= 3 else 'NO_BUY'
+            return {
+                'action': action,
+                'reason': f"Exit risk too high ({exit_risk.get('status', 'high')}): {', '.join(exit_risk.get('reasons', []))}.",
+                **base_fields,
+            }
+
+        if breakout_score <= 1:
+            return {
+                'action': 'WATCH',
+                'reason': f"Breakout follow-through is weak ({breakout_score}/5). Wait for stronger confirmation.",
+                **base_fields,
+            }
+
         if pct_from_high < 85:
             return {
                 'action': 'WATCH',
                 'reason': f'Stock {100 - pct_from_high:.1f}% below 52-week high. Wait for strength.',
+                **base_fields,
             }
         
         # Calculate entry and stop
-        stop_loss_pct = 0.08  # 8% trailing stop
+        stop_loss_pct = 0.08
+        if breakout_score >= 4 and exit_risk_score <= 1:
+            stop_loss_pct = 0.07
+        elif exit_risk_score >= 3:
+            stop_loss_pct = 0.06
         stop_price = price * (1 - stop_loss_pct)
         
         # Position sizing based on market regime
         base_size = 0.10  # 10% of portfolio per position
-        adjusted_size = base_size * market.position_sizing
+        size_multiplier = 1.0
+        if breakout_score <= 2:
+            size_multiplier *= 0.85
+        if sentiment_score < 0:
+            size_multiplier *= 0.85
+        elif sentiment_score > 0:
+            size_multiplier *= 1.05
+        if exit_risk_score >= 3:
+            size_multiplier *= 0.65
+        elif exit_risk_score == 2:
+            size_multiplier *= 0.80
+
+        adjusted_size = base_size * market.position_sizing * size_multiplier
         
         # Build reasoning
         reasons = []
@@ -310,6 +477,12 @@ class TradingAdvisor:
             reasons.append(f"✅ Market leader (L={tech_scores['L_score']})")
         if tech_scores.get('N_score', 0) >= 2:
             reasons.append(f"✅ Near 52-week high (N={tech_scores['N_score']})")
+        if breakout_score >= 3:
+            reasons.append(f"✅ Breakout follow-through {breakout_score}/5 ({breakout.get('status', 'mixed')})")
+        if sentiment_score > 0:
+            reasons.append(f"✅ Sentiment tailwind: {sentiment_overlay.get('reason')}")
+        if exit_risk_score <= 1:
+            reasons.append("✅ Exit risk remains contained")
         
         return {
             'action': 'BUY',
@@ -317,9 +490,8 @@ class TradingAdvisor:
             'stop_loss': stop_price,
             'stop_loss_pct': stop_loss_pct * 100,
             'position_size_pct': adjusted_size * 100,
-            'score': total_score,
             'reasons': reasons,
-            'market_note': market.notes,
+            **base_fields,
         }
     
     def scan_for_opportunities(
@@ -368,19 +540,24 @@ class TradingAdvisor:
             symbol = row['symbol']
             
             try:
-                fund = self.fundamentals.get_fundamentals(symbol)
-                scores = self.fundamentals.score_canslim_fundamentals(fund)
+                analysis = self.analyze_stock(symbol, quiet=True)
+                if 'error' in analysis:
+                    continue
                 
                 row_dict = row.to_dict()
+                scores = analysis.get('fundamental_scores', {})
+                rec = analysis.get('recommendation', {})
                 row_dict['C_score'] = scores.get('C', 0)
                 row_dict['A_score'] = scores.get('A', 0)
                 row_dict['I_score'] = scores.get('I', 0)
                 row_dict['S_fund_score'] = scores.get('S', 0)
-                row_dict['total_score'] = (
-                    scores.get('C', 0) + scores.get('A', 0) +
-                    scores.get('I', 0) + scores.get('S', 0) +
-                    row.get('N_score', 0) + row.get('L_score', 0)
-                )
+                row_dict['total_score'] = analysis.get('total_score', 0)
+                row_dict['breakout_score'] = analysis.get('breakout_follow_through', {}).get('score', 0)
+                row_dict['sentiment_score'] = analysis.get('sentiment_overlay', {}).get('score', 0)
+                row_dict['exit_risk_score'] = analysis.get('exit_risk', {}).get('score', 0)
+                row_dict['rank_score'] = analysis.get('rank_score', analysis.get('total_score', 0))
+                row_dict['confidence'] = rec.get('confidence', 0)
+                row_dict['action'] = rec.get('action', 'NO_BUY')
                 enriched.append(row_dict)
                 
             except Exception as e:
@@ -391,7 +568,7 @@ class TradingAdvisor:
             return results
         
         enriched_df = pd.DataFrame(enriched)
-        enriched_df = enriched_df.sort_values('total_score', ascending=False)
+        enriched_df = enriched_df.sort_values(['rank_score', 'total_score'], ascending=False)
         
         # Filter by minimum total score
         enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
@@ -640,6 +817,8 @@ class TradingAdvisor:
   Entry:  ${r['entry']:.2f}
   Stop:   ${r['stop_loss']:.2f} ({r['stop_loss_pct']:.0f}% risk)
   Size:   {r['position_size_pct']:.0f}% of portfolio
+  Conf:   {r.get('confidence', 0)}%
+  Wave2:  Breakout {r.get('breakout_score', 0)}/5 | Sentiment {r.get('sentiment_score', 0):+d} | Exit risk {r.get('exit_risk_score', 0)}/5
 
   Reasons:
 {chr(10).join('    ' + reason for reason in r['reasons'])}
@@ -750,15 +929,24 @@ def main():
         
         fs = analysis.get('fundamental_scores', {})
         ts = analysis.get('technical_scores', {})
+        breakout = analysis.get('breakout_follow_through', {})
+        sentiment = analysis.get('sentiment_overlay', {})
+        exit_risk = analysis.get('exit_risk', {})
         
         print(f"\n   Fundamental: C={fs.get('C',0)} A={fs.get('A',0)} I={fs.get('I',0)} S={fs.get('S',0)}")
         print(f"   Technical:   N={ts.get('N_score',0)} L={ts.get('L_score',0)} S={ts.get('S_score',0)}")
+        print(
+            f"   Wave 2:      Breakout={breakout.get('score',0)}/5 "
+            f"Sentiment={sentiment.get('label','NEUTRAL')} "
+            f"ExitRisk={exit_risk.get('score',0)}/5"
+        )
         
         rec = analysis.get('recommendation', {})
         print(f"\n   Recommendation: {rec.get('action', 'N/A')}")
         if rec.get('action') == 'BUY':
             print(f"   Entry: ${rec.get('entry', 0):.2f}")
             print(f"   Stop:  ${rec.get('stop_loss', 0):.2f}")
+            print(f"   Confidence: {rec.get('confidence', 0)}%")
         else:
             print(f"   Reason: {rec.get('reason', 'N/A')}")
         
