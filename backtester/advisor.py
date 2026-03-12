@@ -162,6 +162,53 @@ class TradingAdvisor:
             catalyst_score=catalyst_score,
         )
 
+    @staticmethod
+    def _action_priority(action: object) -> int:
+        return {
+            'BUY': 0,
+            'WATCH': 1,
+            'NO_BUY': 2,
+        }.get(str(action or '').upper(), 3)
+
+    @classmethod
+    def _sort_runtime_candidates(
+        cls,
+        frame: pd.DataFrame,
+        *,
+        primary_desc_columns: List[str],
+    ) -> pd.DataFrame:
+        if frame is None or frame.empty:
+            return pd.DataFrame() if frame is None else frame
+
+        ordered = frame.copy()
+        action_series = ordered['action'] if 'action' in ordered.columns else pd.Series('', index=ordered.index, dtype=object)
+        abstain_series = ordered['abstain'] if 'abstain' in ordered.columns else pd.Series(False, index=ordered.index, dtype=bool)
+        ordered['_action_priority'] = action_series.map(cls._action_priority)
+        ordered['_abstain_priority'] = pd.to_numeric(abstain_series, errors='coerce').fillna(0).astype(int)
+
+        sort_columns = ['_action_priority', '_abstain_priority']
+        ascending = [True, True]
+
+        for column in primary_desc_columns:
+            if column in ordered.columns and column not in sort_columns:
+                sort_columns.append(column)
+                ascending.append(False)
+
+        for column, column_ascending in (
+            ('effective_confidence', False),
+            ('confidence', False),
+            ('uncertainty_pct', True),
+            ('position_size_pct', False),
+            ('total_score', False),
+            ('symbol', True),
+        ):
+            if column in ordered.columns and column not in sort_columns:
+                sort_columns.append(column)
+                ascending.append(column_ascending)
+
+        ordered = ordered.sort_values(sort_columns, ascending=ascending, kind='mergesort')
+        return ordered.drop(columns=['_action_priority', '_abstain_priority'])
+
     def analyze_stock(self, symbol: str, quiet: bool = False) -> Dict:
         """
         Full CANSLIM analysis of a single stock.
@@ -440,8 +487,10 @@ class TradingAdvisor:
             return pd.DataFrame()
 
         df = pd.DataFrame(candidates)
-        df = df.sort_values('total_score', ascending=False)
-        return df
+        return self._sort_runtime_candidates(
+            df,
+            primary_desc_columns=['effective_confidence', 'position_size_pct', 'total_score'],
+        )
     
     def _generate_recommendation(
         self,
@@ -702,7 +751,10 @@ class TradingAdvisor:
             return results
         
         enriched_df = pd.DataFrame(enriched)
-        enriched_df = enriched_df.sort_values(['rank_score', 'total_score'], ascending=False)
+        enriched_df = self._sort_runtime_candidates(
+            enriched_df,
+            primary_desc_columns=['rank_score'],
+        )
         
         # Filter by minimum total score
         enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
@@ -761,15 +813,21 @@ class TradingAdvisor:
         if candidates.empty:
             return []
         
-        # Generate recommendations for top candidates
+        if 'action' not in candidates.columns or 'symbol' not in candidates.columns:
+            return []
+
+        buy_symbols = candidates.loc[candidates['action'] == 'BUY', 'symbol'].head(limit).tolist()
+        if not buy_symbols:
+            return []
+
         recommendations = []
-        
-        for _, row in candidates.head(limit).iterrows():
-            analysis = self.analyze_stock(row['symbol'])
-            
+
+        for symbol in buy_symbols:
+            analysis = self.analyze_stock(symbol)
+
             if analysis.get('recommendation', {}).get('action') == 'BUY':
                 recommendations.append(analysis)
-        
+
         return recommendations
     
     def print_recommendations(self, recommendations: List[Dict]):

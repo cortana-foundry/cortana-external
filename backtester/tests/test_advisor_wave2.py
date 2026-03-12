@@ -6,7 +6,6 @@ import pandas as pd
 from advisor import TradingAdvisor
 from data.market_regime import MarketRegime
 
-
 def _history(closes: list[float], volumes: list[float] | None = None) -> pd.DataFrame:
     idx = pd.date_range("2026-01-02", periods=len(closes), freq="B")
     volumes = volumes or [1_000_000.0] * len(closes)
@@ -21,10 +20,8 @@ def _history(closes: list[float], volumes: list[float] | None = None) -> pd.Data
         index=idx,
     )
 
-
 def _market(regime: MarketRegime = MarketRegime.CONFIRMED_UPTREND):
     return SimpleNamespace(regime=regime, position_sizing=1.0, notes="trend intact", status="ok", snapshot_age_seconds=0.0)
-
 
 def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
     advisor = TradingAdvisor()
@@ -70,7 +67,6 @@ def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
     assert analysis["recommendation"]["confidence"] >= 80
     assert analysis["recommendation"]["position_size_pct"] > 10.0
 
-
 def test_analyze_stock_watch_when_sentiment_overlay_vetoes_setup():
     advisor = TradingAdvisor()
     closes = [100 + i * 0.5 for i in range(50)] + [126, 127, 128, 129, 130, 131, 132, 133, 134, 135]
@@ -93,7 +89,6 @@ def test_analyze_stock_watch_when_sentiment_overlay_vetoes_setup():
 
     assert analysis["recommendation"]["action"] == "WATCH"
     assert "Sentiment overlay veto" in analysis["recommendation"]["reason"]
-
 
 def test_analyze_stock_uses_uncertainty_abstain_without_breaking_output_shape():
     advisor = TradingAdvisor()
@@ -126,7 +121,6 @@ def test_analyze_stock_uses_uncertainty_abstain_without_breaking_output_shape():
     assert analysis["recommendation"]["action"] == "WATCH"
     assert analysis["recommendation"]["abstain"] is True
     assert "Uncertainty too high" in analysis["recommendation"]["reason"]
-
 
 def test_scan_for_opportunities_sorts_by_wave2_rank_score():
     advisor = TradingAdvisor()
@@ -170,3 +164,83 @@ def test_scan_for_opportunities_sorts_by_wave2_rank_score():
     assert list(df["baseline_score"]) == [7.0, 8.0]
     assert list(df["enhanced_score"]) == [10.0, 8.5]
     assert list(df["tactical_score"]) == [10.75, 8.75]
+
+def test_scan_for_opportunities_prioritizes_buyable_candidates_over_abstaining_watchs():
+    advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=_market())
+    advisor.screener.screen = MagicMock(
+        return_value=pd.DataFrame(
+            [
+                {"symbol": "AAA", "technical_score": 4, "N_score": 2, "L_score": 2},
+                {"symbol": "BBB", "technical_score": 4, "N_score": 2, "L_score": 2},
+            ]
+        )
+    )
+
+    def _analysis(symbol: str, quiet: bool = False):
+        if symbol == "AAA":
+            return {
+                "total_score": 9,
+                "rank_score": 12.0,
+                "confidence": 44,
+                "effective_confidence": 44,
+                "uncertainty_pct": 41,
+                "abstain": True,
+                "abstain_reason_codes": ["symbol_data_stale"],
+                "fundamental_scores": {"C": 2, "A": 2, "I": 1, "S": 1},
+                "breakout_follow_through": {"score": 5},
+                "sentiment_overlay": {"score": 2},
+                "exit_risk": {"score": 0},
+                "sector_context": {"score": 1},
+                "catalyst_weighting": {"score": 1},
+                "recommendation": {"action": "WATCH", "confidence": 44, "position_size_pct": 0.0},
+            }
+        return {
+            "total_score": 8,
+            "rank_score": 10.0,
+            "confidence": 79,
+            "effective_confidence": 79,
+            "uncertainty_pct": 9,
+            "abstain": False,
+            "abstain_reason_codes": [],
+            "fundamental_scores": {"C": 2, "A": 2, "I": 1, "S": 1},
+            "breakout_follow_through": {"score": 4},
+            "sentiment_overlay": {"score": 1},
+            "exit_risk": {"score": 1},
+            "sector_context": {"score": 1},
+            "catalyst_weighting": {"score": 0},
+            "recommendation": {"action": "BUY", "confidence": 79, "position_size_pct": 9.5},
+        }
+
+    advisor.analyze_stock = _analysis
+
+    df = advisor.scan_for_opportunities(quick=True, min_score=6)
+
+    assert list(df["symbol"]) == ["BBB", "AAA"]
+    assert list(df["action"]) == ["BUY", "WATCH"]
+    assert list(df["abstain"]) == [False, True]
+
+def test_get_recommendations_uses_buy_rows_from_enriched_scan():
+    advisor = TradingAdvisor()
+    advisor.scan_for_opportunities = MagicMock(
+        return_value=pd.DataFrame(
+            [
+                {"symbol": "AAA", "action": "WATCH", "rank_score": 12.0},
+                {"symbol": "BBB", "action": "BUY", "rank_score": 10.0},
+            ]
+        )
+    )
+    advisor.analyze_stock = MagicMock(
+        side_effect=[
+            {
+                "symbol": "BBB",
+                "total_score": 8,
+                "recommendation": {"action": "BUY", "position_size_pct": 9.5},
+            }
+        ]
+    )
+
+    recommendations = advisor.get_recommendations(limit=1)
+
+    assert [item["symbol"] for item in recommendations] == ["BBB"]
+    advisor.analyze_stock.assert_called_once_with("BBB")
