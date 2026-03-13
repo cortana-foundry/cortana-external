@@ -9,7 +9,7 @@ export PATH="/opt/homebrew/bin:/opt/homebrew/opt/postgresql@17/bin:/usr/local/bi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/heartbeat_classifier.sh"
 
-BOT_TOKEN="$(jq -r '.channels.telegram.botToken // .channels.telegram.accounts.default.botToken // empty' /Users/hd/.openclaw/openclaw.json 2>/dev/null)"
+BOT_TOKEN="$(jq -r '.channels.telegram.accounts.monitor.botToken // .channels.telegram.botToken // .channels.telegram.accounts.default.botToken // empty' /Users/hd/.openclaw/openclaw.json 2>/dev/null)"
 CHAT_ID="8171372724"
 SLACK_WEBHOOK_URL="${WATCHDOG_SLACK_WEBHOOK_URL:-}"
 ALERTS=""
@@ -20,6 +20,7 @@ GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_LABEL="${OPENCLAW_LAUNCHD_LABEL:-ai.openclaw.gateway}"
 CORTANA_SOURCE_REPO="${CORTANA_SOURCE_REPO:-/Users/hd/Developer/cortana}"
 TELEGRAM_USAGE_HANDLER_PATH="${TELEGRAM_USAGE_HANDLER_PATH:-$CORTANA_SOURCE_REPO/skills/telegram-usage/handler.ts}"
+HEARTBEAT_STATE_FILE="${HEARTBEAT_STATE_FILE:-$HOME/.openclaw/memory/heartbeat-state.json}"
 
 # ── State Management ──
 load_state() {
@@ -194,6 +195,23 @@ get_heartbeat_restarts_6h() {
   ' 2>/dev/null || echo "0"
 }
 
+get_heartbeat_state_age_seconds() {
+  local current_time="$1"
+  local current_ms=$((current_time * 1000))
+
+  [[ -f "$HEARTBEAT_STATE_FILE" ]] || {
+    echo ""
+    return
+  }
+
+  jq -r --argjson now "$current_ms" '
+    def ts(v): if (v | type) == "number" then v else 0 end;
+    def max_check: ((.lastChecks // {}) | to_entries | map(.value.lastChecked // 0) | max // 0);
+    [ts(.lastHeartbeat), max_check] | max as $last |
+    if $last > 0 and $now >= $last then (($now - $last) / 1000 | floor) else empty end
+  ' "$HEARTBEAT_STATE_FILE" 2>/dev/null || echo ""
+}
+
 send_alert_notifications() {
   local msg="$1"
 
@@ -263,6 +281,8 @@ check_heartbeat_health() {
   local pid=""
   local age_seconds=0
   local variance_seconds=0
+  local restarts_6h=0
+  local backend="process"
 
   if [[ "$count" -eq 1 ]]; then
     pid=$(pgrep -f "openclaw.*heartbeat" 2>/dev/null | head -n 1 | tr -d ' ')
@@ -294,15 +314,30 @@ check_heartbeat_health() {
     fi
 
     record_heartbeat_observation "$current_time" "$pid" "$age_seconds"
+    restarts_6h=$(get_heartbeat_restarts_6h "$current_time")
+  elif [[ "$count" -eq 0 ]]; then
+    local state_age_seconds
+    state_age_seconds=$(get_heartbeat_state_age_seconds "$current_time")
+    if [[ -n "$state_age_seconds" ]]; then
+      backend="state"
+      age_seconds="$state_age_seconds"
+      count=1
+      pid="heartbeat-state"
+      variance_seconds=0
+      restarts_6h=0
+      record_heartbeat_observation "$current_time" "$pid" "$age_seconds"
+    fi
   fi
-
-  local restarts_6h
-  restarts_6h=$(get_heartbeat_restarts_6h "$current_time")
 
   local classification
   classification=$(classify_heartbeat_health "$count" "$age_seconds" "$restarts_6h" "$variance_seconds")
   local severity="${classification%%|*}"
   local reason="${classification#*|}"
+
+  if [[ "$backend" == "state" ]]; then
+    reason=${reason/heartbeat process/heartbeat state}
+    reason=${reason/heartbeat stable/heartbeat state stable}
+  fi
 
   if [[ "$severity" == "critical" ]]; then
     alert "Heartbeat degraded (critical): ${reason}" "$check_name" "critical"
@@ -310,7 +345,7 @@ check_heartbeat_health() {
     alert "Heartbeat degraded (warning): ${reason}" "$check_name" "warning"
   else
     recovery_alert "$check_name" "Heartbeat health recovered (stable)"
-    log "info" "Heartbeat healthy: count=${count}, age=${age_seconds}s, restarts_6h=${restarts_6h}, variance=${variance_seconds}s"
+    log "info" "Heartbeat healthy via ${backend}: count=${count}, age=${age_seconds}s, restarts_6h=${restarts_6h}, variance=${variance_seconds}s"
   fi
 }
 
@@ -492,11 +527,21 @@ check_tools
 check_degraded_agents
 check_budget
 
-# ── Send alerts if any ──
+# ── Send alerts / confirmations ──
 if [[ -n "$ALERTS" ]]; then
-  MSG="🐕 *Watchdog Alert*\n\n${ALERTS}\n_$(date '+%H:%M %b %d')_"
+  MSG="🐕 *Watchdog Alert*
+
+${ALERTS}
+_$(date '+%H:%M %b %d')_"
   send_alert_notifications "$(echo -e "$MSG")"
   log "info" "Alerts sent to notification channels"
+else
+  MSG="🐕 *Watchdog Alert*
+
+✅ Watchdog clean — heartbeat, gateway, cron, tools, and budget checks passed
+_$(date '+%H:%M %b %d')_"
+  send_alert_notifications "$(echo -e "$MSG")"
+  log "info" "Clean watchdog confirmation sent to notification channels"
 fi
 
 echo "=== Watchdog complete ==="
