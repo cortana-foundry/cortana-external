@@ -201,6 +201,7 @@ Live 120-name scan selection:
 - the remaining live scan slots are now filled by a cheap deterministic prefilter
 - that prefilter ranks names by lightweight quality factors such as relative strength, trend quality, liquidity, distance from highs, pullback shape, and volatility sanity
 - this means the daytime stack is now much closer to "best 120 by cheap quality model" instead of "first 120 by ordering"
+- live alerts do not rebuild that prefilter inline; if the cache is missing or stale, they fall back to deterministic ordering and keep going
 
 ## Daily Flow
 

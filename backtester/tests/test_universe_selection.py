@@ -46,6 +46,7 @@ def test_selector_keeps_priority_symbols_pinned_and_ranks_remaining(tmp_path):
         priority_symbols=["ZZZ", "BBB"],
         universe_size=3,
         market_regime="confirmed_uptrend",
+        allow_inline_refresh=True,
     )
 
     assert result.symbols == ["ZZZ", "BBB", "CCC"]
@@ -79,3 +80,19 @@ def test_selector_uses_fresh_cache_when_available(tmp_path):
     assert result.symbols == ["AAA", "BBB", "CCC", "DDD"]
     assert result.source == "cache"
     assert result.unscored_symbols == ["DDD"]
+
+
+def test_selector_falls_back_to_deterministic_order_when_cache_missing(tmp_path):
+    selector = RankedUniverseSelector(cache_path=tmp_path / "missing-prefilter.json")
+
+    result = selector.select_live_universe(
+        base_symbols=["BBB", "AAA", "CCC"],
+        priority_symbols=["ZZZ"],
+        universe_size=3,
+        market_regime="confirmed_uptrend",
+    )
+
+    assert result.symbols == ["ZZZ", "BBB", "AAA"]
+    assert result.source == "fallback"
+    assert result.ranked_symbols == []
+    assert result.generated_at is None

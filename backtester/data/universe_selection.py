@@ -74,6 +74,7 @@ class RankedUniverseSelector:
         universe_size: int,
         market_regime: str = "unknown",
         refresh: bool = False,
+        allow_inline_refresh: bool = False,
     ) -> UniverseSelectionResult:
         base = self._dedupe(base_symbols)
         pinned = self._dedupe(priority_symbols)
@@ -113,8 +114,21 @@ class RankedUniverseSelector:
         source = "cache"
 
         if payload is None:
-            payload = self.refresh_cache(base_symbols=base, market_regime=market_regime)
-            source = "live_refresh"
+            if refresh or allow_inline_refresh:
+                payload = self.refresh_cache(base_symbols=base, market_regime=market_regime)
+                source = "live_refresh"
+            else:
+                selected = [*pinned_in_order, *remaining[:remaining_slots]]
+                return UniverseSelectionResult(
+                    symbols=selected,
+                    priority_symbols=[symbol for symbol in pinned_in_order if symbol in selected],
+                    ranked_symbols=[],
+                    unscored_symbols=remaining,
+                    base_universe_size=len(base),
+                    source="fallback",
+                    generated_at=None,
+                    cache_age_hours=None,
+                )
 
         records = {
             str(item.get("symbol", "")).upper(): item
