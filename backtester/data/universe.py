@@ -30,6 +30,8 @@ import os
 from pathlib import Path
 import time
 
+from .polymarket_context import load_watchlist_entries
+
 
 # S&P 500 tickers (we'll use this as our base universe)
 # In production, this should be fetched dynamically
@@ -178,15 +180,6 @@ class UniverseScreener:
         """Path to dynamic watchlist JSON in this module directory."""
         return Path(__file__).parent / "dynamic_watchlist.json"
 
-    def _polymarket_watchlist_path(self) -> Path:
-        """Path to Polymarket-derived watchlist JSON in this module directory."""
-        return Path(
-            os.getenv(
-                "POLYMARKET_WATCHLIST_PATH",
-                str(Path(__file__).parent / "polymarket_watchlist.json"),
-            )
-        )
-
     def _load_watchlist_payload(self, path: Path) -> List[Dict]:
         """
         Load ticker entries from disk.
@@ -211,7 +204,8 @@ class UniverseScreener:
 
     def _load_polymarket_watchlist(self) -> List[Dict]:
         """Load Polymarket-derived ticker entries from disk."""
-        return self._load_watchlist_payload(self._polymarket_watchlist_path())
+        max_age_hours = float(os.getenv("POLYMARKET_WATCHLIST_MAX_AGE_HOURS", "8"))
+        return load_watchlist_entries(max_age_hours=max_age_hours)
 
     def get_dynamic_tickers(self, include_growth: bool = True) -> List[str]:
         """

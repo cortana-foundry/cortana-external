@@ -231,4 +231,31 @@ describe("service, reports, and cli helpers", () => {
     expect(parsed.maxMarkets).toBe(2);
     expect(parsed.persistHistory).toBe(true);
   });
+
+  it("caps compact watchlist output while keeping the line readable", () => {
+    const compact = formatCompactReport({
+      metadata: {
+        registryPath: "registry.json",
+        historyDir: "history",
+        latestPath: "latest.json",
+        regimePath: null,
+        generatedAt: "2026-03-14T01:00:00.000Z",
+        persisted: true,
+      },
+      regime: null,
+      markets: [],
+      topMarkets: [],
+      watchlist: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+      overlay: {
+        alignment: "insufficient_data",
+        summary: "Overlay unavailable",
+        reason: "No market regime context was provided.",
+        dominantEffects: [],
+      },
+      warnings: [],
+      suppressedMarkets: [],
+    } as never);
+
+    expect(compact).toContain("Watchlist: A, B, C, D, E, F, G, H (+2 more)");
+  });
 });

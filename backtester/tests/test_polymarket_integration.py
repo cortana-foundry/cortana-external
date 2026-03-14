@@ -1,10 +1,9 @@
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from canslim_alert import format_alert as format_canslim
 from data.market_regime import MarketRegime
-from data.polymarket_context import load_compact_context
+from data.polymarket_context import load_compact_context, load_watchlist_entries
 from data.universe import UniverseScreener
 from dipbuyer_alert import format_alert as format_dipbuyer
 
@@ -17,17 +16,53 @@ def test_load_compact_context_returns_none_when_artifacts_missing(tmp_path, monk
 
 def test_universe_screener_merges_polymarket_watchlist(tmp_path, monkeypatch):
     watchlist_path = tmp_path / "polymarket_watchlist.json"
+    report_path = tmp_path / "latest-report.json"
     watchlist_path.write_text(
         """{
-  "updated_at": "2026-03-14T01:00:00Z",
+  "updated_at": "2999-03-14T01:00:00Z",
   "source": "polymarket_market_intel",
   "tickers": [{"symbol": "XYZT"}]
 }"""
     )
+    report_path.write_text(
+        """{
+  "metadata": {
+    "generatedAt": "2999-03-14T01:00:00.000Z"
+  }
+}"""
+    )
 
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(watchlist_path))
+    monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(report_path))
     screener = UniverseScreener(cache_dir=str(tmp_path / "cache"))
     assert "XYZT" in screener.get_dynamic_tickers()
+
+
+def test_stale_polymarket_watchlist_does_not_enter_universe(tmp_path, monkeypatch):
+    watchlist_path = tmp_path / "polymarket_watchlist.json"
+    report_path = tmp_path / "latest-report.json"
+    watchlist_path.write_text(
+        """{
+  "updated_at": "2020-03-14T01:00:00Z",
+  "source": "polymarket_market_intel",
+  "tickers": [{"symbol": "STALE"}]
+}"""
+    )
+    report_path.write_text(
+        """{
+  "metadata": {
+    "generatedAt": "2020-03-14T01:00:00.000Z"
+  }
+}"""
+    )
+
+    monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(watchlist_path))
+    monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(report_path))
+
+    assert load_watchlist_entries(max_age_hours=1) == []
+
+    screener = UniverseScreener(cache_dir=str(tmp_path / "cache"))
+    assert "STALE" not in screener.get_dynamic_tickers()
 
 
 class _FakeAdvisor:

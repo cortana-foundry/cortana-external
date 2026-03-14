@@ -8,6 +8,8 @@ import type {
 import { matchesKeyword, matchesSelectorFilters } from "./registry.js";
 
 const BASE_URL = "https://gamma-api.polymarket.com";
+const KEYWORD_PAGE_LIMIT = 200;
+const KEYWORD_MAX_PAGES = 5;
 
 export interface PolymarketClientOptions {
   fetchImpl?: typeof fetch;
@@ -100,11 +102,7 @@ export class PolymarketClient {
   }
 
   async fetchByKeywords(entry: RegistryEntry): Promise<CandidateMarket[]> {
-    const events = await this.request<PolymarketRawEvent[]>("/events", {
-      active: "true",
-      closed: "false",
-      limit: "200",
-    });
+    const events = await this.fetchActiveEvents();
 
     return events
       .flatMap((event) =>
@@ -119,6 +117,28 @@ export class PolymarketClient {
             selectionSource: "keyword_fallback" as const,
           })),
       );
+  }
+
+  async fetchActiveEvents(limit = KEYWORD_PAGE_LIMIT, maxPages = KEYWORD_MAX_PAGES): Promise<PolymarketRawEvent[]> {
+    const allEvents: PolymarketRawEvent[] = [];
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const offset = page * limit;
+      const events = await this.request<PolymarketRawEvent[]>("/events", {
+        active: "true",
+        closed: "false",
+        limit: String(limit),
+        offset: String(offset),
+      });
+
+      allEvents.push(...events);
+
+      if (events.length < limit) {
+        break;
+      }
+    }
+
+    return allEvents;
   }
 
   async request<T>(pathname: string, query: Record<string, string>): Promise<T> {

@@ -1,5 +1,8 @@
 import type { MarketIntelReport, NormalizedMarketSnapshot } from "./types.js";
 
+const REPORT_WATCHLIST_LIMIT = 10;
+const COMPACT_WATCHLIST_LIMIT = 8;
+
 export function formatCompactReport(report: MarketIntelReport): string {
   const lines: string[] = [];
   const visible = report.topMarkets.slice(0, 3);
@@ -15,7 +18,9 @@ export function formatCompactReport(report: MarketIntelReport): string {
   }
 
   lines.push(`Overlay: ${report.overlay.summary} — ${report.overlay.reason}`);
-  lines.push(`Watchlist: ${report.watchlist.length > 0 ? report.watchlist.join(", ") : "No event-sensitive names surfaced"}`);
+  lines.push(
+    `Watchlist: ${formatWatchlistLine(report.watchlist, COMPACT_WATCHLIST_LIMIT)}`,
+  );
 
   if (report.warnings.length > 0) {
     lines.push(`Notes: ${report.warnings.join(" | ")}`);
@@ -77,13 +82,19 @@ export function toJsonReport(report: MarketIntelReport): string {
 }
 
 export function buildWatchlist(markets: NormalizedMarketSnapshot[]): string[] {
-  return Array.from(
-    new Set(
-      markets
-        .flatMap((market) => market.watchTickers)
-        .filter(Boolean),
-    ),
-  );
+  const bySymbol = new Map<string, number>();
+
+  for (const market of markets) {
+    for (const symbol of market.watchTickers.filter(Boolean)) {
+      const score = bySymbol.get(symbol) ?? 0;
+      bySymbol.set(symbol, Math.max(score, market.displayScore));
+    }
+  }
+
+  return Array.from(bySymbol.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, REPORT_WATCHLIST_LIMIT)
+    .map(([symbol]) => symbol);
 }
 
 function fmtPct(value: number): string {
@@ -95,4 +106,10 @@ function fmtDelta(value: number | null, label: string): string {
   const points = Math.round(value * 100);
   const sign = points > 0 ? "+" : "";
   return ` (${sign}${points} pts/${label})`;
+}
+
+function formatWatchlistLine(symbols: string[], limit: number): string {
+  if (symbols.length === 0) return "No event-sensitive names surfaced";
+  if (symbols.length <= limit) return symbols.join(", ");
+  return `${symbols.slice(0, limit).join(", ")} (+${symbols.length - limit} more)`;
 }
