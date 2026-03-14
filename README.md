@@ -53,7 +53,12 @@ Note: there is currently **no top-level `services/` or `scripts/` directory** in
 Backtester/Polymarket operator surfaces now include:
 - `python advisor.py --quick-check NVDA`
 - `python advisor.py --quick-check BTC`
+- `python experimental_alpha.py --symbols NVDA,BTC,COIN`
 - `./tools/market-intel/run_market_intel.sh`
+
+Research-only surface:
+- `backtester/experimental_alpha.py` is a paper-only Polymarket alpha report built on top of `quick_check`
+- it is not wired into cron, alerts, or execution
 
 ---
 

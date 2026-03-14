@@ -23,6 +23,9 @@ python advisor.py --symbol NVDA
 # Fast stock / coin / proxy verdict
 python advisor.py --quick-check BTC
 
+# Experimental paper-only alpha report
+python experimental_alpha.py --symbols NVDA,BTC,COIN
+
 # Quick scan for opportunities (watchlist)
 python advisor.py --quick
 
@@ -86,6 +89,30 @@ The quick-check command follows the same guardrails:
 - stocks and crypto proxies use the base stock-analysis path
 - direct crypto aliases like `BTC`, `ETH`, and `SOL` map to `BTC-USD`, `ETH-USD`, and `SOL-USD` and use the existing dip/recovery path
 - Polymarket can downgrade or annotate the verdict, but it does not create a trade by itself
+
+## Experimental alpha research
+
+There is now a separate paper-only research surface at [`experimental_alpha.py`](/Users/hd/Developer/cortana-external/backtester/experimental_alpha.py).
+
+Use it for equation/algorithm experiments only:
+- it reuses `quick_check` plus fresh Polymarket structured context
+- it computes a paper-only calibrated probability, edge, capped Kelly fraction, and expected move estimate
+- it outputs `paper_long`, `track`, `reduce_or_wait`, or `skip`
+- it does not place orders
+- it is not wired into cron or the production alert path
+
+Run it manually:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python experimental_alpha.py --symbols NVDA,BTC,COIN
+python experimental_alpha.py --json
+```
+
+Guardrails:
+- treat the formulas as research heuristics, not truth
+- keep it paper-only until forward-tested
+- do not route this into the production buy/no-buy path without separate validation
 
 Example report command:
 
