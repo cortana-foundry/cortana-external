@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import warnings
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
@@ -13,12 +15,14 @@ DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
 )
 
 from advisor import TradingAdvisor
+from buy_decision_calibration import generate_buy_decision_calibration_artifact
+from experimental_alpha import build_alpha_report, default_alpha_root, default_research_symbols, persist_alpha_snapshot
 from data.universe import UNIVERSE_PROFILE_NIGHTLY_DISCOVERY
 from data.universe_selection import RankedUniverseSelector
 
 
 def _with_runtime_warning_filters(fn, *args, **kwargs):
-    with warnings.catch_warnings():
+    with warnings.catch_warnings(), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         warnings.filterwarnings("ignore", message="Timestamp.utcnow is deprecated.*")
         warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
         warnings.filterwarnings("ignore", category=UserWarning, module="yfinance")
@@ -32,6 +36,7 @@ def build_report(
     refresh_live_prefilter: bool = True,
 ) -> dict:
     advisor = TradingAdvisor()
+    _refresh_experimental_alpha_snapshot(advisor=advisor)
     market = _with_runtime_warning_filters(advisor.get_market_status, refresh=True)
     symbols = advisor.screener.get_universe_for_profile(
         UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
@@ -63,7 +68,7 @@ def build_report(
     live_prefilter = None
     liquidity_overlay = None
     feature_snapshot = None
-    buy_decision_calibration = _load_buy_decision_calibration_summary()
+    buy_decision_calibration = _refresh_buy_decision_calibration_summary()
     if refresh_live_prefilter:
         standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
@@ -214,6 +219,33 @@ def _load_buy_decision_calibration_summary() -> dict | None:
         "status": freshness.get("reason") or "unknown",
         "settled_candidates": int(summary.get("settled_candidates", 0) or 0),
     }
+
+
+def _refresh_buy_decision_calibration_summary() -> dict | None:
+    try:
+        artifact, path = generate_buy_decision_calibration_artifact()
+    except Exception:
+        return _load_buy_decision_calibration_summary()
+    freshness = artifact.get("freshness") if isinstance(artifact.get("freshness"), dict) else {}
+    summary = artifact.get("summary") if isinstance(artifact.get("summary"), dict) else {}
+    return {
+        "path": str(path),
+        "generated_at": artifact.get("generated_at"),
+        "is_stale": freshness.get("is_stale"),
+        "reason": freshness.get("reason"),
+        "status": freshness.get("reason") or "unknown",
+        "settled_candidates": int(summary.get("settled_candidates", 0) or 0),
+    }
+
+
+def _refresh_experimental_alpha_snapshot(*, advisor: TradingAdvisor) -> str | None:
+    try:
+        symbols = default_research_symbols()
+        report = _with_runtime_warning_filters(build_alpha_report, symbols, advisor)
+        path = persist_alpha_snapshot(report, root=default_alpha_root())
+    except Exception:
+        return None
+    return str(path)
 
 
 if __name__ == "__main__":
