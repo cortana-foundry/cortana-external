@@ -5,12 +5,14 @@ import pandas as pd
 import pytest
 
 from canslim_alert import format_alert as format_canslim
+from canslim_alert import _load_priority_symbols as load_canslim_priority_symbols
 from data.liquidity_overlay import build_execution_quality_overlay
 from data.liquidity_model import LiquidityOverlayModel
 from data.risk_budget import build_risk_budget_overlay
 from data.universe_selection import UniverseSelectionResult
 from data.market_regime import MarketRegime
 from dipbuyer_alert import format_alert as format_dipbuyer
+from dipbuyer_alert import _load_priority_symbols as load_dipbuyer_priority_symbols
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +84,22 @@ def test_canslim_alert_is_compact_when_market_gate_blocks_buys():
         "Top names considered: CFLT, HWM, ALUR",
         "Why no buys: market correction gate",
     ]
+
+
+def test_priority_symbols_prefer_explicit_then_leader_baskets_then_bounded_watchlist(monkeypatch):
+    monkeypatch.setenv("TRADING_PRIORITY_SYMBOLS", "TSLA")
+    monkeypatch.delenv("TRADING_PRIORITY_FILE", raising=False)
+    monkeypatch.setenv("TRADING_WATCHLIST_PRIORITY_LIMIT", "2")
+    monkeypatch.setattr("canslim_alert.load_leader_priority_symbols", lambda: ["AMD", "NVDA"])
+    monkeypatch.setattr("dipbuyer_alert.load_leader_priority_symbols", lambda: ["AMD", "NVDA"])
+
+    canslim_priority = load_canslim_priority_symbols()
+    dipbuyer_priority = load_dipbuyer_priority_symbols()
+
+    assert canslim_priority == ["TSLA", "AMD", "NVDA"]
+    assert dipbuyer_priority == ["TSLA", "AMD", "NVDA"]
+    assert len(canslim_priority) == len(set(canslim_priority))
+    assert len(dipbuyer_priority) == len(set(dipbuyer_priority))
 
 
 def test_canslim_alert_timing_line_surfaces_phase_and_nested_timings():
@@ -196,6 +214,47 @@ def test_dipbuyer_alert_is_compact_when_market_gate_blocks_buys():
         "Final action: DO NOT BUY — market regime veto (market correction gate)",
     ]
     analyzer.analyze.assert_not_called()
+
+
+def test_dipbuyer_alert_can_expand_review_details_for_local_runs():
+    analyzer = MagicMock()
+    fake = _FakeDipBuyerAdvisor()
+    fake._analysis = {
+        "CFLT": {"total_score": 7, "recommendation": {"action": "NO_BUY", "reason": "market correction gate"}},
+        "HWM": {"total_score": 7, "recommendation": {"action": "NO_BUY", "reason": "market correction gate"}},
+        "ALUR": {"total_score": 6, "recommendation": {"action": "NO_BUY", "reason": "market correction gate"}},
+        "SHOP": {"total_score": 6, "recommendation": {"action": "NO_BUY", "reason": "market correction gate"}},
+    }
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=fake), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_dipbuyer(limit=5, min_score=6, universe_size=4, review_detail_limit=5)
+
+    assert "Vetoes:" in text
+    assert "(+1 more)" not in text
+    assert "SHOP NO_BUY" in text
+
+
+def test_dipbuyer_alert_downgrades_buys_to_watch_in_correction_mode():
+    analyzer = MagicMock()
+    fake = _FakeDipBuyerAdvisor()
+    fake._analysis = {
+        "CFLT": {"total_score": 9, "recommendation": {"action": "BUY", "reason": "clean"}},
+        "HWM": {"total_score": 8, "recommendation": {"action": "BUY", "reason": "clean"}},
+        "ALUR": {"total_score": 7, "recommendation": {"action": "WATCH", "reason": "early"}},
+        "SHOP": {"total_score": 4, "recommendation": {"action": "NO_BUY", "reason": "below threshold"}},
+    }
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=fake), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_dipbuyer(limit=5, min_score=6, universe_size=4, review_detail_limit=5)
+
+    assert "Qualified setups: 3 of 4 scanned | BUY 0 | WATCH 3" in text
+    assert "Watch names (regime-blocked buys): CFLT, HWM, ALUR" in text
+    assert "Top leaders: CFLT WATCH (9/12) | HWM WATCH (8/12) | ALUR WATCH (7/12)" in text
+    assert "Final action: WATCH only — correction regime blocks new dip buys" in text
 
 
 def test_canslim_alert_uses_trade_quality_order_for_leaders():

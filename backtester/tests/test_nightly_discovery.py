@@ -84,6 +84,20 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
             "/tmp/buy-decision-calibration-latest.json",
         ),
     ), patch(
+        "nightly_discovery.refresh_leader_baskets",
+        return_value=(
+            {
+                "generated_at": "2026-03-14T09:00:00+00:00",
+                "buckets": {
+                    "daily": [{"symbol": "NVDA"}],
+                    "weekly": [{"symbol": "NVDA"}, {"symbol": "COIN"}],
+                    "monthly": [{"symbol": "NVDA"}, {"symbol": "COIN"}, {"symbol": "MSFT"}],
+                },
+                "priority": {"symbols": ["NVDA", "COIN", "MSFT"]},
+            },
+            "/tmp/leader-baskets-latest.json",
+        ),
+    ), patch(
         "nightly_discovery.default_research_symbols",
         return_value=["NVDA", "COIN"],
     ), patch(
@@ -107,6 +121,7 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
     assert report["liquidity_overlay"]["summary"]["median_estimated_slippage_bps"] == 11.2
     assert fake_advisor.last_nightly_symbols == ["AAPL", "MSFT", "NVDA", "COIN"]
     assert report["buy_decision_calibration"]["settled_candidates"] == 3
+    assert report["leader_baskets"]["priority_count"] == 3
     build_alpha_report_mock.assert_called_once()
 
 
@@ -148,6 +163,13 @@ def test_format_report_renders_compact_nightly_summary():
                 "reason": "clean breakout",
             }
         ],
+        "leader_baskets": {
+            "generated_at": "2026-03-14T09:00:00+00:00",
+            "daily_count": 1,
+            "weekly_count": 2,
+            "monthly_count": 3,
+            "priority_count": 3,
+        },
     }
 
     text = format_report(report)
@@ -158,6 +180,7 @@ def test_format_report_renders_compact_nightly_summary():
     assert "Live prefilter cache: 42 symbols" in text
     assert "Feature snapshot: v1 | 42 symbols | 2026-03-14T09:00:00+00:00 | ranked_universe_selector.refresh_cache" in text
     assert "Liquidity overlay cache: 39 symbols | 2026-03-14T09:00:03+00:00 | median slip 9.8bps | high quality 17" in text
+    assert "Leader baskets: daily 1 | weekly 2 | monthly 3 | priority 3" in text
     assert "- NVDA: action BUY | tech 6/6 | total 10/12" in text
 
 

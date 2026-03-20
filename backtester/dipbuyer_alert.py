@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from advisor import TradingAdvisor
 from data.adverse_regime import build_adverse_regime_indicator
+from data.leader_baskets import load_leader_priority_symbols
 from data.polymarket_context import build_alert_context_lines
 from data.universe import GROWTH_WATCHLIST
 from data.universe_selection import RankedUniverseSelector, UniverseSelectionResult
@@ -36,6 +37,13 @@ def _trade_quality_sort_key(record: dict) -> tuple:
         -float(record.get('score', 0)),
         str(record.get('symbol', '')),
     )
+
+
+def _display_action(record: dict, *, regime_value: str) -> str:
+    action = str(record.get("action", "NO_BUY") or "NO_BUY").strip().upper()
+    if regime_value == "correction" and action == "BUY":
+        return "WATCH"
+    return action
 
 
 def _run_quiet(fn, *args, **kwargs):
@@ -79,6 +87,17 @@ def _all_names(records: list[dict], limit: int = 10) -> str:
     if len(names) <= limit:
         return ", ".join(names)
     return ", ".join(names[:limit]) + f" (+{len(names) - limit} more)"
+
+
+def _with_display_actions(records: list[dict], *, regime_value: str) -> list[dict]:
+    if regime_value != "correction":
+        return records
+    remapped = []
+    for record in records:
+        copied = dict(record)
+        copied["action"] = _display_action(record, regime_value=regime_value)
+        remapped.append(copied)
+    return remapped
 
 
 def _dedupe_reason(reason: str) -> str:
@@ -163,8 +182,6 @@ def _load_priority_symbols() -> list[str]:
     csv_symbols = os.getenv("TRADING_PRIORITY_SYMBOLS", "")
     if csv_symbols:
         out.extend([s.strip().upper() for s in csv_symbols.split(",") if s.strip()])
-    if os.getenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "1") != "0":
-        out.extend([s.upper() for s in GROWTH_WATCHLIST])
     file_path = os.getenv("TRADING_PRIORITY_FILE")
     if file_path and os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
@@ -172,6 +189,14 @@ def _load_priority_symbols() -> list[str]:
                 sym = line.strip().upper()
                 if sym and not sym.startswith("#"):
                     out.append(sym)
+
+    if os.getenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "1") != "0":
+        leader_limit = max(int(os.getenv("TRADING_LEADER_BASKET_PRIORITY_LIMIT", "12")), 0)
+        out.extend(load_leader_priority_symbols()[:leader_limit])
+
+    if os.getenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "1") != "0":
+        watchlist_limit = max(int(os.getenv("TRADING_WATCHLIST_PRIORITY_LIMIT", "12")), 0)
+        out.extend([s.upper() for s in GROWTH_WATCHLIST[:watchlist_limit]])
 
     seen = set()
     dedup = []
@@ -387,15 +412,21 @@ def _profile_for_market(market_regime: str) -> tuple[str, dict]:
     return "inactive", {}
 
 
-def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -> str:
+def format_alert(
+    limit: int = 8,
+    min_score: int = 6,
+    universe_size: int = 120,
+    review_detail_limit: int = 2,
+) -> str:
     advisor = TradingAdvisor()
     sentiment_analyzer = XSentimentAnalyzer()
 
     market = _run_quiet(advisor.get_market_status, True)
+    regime_value = getattr(getattr(market, "regime", None), "value", "")
     snapshot = _run_quiet(advisor.risk_fetcher.get_snapshot)
     stress = build_adverse_regime_indicator(market=market, risk_inputs=snapshot)
-    profile_name, profile = _profile_for_market(market.regime.value)
-    symbols, priority_count, selection = _deterministic_universe(advisor, universe_size, market.regime.value)
+    profile_name, profile = _profile_for_market(regime_value)
+    symbols, priority_count, selection = _deterministic_universe(advisor, universe_size, regime_value)
     risk_overlay, execution_overlay = _resolve_context_overlays(
         market=market,
         risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
@@ -503,24 +534,30 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
 
     ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
-    buy_candidates = [c for c in candidates if c["action"] == "BUY"]
-    watch_candidates = [c for c in candidates if c["action"] == "WATCH"]
+    display_candidates = _with_display_actions(candidates, regime_value=regime_value)
+    buy_candidates = [c for c in display_candidates if c["action"] == "BUY"]
+    watch_candidates = [c for c in display_candidates if c["action"] == "WATCH"]
     buy_count = len(buy_candidates)
     watch_count = len(watch_candidates)
+    blocked_buy_count = sum(1 for c in candidates if c["action"] == "BUY") if regime_value == "correction" else 0
 
     lines.append(f"Qualified setups: {len(passed)} of {len(symbols)} scanned | BUY {buy_count} | WATCH {watch_count}")
-    if buy_count > 0:
+    if regime_value == "correction" and watch_count > 0:
+        lines.append(f"Watch names (regime-blocked buys): {_all_names(watch_candidates, 10)}")
+        lines.append(f"Correction gate: {blocked_buy_count} dip setups surfaced but are downgraded to WATCH while the market stays defensive")
+    elif buy_count > 0:
         lines.append(f"BUY names: {_all_names(buy_candidates, 10)}")
     else:
         lines.append("BUY names: none")
 
     preview = []
-    for c in candidates[: min(limit, 3)]:
+    for c in display_candidates[: min(limit, 3)]:
         suffix = f" {c['sentiment_tag']}" if c['sentiment_tag'] else ""
         preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12){suffix}")
     leaders_line = " | ".join(preview) if preview else "none"
     lines.append("Top leaders: " + leaders_line)
-    review_lines = render_decision_review(candidates[: min(limit, 5)], detail_limit=2)
+    review_pool = display_candidates[: min(limit, max(review_detail_limit, 5))]
+    review_lines = render_decision_review(review_pool, detail_limit=review_detail_limit)
     lines.extend(review_lines)
     review_has_restraint_or_veto = any(
         line.startswith(("Higher-tq restraint:", "Abstains:", "Vetoes:"))
@@ -529,7 +566,10 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
     if sentiment_checked > 0 and not review_has_restraint_or_veto:
         lines.append("Leaders: " + leaders_line)
 
-    if buy_count == 0:
+    if regime_value == "correction" and watch_count > 0:
+        veto_reason = _dedupe_reason(market.notes or 'market correction gate')
+        lines.append(f"Final action: WATCH only — correction regime blocks new dip buys ({veto_reason})")
+    elif buy_count == 0:
         veto_reason = _dedupe_reason(market.notes or 'market correction gate')
         lines.append(f"Final action: DO NOT BUY — market regime veto ({veto_reason})")
     elif watch_count > 0:
@@ -547,8 +587,21 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--min-score", type=int, default=6)
     parser.add_argument("--universe-size", type=int, default=int(os.getenv("TRADING_UNIVERSE_SIZE", "120")))
+    parser.add_argument(
+        "--review-detail-limit",
+        type=int,
+        default=int(os.getenv("DECISION_REVIEW_DETAIL_LIMIT", "2")),
+        help="Maximum number of decision-review details to show per group",
+    )
     args = parser.parse_args()
-    print(format_alert(limit=args.limit, min_score=args.min_score, universe_size=args.universe_size))
+    print(
+        format_alert(
+            limit=args.limit,
+            min_score=args.min_score,
+            universe_size=args.universe_size,
+            review_detail_limit=max(1, int(args.review_detail_limit)),
+        )
+    )
 
 
 if __name__ == "__main__":
