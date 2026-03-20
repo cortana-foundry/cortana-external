@@ -8,6 +8,7 @@ import io
 import json
 import warnings
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
@@ -17,6 +18,7 @@ DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
 from advisor import TradingAdvisor
 from buy_decision_calibration import generate_buy_decision_calibration_artifact
 from experimental_alpha import build_alpha_report, default_alpha_root, default_research_symbols, persist_alpha_snapshot
+from data.leader_baskets import refresh_leader_baskets
 from data.universe import UNIVERSE_PROFILE_NIGHTLY_DISCOVERY
 from data.universe_selection import RankedUniverseSelector
 
@@ -38,6 +40,7 @@ def build_report(
     advisor = TradingAdvisor()
     _refresh_experimental_alpha_snapshot(advisor=advisor)
     market = _with_runtime_warning_filters(advisor.get_market_status, refresh=True)
+    generated_at = datetime.now(UTC).isoformat()
     symbols = advisor.screener.get_universe_for_profile(
         UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
         refresh_sp500=refresh_sp500,
@@ -56,6 +59,7 @@ def build_report(
             leaders.append(
                 {
                     "symbol": row["symbol"],
+                    "price": float(row.get("price", 0.0) or 0.0),
                     "technical_score": int(row.get("technical_score", 0)),
                     "total_score": int(row.get("total_score", 0)),
                     "action": str(row.get("action", "NO_BUY")),
@@ -69,6 +73,12 @@ def build_report(
     liquidity_overlay = None
     feature_snapshot = None
     buy_decision_calibration = _refresh_buy_decision_calibration_summary()
+    leader_baskets = _refresh_leader_baskets_summary(
+        leaders=leaders,
+        generated_at=generated_at,
+        market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
+        universe_size=len(symbols),
+    )
     if refresh_live_prefilter:
         standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
@@ -101,6 +111,7 @@ def build_report(
             }
 
     return {
+        "generated_at": generated_at,
         "profile": UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
         "market_regime": getattr(getattr(market, "regime", None), "value", "unknown"),
         "position_sizing": float(getattr(market, "position_sizing", 0.0) or 0.0),
@@ -110,6 +121,7 @@ def build_report(
         "liquidity_overlay": liquidity_overlay,
         "feature_snapshot": feature_snapshot,
         "buy_decision_calibration": buy_decision_calibration,
+        "leader_baskets": leader_baskets,
     }
 
 
@@ -157,6 +169,15 @@ def format_report(report: dict) -> str:
             f"stale={calibration.get('is_stale')} | "
             f"settled {int(calibration.get('settled_candidates', 0) or 0)} | "
             f"{calibration.get('generated_at') or 'unknown'}"
+        )
+    leader_baskets = report.get("leader_baskets")
+    if leader_baskets:
+        lines.append(
+            "Leader baskets: "
+            f"daily {int(leader_baskets.get('daily_count', 0) or 0)} | "
+            f"weekly {int(leader_baskets.get('weekly_count', 0) or 0)} | "
+            f"monthly {int(leader_baskets.get('monthly_count', 0) or 0)} | "
+            f"priority {int(leader_baskets.get('priority_count', 0) or 0)}"
         )
     if not leaders:
         lines.append("Leaders: none")
@@ -246,6 +267,34 @@ def _refresh_experimental_alpha_snapshot(*, advisor: TradingAdvisor) -> str | No
     except Exception:
         return None
     return str(path)
+
+
+def _refresh_leader_baskets_summary(
+    *,
+    leaders: list[dict],
+    generated_at: str,
+    market_regime: str,
+    universe_size: int,
+) -> dict | None:
+    try:
+        artifact, path = refresh_leader_baskets(
+            leaders=leaders,
+            generated_at=generated_at,
+            market_regime=market_regime,
+            universe_size=universe_size,
+        )
+    except Exception:
+        return None
+    buckets = artifact.get("buckets") if isinstance(artifact.get("buckets"), dict) else {}
+    priority = artifact.get("priority") if isinstance(artifact.get("priority"), dict) else {}
+    return {
+        "path": str(path),
+        "generated_at": artifact.get("generated_at"),
+        "daily_count": len(buckets.get("daily", [])) if isinstance(buckets.get("daily"), list) else 0,
+        "weekly_count": len(buckets.get("weekly", [])) if isinstance(buckets.get("weekly"), list) else 0,
+        "monthly_count": len(buckets.get("monthly", [])) if isinstance(buckets.get("monthly"), list) else 0,
+        "priority_count": len(priority.get("symbols", [])) if isinstance(priority.get("symbols"), list) else 0,
+    }
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from advisor import TradingAdvisor
 from data.adverse_regime import build_adverse_regime_indicator
+from data.leader_baskets import load_leader_priority_symbols
 from data.polymarket_context import build_alert_context_lines
 from data.universe import GROWTH_WATCHLIST
 from data.universe_selection import RankedUniverseSelector, UniverseSelectionResult
@@ -108,9 +109,6 @@ def _load_priority_symbols() -> list[str]:
     if csv_symbols:
         out.extend([s.strip().upper() for s in csv_symbols.split(",") if s.strip()])
 
-    if os.getenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "1") != "0":
-        out.extend([s.upper() for s in GROWTH_WATCHLIST])
-
     file_path = os.getenv("TRADING_PRIORITY_FILE")
     if file_path and os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
@@ -118,6 +116,14 @@ def _load_priority_symbols() -> list[str]:
                 sym = line.strip().upper()
                 if sym and not sym.startswith("#"):
                     out.append(sym)
+
+    if os.getenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "1") != "0":
+        leader_limit = max(int(os.getenv("TRADING_LEADER_BASKET_PRIORITY_LIMIT", "12")), 0)
+        out.extend(load_leader_priority_symbols()[:leader_limit])
+
+    if os.getenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "1") != "0":
+        watchlist_limit = max(int(os.getenv("TRADING_WATCHLIST_PRIORITY_LIMIT", "12")), 0)
+        out.extend([s.upper() for s in GROWTH_WATCHLIST[:watchlist_limit]])
 
     seen = set()
     deduped = []
@@ -339,7 +345,12 @@ def _format_timing_line(phase_timings: dict[str, float], nested_timings: dict[st
     return "Timing: " + " | ".join(phase_bits)
 
 
-def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -> str:
+def format_alert(
+    limit: int = 8,
+    min_score: int = 6,
+    universe_size: int = 120,
+    review_detail_limit: int = 2,
+) -> str:
     timing_enabled = os.getenv("BACKTESTER_TIMING", "0") not in {"", "0", "false", "False"}
     phase_timings: dict[str, float] = {}
     nested_timings: defaultdict[str, float] = defaultdict(float)
@@ -487,7 +498,8 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         for c in candidates[: min(limit, 3)]:
             preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12)")
         lines.append("Leaders: " + " | ".join(preview))
-        lines.extend(render_decision_review(candidates[: min(limit, 5)], detail_limit=2))
+        review_pool = candidates[: min(limit, max(review_detail_limit, 5))]
+        lines.extend(render_decision_review(review_pool, detail_limit=review_detail_limit))
 
     if getattr(market, "status", "ok") == "degraded":
         lines.append(f"Note: degraded market data ({float(getattr(market, 'snapshot_age_seconds', 0.0) or 0.0):.0f}s stale)")
@@ -501,8 +513,21 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--min-score", type=int, default=6)
     parser.add_argument("--universe-size", type=int, default=int(os.getenv("TRADING_UNIVERSE_SIZE", "120")))
+    parser.add_argument(
+        "--review-detail-limit",
+        type=int,
+        default=int(os.getenv("DECISION_REVIEW_DETAIL_LIMIT", "2")),
+        help="Maximum number of decision-review details to show per group",
+    )
     args = parser.parse_args()
-    print(format_alert(limit=args.limit, min_score=args.min_score, universe_size=args.universe_size))
+    print(
+        format_alert(
+            limit=args.limit,
+            min_score=args.min_score,
+            universe_size=args.universe_size,
+            review_detail_limit=max(1, int(args.review_detail_limit)),
+        )
+    )
 
 
 if __name__ == "__main__":
