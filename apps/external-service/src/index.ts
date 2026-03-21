@@ -24,6 +24,13 @@ async function main(): Promise<void> {
 
   const { app, services } = createApplication();
 
+  try {
+    await services.marketData.startup();
+    startupLogger.log("market-data startup ok");
+  } catch (error) {
+    startupLogger.error("market-data startup failed", error);
+  }
+
   const whoopWarmup = withTimeout(20_000);
   try {
     await services.whoop.warmup();
@@ -89,6 +96,9 @@ async function main(): Promise<void> {
     shuttingDown = true;
     shutdownLogger.log("draining connections...");
     clearInterval(maintenanceInterval);
+    await services.marketData.shutdown().catch((error) => {
+      shutdownLogger.error("market-data shutdown failed", error);
+    });
     server.close(() => {
       process.exit(0);
     });

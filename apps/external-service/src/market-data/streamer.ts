@@ -28,6 +28,7 @@ export interface SchwabStreamerSessionOptions {
   subscriptionIdleTtlMs?: number;
   reconnectBaseDelayMs?: number;
   reconnectMaxDelayMs?: number;
+  viewReconciliationIntervalMs?: number;
   supervisionIntervalMs?: number;
   stateSink?: (state: SharedStreamerState) => void;
 }
@@ -96,7 +97,10 @@ export interface SchwabStreamerHealth {
   lastDisconnectReason: string | null;
   reconnectAttempts: number;
   reconnectFailureStreak: number;
+  lastFailureCode: number | null;
+  lastFailureMessage: string | null;
   nextReconnectAt: string | null;
+  lastViewReconciliationAt: string | null;
   activeSubscriptions: Record<string, number>;
   requestedSubscriptions: Record<string, number>;
   staleSymbolCount: number;
@@ -125,6 +129,7 @@ export class SchwabStreamerSession {
   private readonly subscriptionIdleTtlMs: number;
   private readonly reconnectBaseDelayMs: number;
   private readonly reconnectMaxDelayMs: number;
+  private readonly viewReconciliationIntervalMs: number;
   private readonly stateSink?: (state: SharedStreamerState) => void;
   private ws: WebSocketLike | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -148,7 +153,10 @@ export class SchwabStreamerSession {
   private lastDisconnectReason: string | null = null;
   private reconnectAttempts = 0;
   private reconnectFailureStreak = 0;
+  private lastFailureCode: number | null = null;
+  private lastFailureMessage: string | null = null;
   private nextReconnectAt = 0;
+  private lastViewReconciliationAt = 0;
   private requestCounter = 0;
   private currentPreferences: SchwabStreamerPreferences | null = null;
   private readonly supervisionTimer: NodeJS.Timeout;
@@ -167,6 +175,7 @@ export class SchwabStreamerSession {
     this.subscriptionIdleTtlMs = options.subscriptionIdleTtlMs ?? 10 * 60_000;
     this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
     this.reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
+    this.viewReconciliationIntervalMs = options.viewReconciliationIntervalMs ?? 5 * 60_000;
     this.stateSink = options.stateSink;
     this.supervisionTimer = setInterval(() => {
       void this.runSupervisionCycle();
@@ -250,7 +259,12 @@ export class SchwabStreamerSession {
       lastDisconnectReason: this.lastDisconnectReason,
       reconnectAttempts: this.reconnectAttempts,
       reconnectFailureStreak: this.reconnectFailureStreak,
+      lastFailureCode: this.lastFailureCode,
+      lastFailureMessage: this.lastFailureMessage,
       nextReconnectAt: this.nextReconnectAt ? new Date(this.nextReconnectAt).toISOString() : null,
+      lastViewReconciliationAt: this.lastViewReconciliationAt
+        ? new Date(this.lastViewReconciliationAt).toISOString()
+        : null,
       activeSubscriptions,
       requestedSubscriptions,
       staleSymbolCount: this.countStaleSymbols(),
@@ -408,6 +422,8 @@ export class SchwabStreamerSession {
         this.lastLoginAt = now;
         this.reconnectAttempts = 0;
         this.reconnectFailureStreak = 0;
+        this.lastFailureCode = null;
+        this.lastFailureMessage = null;
         this.nextReconnectAt = 0;
         this.loginResolve?.();
         this.loginResolve = null;
@@ -416,6 +432,25 @@ export class SchwabStreamerSession {
         this.loginReject?.(new Error(`Schwab streamer login failed: ${content.msg ?? "unknown error"}`));
         this.loginResolve = null;
         this.loginReject = null;
+      }
+    }
+
+    for (const response of responses) {
+      const entry = response as Record<string, unknown>;
+      const content = (entry.content ?? {}) as StreamerResponseContent;
+      const code = Number(content.code ?? -1);
+      if (code <= 0) {
+        continue;
+      }
+      this.lastFailureCode = code;
+      this.lastFailureMessage = String(content.msg ?? "");
+      if (code === 3) {
+        this.lastDisconnectReason = `LOGIN_DENIED:${this.lastFailureMessage}`;
+        this.nextReconnectAt = 0;
+      } else if (code === 20) {
+        this.forceReconnect("STREAM_CONN_NOT_FOUND");
+      } else if (code === 30) {
+        this.forceReconnect("STOP_STREAMING");
       }
     }
 
@@ -466,6 +501,9 @@ export class SchwabStreamerSession {
       } catch (error) {
         this.logger.error("schwab streamer reconnect failed", error);
       }
+    }
+    if (this.ws && this.ws.readyState === 1 && Date.now() - this.lastViewReconciliationAt >= this.viewReconciliationIntervalMs) {
+      this.reconcileSubscriptionViews();
     }
   }
 
@@ -672,6 +710,24 @@ export class SchwabStreamerSession {
       quotes,
       charts,
     });
+  }
+
+  private reconcileSubscriptionViews(): void {
+    for (const service of Object.values(STREAMER_SERVICES)) {
+      const hasActive = this.activeSubscriptions[service].size > 0;
+      if (!hasActive) {
+        continue;
+      }
+      this.sendRequest({
+        service,
+        command: "VIEW",
+        parameters: {
+          fields: service === STREAMER_SERVICES.LEVELONE_EQUITIES ? this.equitySubscriptionFields : this.chartSubscriptionFields,
+        },
+      });
+    }
+    this.lastViewReconciliationAt = Date.now();
+    this.emitStateSnapshot();
   }
 }
 

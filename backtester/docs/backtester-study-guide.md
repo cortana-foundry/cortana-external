@@ -84,6 +84,7 @@ Important note:
   - configured remote JSON source
   - configured local JSON source
   - Python static seed fallback
+- the long-term goal is still to replace the Python fallback with a maintained constituent source or a curated internal artifact workflow
 - the bundled `SP500_TICKERS` list is only a fallback
 - Python no longer scrapes Wikipedia directly for this path
 
@@ -213,7 +214,8 @@ Important clarification:
 - it calls the local TS market-data service, which picks `Schwab -> Yahoo -> cache`
 - quote freshness can come from `LEVELONE_EQUITIES` and intraday candle freshness can come from `CHART_EQUITY` inside the Schwab streamer session, but Python still only sees normalized HTTP JSON
 - the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, delta subscription updates, and automatic resubscribe for active symbols
-- if you deploy multiple TS instances, one instance can act as the designated streamer leader and write shared quote/chart state for follower instances to read
+- if you deploy multiple TS instances, the recommended setup is `SCHWAB_STREAMER_ROLE=auto`, which uses Postgres advisory locks to elect one streamer leader while follower instances read shared quote/chart state
+- the TS streamer also applies periodic `VIEW` reconciliation for the subscribed field sets and treats documented Schwab failure codes like `LOGIN_DENIED`, `STREAM_CONN_NOT_FOUND`, and `STOP_STREAMING` as explicit runtime states
 
 ##### 2. Fundamentals
 

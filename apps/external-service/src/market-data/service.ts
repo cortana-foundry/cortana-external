@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Pool, type PoolClient } from "pg";
 
 import type { AppConfig } from "../config.js";
 import { HttpError, readJsonResponse } from "../lib/http.js";
@@ -119,10 +120,13 @@ export class MarketDataService {
   private readonly universeRemoteJsonUrl: string;
   private readonly universeLocalJsonPath: string | null;
   private readonly schwabTokenPath: string;
-  private readonly streamerRole: "leader" | "follower" | "disabled";
+  private readonly configuredStreamerRole: "auto" | "leader" | "follower" | "disabled";
+  private activeStreamerRole: "leader" | "follower" | "disabled";
+  private readonly streamerPgLockKey: number;
+  private readonly streamerSharedStateBackend: "file" | "postgres";
   private readonly streamerSharedStatePath: string;
   private readonly streamerEnabled: boolean;
-  private readonly streamer: SchwabStreamerSession | null;
+  private streamer: SchwabStreamerSession | null = null;
   private readonly providerMetrics: ProviderMetrics = {
     lastSuccessfulSchwabRestAt: null,
     lastSuccessfulYahooFallbackAt: null,
@@ -131,6 +135,10 @@ export class MarketDataService {
     lastTokenRefreshAt: null,
   };
   private tokenRefreshPromise: Promise<string> | null = null;
+  private pool: Pool | null = null;
+  private dbReadyPromise: Promise<void> | null = null;
+  private leaderLockClient: PoolClient | null = null;
+  private runtimeReadyPromise: Promise<void> | null = null;
 
   constructor(config: MarketDataServiceConfig = {}) {
     this.logger = config.logger ?? createLogger("market-data");
@@ -152,6 +160,8 @@ export class MarketDataService {
       SCHWAB_USER_PREFERENCES_URL: "",
       SCHWAB_STREAMER_ENABLED: "1",
       SCHWAB_STREAMER_ROLE: "leader",
+      SCHWAB_STREAMER_PG_LOCK_KEY: 814021,
+      SCHWAB_STREAMER_SHARED_STATE_BACKEND: "file",
       SCHWAB_STREAMER_SHARED_STATE_PATH: ".cache/market_data/schwab-streamer-state.json",
       SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 5_000,
       SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
@@ -176,34 +186,32 @@ export class MarketDataService {
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
     this.universeLocalJsonPath = resolveOptionalRepoPath(this.config.MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH);
     this.schwabTokenPath = resolveRepoPath(this.config.SCHWAB_TOKEN_PATH);
-    this.streamerRole = this.config.SCHWAB_STREAMER_ROLE;
+    this.configuredStreamerRole = this.config.SCHWAB_STREAMER_ROLE;
+    this.activeStreamerRole = this.configuredStreamerRole === "auto" ? "follower" : this.configuredStreamerRole;
+    this.streamerPgLockKey = this.config.SCHWAB_STREAMER_PG_LOCK_KEY;
+    this.streamerSharedStateBackend = this.config.SCHWAB_STREAMER_SHARED_STATE_BACKEND;
     this.streamerSharedStatePath = resolveRepoPath(this.config.SCHWAB_STREAMER_SHARED_STATE_PATH);
     this.streamerEnabled = !["0", "false", "no", "off"].includes(
       this.config.SCHWAB_STREAMER_ENABLED.trim().toLowerCase(),
     );
-    this.streamer =
-      this.streamerEnabled && this.streamerRole === "leader" && this.isSchwabConfigured()
-        ? new SchwabStreamerSession({
-            logger: this.logger,
-            websocketFactory: config.websocketFactory,
-            accessTokenProvider: () => this.getSchwabAccessToken(),
-            preferencesProvider: () => this.fetchSchwabStreamerPreferences(),
-            connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
-            freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
-            stateSink: (state) => this.writeSharedStreamerState(state),
-          })
-        : null;
+    if (this.streamerEnabled && this.activeStreamerRole === "leader" && this.isSchwabConfigured()) {
+      this.streamer = this.createStreamer(config.websocketFactory);
+    }
   }
 
   async checkHealth(): Promise<Record<string, unknown>> {
-    const sharedState = this.readSharedStreamerState();
+    await this.ensureRuntimeReady();
+    const sharedState = await this.readSharedStreamerState();
     return {
       status: "healthy",
       providers: {
         schwab: this.isSchwabConfigured() ? "configured" : "disabled",
         schwabStreamer: this.streamer ? "enabled" : "disabled",
         schwabStreamerMeta: this.streamer?.getHealth() ?? null,
-        schwabStreamerRole: this.streamerRole,
+        schwabStreamerRole: this.activeStreamerRole,
+        schwabStreamerRoleConfigured: this.configuredStreamerRole,
+        schwabStreamerPgLockKey: this.streamerPgLockKey,
+        schwabStreamerSharedStateBackend: this.streamerSharedStateBackend,
         schwabStreamerSharedStatePath: this.streamerSharedStatePath,
         schwabStreamerSharedStateUpdatedAt: sharedState?.updatedAt ?? null,
         yahoo: "ready",
@@ -215,6 +223,32 @@ export class MarketDataService {
         providerMetrics: this.providerMetrics,
       },
     };
+  }
+
+  async startup(): Promise<void> {
+    await this.ensureRuntimeReady();
+  }
+
+  async shutdown(): Promise<void> {
+    this.streamer?.close();
+    this.streamer = null;
+    if (this.leaderLockClient) {
+      try {
+        await this.leaderLockClient.query("SELECT pg_advisory_unlock($1)", [this.streamerPgLockKey]);
+      } catch (error) {
+        this.logger.error("Unable to release Schwab streamer advisory lock", error);
+      } finally {
+        this.leaderLockClient.release();
+        this.leaderLockClient = null;
+      }
+    }
+    if (this.pool) {
+      await this.pool.end().catch((error) => {
+        this.logger.error("Unable to close market-data pool", error);
+      });
+      this.pool = null;
+      this.dbReadyPromise = null;
+    }
   }
 
   async handleHistory(request: Request, rawSymbol: string, compareWith?: string): Promise<MarketDataRouteResult<MarketDataHistory>> {
@@ -250,6 +284,7 @@ export class MarketDataService {
   }
 
   async handleQuote(_request: Request, rawSymbol: string, compareWith?: string): Promise<MarketDataRouteResult<MarketDataQuote>> {
+    await this.ensureRuntimeReady();
     const symbol = normalizeMarketSymbol(rawSymbol);
     if (!symbol) {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
@@ -279,6 +314,7 @@ export class MarketDataService {
     rawSymbol: string,
     compareWith?: string,
   ): Promise<MarketDataRouteResult<MarketDataSnapshot>> {
+    await this.ensureRuntimeReady();
     const symbol = normalizeMarketSymbol(rawSymbol);
     if (!symbol) {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
@@ -516,7 +552,7 @@ export class MarketDataService {
       } catch (error) {
         reasons.push(`Schwab streamer failed: ${summarizeError(error)}`);
       }
-      const shared = this.readSharedStreamerQuote(symbol);
+      const shared = await this.readSharedStreamerQuote(symbol);
       if (shared?.price != null) {
         return { source: "schwab_streamer_shared", status: "ok", stalenessSeconds: 0, quote: shared };
       }
@@ -543,7 +579,7 @@ export class MarketDataService {
   private async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
     const quote = await this.fetchPrimaryQuote(symbol);
     const chartEquity =
-      (await this.streamer?.getChartEquity(symbol).catch(() => null)) ?? this.readSharedStreamerChart(symbol);
+      (await this.streamer?.getChartEquity(symbol).catch(() => null)) ?? (await this.readSharedStreamerChart(symbol));
     const [metadata, fundamentals] = await Promise.all([
       this.fetchYahooMetadata(symbol).catch(() => ({})),
       this.fetchYahooFundamentals(symbol).catch(() => ({})),
@@ -834,6 +870,96 @@ export class MarketDataService {
     }
     this.recordSchwabRestSuccess();
     return prefs;
+  }
+
+  private createStreamer(websocketFactory?: WebSocketFactory): SchwabStreamerSession {
+    return new SchwabStreamerSession({
+      logger: this.logger,
+      websocketFactory,
+      accessTokenProvider: () => this.getSchwabAccessToken(),
+      preferencesProvider: () => this.fetchSchwabStreamerPreferences(),
+      connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
+      freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
+      stateSink: (state) => {
+        void this.writeSharedStreamerState(state);
+      },
+    });
+  }
+
+  private async ensureRuntimeReady(): Promise<void> {
+    if (this.runtimeReadyPromise) {
+      return this.runtimeReadyPromise;
+    }
+    this.runtimeReadyPromise = (async () => {
+      if (this.streamerSharedStateBackend === "postgres" || this.configuredStreamerRole === "auto") {
+        await this.ensureDB();
+      }
+      if (this.configuredStreamerRole === "auto") {
+        const acquired = await this.tryAcquireStreamerLeadership();
+        this.activeStreamerRole = acquired ? "leader" : "follower";
+      }
+      if (this.streamerEnabled && this.activeStreamerRole === "leader" && !this.streamer && this.isSchwabConfigured()) {
+        this.streamer = this.createStreamer();
+      }
+    })();
+    try {
+      await this.runtimeReadyPromise;
+    } catch (error) {
+      this.runtimeReadyPromise = null;
+      throw error;
+    }
+  }
+
+  private async ensureDB(): Promise<void> {
+    if (this.dbReadyPromise) {
+      return this.dbReadyPromise;
+    }
+    this.dbReadyPromise = (async () => {
+      const pool = new Pool({
+        connectionString: process.env.CORTANA_DATABASE_URL ?? this.config.CORTANA_DATABASE_URL,
+        max: 5,
+        idleTimeoutMillis: 30 * 60 * 1000,
+      });
+      const client = await pool.connect();
+      try {
+        await client.query("SELECT 1");
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS market_data_streamer_state (
+            stream_name text PRIMARY KEY,
+            payload jsonb NOT NULL,
+            updated_at timestamptz NOT NULL DEFAULT now()
+          )
+        `);
+      } finally {
+        client.release();
+      }
+      this.pool = pool;
+    })();
+    return this.dbReadyPromise;
+  }
+
+  private async tryAcquireStreamerLeadership(): Promise<boolean> {
+    if (!this.pool) {
+      return false;
+    }
+    if (this.leaderLockClient) {
+      return true;
+    }
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<{ acquired: boolean }>("SELECT pg_try_advisory_lock($1) AS acquired", [
+        this.streamerPgLockKey,
+      ]);
+      if (result.rows[0]?.acquired) {
+        this.leaderLockClient = client;
+        return true;
+      }
+      client.release();
+      return false;
+    } catch (error) {
+      client.release();
+      throw error;
+    }
   }
 
   private async fetchSchwabHistory(symbol: string, period: string, interval: string): Promise<MarketDataHistoryPoint[]> {
@@ -1273,7 +1399,26 @@ export class MarketDataService {
     this.providerMetrics.lastSuccessfulYahooFallbackAt = new Date().toISOString();
   }
 
-  private writeSharedStreamerState(state: SharedStreamerState): void {
+  private async writeSharedStreamerState(state: SharedStreamerState): Promise<void> {
+    if (this.streamerSharedStateBackend === "postgres") {
+      if (!this.pool) {
+        return;
+      }
+      try {
+        await this.pool.query(
+          `
+            INSERT INTO market_data_streamer_state (stream_name, payload, updated_at)
+            VALUES ($1, $2::jsonb, now())
+            ON CONFLICT (stream_name)
+            DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+          `,
+          ["schwab_market_data", JSON.stringify(state)],
+        );
+      } catch (error) {
+        this.logger.error("Unable to persist shared Schwab streamer state to Postgres", error);
+      }
+      return;
+    }
     try {
       fs.mkdirSync(path.dirname(this.streamerSharedStatePath), { recursive: true });
       fs.writeFileSync(this.streamerSharedStatePath, JSON.stringify(state, null, 2));
@@ -1282,15 +1427,30 @@ export class MarketDataService {
     }
   }
 
-  private readSharedStreamerState(): SharedStreamerState | null {
+  private async readSharedStreamerState(): Promise<SharedStreamerState | null> {
+    if (this.streamerSharedStateBackend === "postgres") {
+      if (!this.pool) {
+        return null;
+      }
+      try {
+        const result = await this.pool.query<{ payload: SharedStreamerState }>(
+          "SELECT payload FROM market_data_streamer_state WHERE stream_name = $1",
+          ["schwab_market_data"],
+        );
+        return result.rows[0]?.payload ?? null;
+      } catch (error) {
+        this.logger.error("Unable to read shared Schwab streamer state from Postgres", error);
+        return null;
+      }
+    }
     return readJsonFile<SharedStreamerState>(this.streamerSharedStatePath);
   }
 
-  private readSharedStreamerQuote(symbol: string): MarketDataQuote | null {
-    if (this.streamerRole !== "follower") {
+  private async readSharedStreamerQuote(symbol: string): Promise<MarketDataQuote | null> {
+    if (this.activeStreamerRole !== "follower") {
       return null;
     }
-    const state = this.readSharedStreamerState();
+    const state = await this.readSharedStreamerState();
     const quote = state?.quotes?.[symbol];
     if (!quote?.receivedAt || !quote.quote) {
       return null;
@@ -1302,11 +1462,11 @@ export class MarketDataService {
     return quote.quote;
   }
 
-  private readSharedStreamerChart(symbol: string): Record<string, unknown> | null {
-    if (this.streamerRole !== "follower") {
+  private async readSharedStreamerChart(symbol: string): Promise<Record<string, unknown> | null> {
+    if (this.activeStreamerRole !== "follower") {
       return null;
     }
-    const state = this.readSharedStreamerState();
+    const state = await this.readSharedStreamerState();
     const chart = state?.charts?.[symbol];
     if (!chart?.receivedAt || !chart.point) {
       return null;

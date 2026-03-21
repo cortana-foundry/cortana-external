@@ -59,10 +59,12 @@ Important notes:
 - default runtime order is `Schwab -> Yahoo (inside TS) -> Python cache`
 - quote freshness can use `LEVELONE_EQUITIES` and snapshot freshness can use `CHART_EQUITY` inside the Schwab streamer session when credentials and user preferences are available
 - the Schwab streamer is now supervised inside TS with heartbeat tracking, reconnect backoff, delta subscription updates (`SUBS` + `ADD` + `UNSUBS`), and automatic resubscribe for active symbols
-- multi-instance deployment can now use a designated streamer leader plus follower services:
-  - leader: `SCHWAB_STREAMER_ROLE=leader`
-  - follower: `SCHWAB_STREAMER_ROLE=follower`
-  - shared quote/chart state is written to `SCHWAB_STREAMER_SHARED_STATE_PATH`
+- multi-instance deployment can now use automatic or designated streamer leadership:
+  - `SCHWAB_STREAMER_ROLE=auto` uses Postgres advisory locks to choose one leader
+  - `SCHWAB_STREAMER_ROLE=leader` forces this instance to own the stream
+  - `SCHWAB_STREAMER_ROLE=follower` disables the local Schwab socket and reads shared leader state
+  - shared quote/chart state can use `SCHWAB_STREAMER_SHARED_STATE_BACKEND=file|postgres`
+  - file path: `SCHWAB_STREAMER_SHARED_STATE_PATH`
 - FRED, CBOE, and the base-universe artifact are also owned by the TS service
 - the base-universe artifact now supports a source ladder in TS: `remote_json -> local_json -> python_seed`
 - Alpaca is no longer part of the default runtime chain; use it only for explicit compare/diagnostic checks
@@ -243,8 +245,13 @@ Operational notes:
 - streamer health and reconnect state are exposed through the TS service health payload
 - that health payload now includes message rate, stale symbol count, reconnect failure streak, token refresh state, and last successful Schwab/Yahoo fallback timestamps
 - the streamer keeps a bounded subscription registry for active quote/chart symbols and resubscribes them after reconnects
+- the streamer also runs periodic `VIEW` reconciliation so the Schwab field set stays aligned with the intended quote/chart subscriptions
+- documented Schwab failure codes like `LOGIN_DENIED`, `STREAM_CONN_NOT_FOUND`, and `STOP_STREAMING` are now handled explicitly instead of only surfacing as generic reconnect noise
 - token refresh is single-flight inside TS so concurrent Schwab requests do not stampede the refresh endpoint
 - base-universe refresh is no longer just a Python static-seed copy; TS can prefer a configured remote or local JSON universe source and only fall back to the Python seed when needed
+- recommended production shape is now:
+  - `SCHWAB_STREAMER_ROLE=auto`
+  - `SCHWAB_STREAMER_SHARED_STATE_BACKEND=postgres`
 
 Backtester-facing service endpoints:
 - `GET /market-data/history/:symbol`
