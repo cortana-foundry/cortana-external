@@ -212,7 +212,8 @@ Important clarification:
 - Python is no longer talking to Schwab or Yahoo directly for the normal path
 - it calls the local TS market-data service, which picks `Schwab -> Yahoo -> cache`
 - quote freshness can come from `LEVELONE_EQUITIES` and intraday candle freshness can come from `CHART_EQUITY` inside the Schwab streamer session, but Python still only sees normalized HTTP JSON
-- the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, and automatic resubscribe for active symbols
+- the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, delta subscription updates, and automatic resubscribe for active symbols
+- if you deploy multiple TS instances, one instance can act as the designated streamer leader and write shared quote/chart state for follower instances to read
 
 ##### 2. Fundamentals
 

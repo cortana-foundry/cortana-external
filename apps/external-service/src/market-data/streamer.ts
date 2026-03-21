@@ -29,6 +29,7 @@ export interface SchwabStreamerSessionOptions {
   reconnectBaseDelayMs?: number;
   reconnectMaxDelayMs?: number;
   supervisionIntervalMs?: number;
+  stateSink?: (state: SharedStreamerState) => void;
 }
 
 export interface WebSocketLike {
@@ -71,9 +72,18 @@ interface StreamerResponseContent {
 
 interface SubscriptionEntry {
   symbol: string;
-  requestCount: number;
   lastRequestedAt: number;
   active: boolean;
+}
+
+interface SharedCachedQuote {
+  quote: MarketDataQuote;
+  receivedAt: string;
+}
+
+interface SharedCachedChartPoint {
+  point: StreamerChartEquityPoint;
+  receivedAt: string;
 }
 
 export interface SchwabStreamerHealth {
@@ -85,10 +95,20 @@ export interface SchwabStreamerHealth {
   lastDisconnectAt: string | null;
   lastDisconnectReason: string | null;
   reconnectAttempts: number;
+  reconnectFailureStreak: number;
   nextReconnectAt: string | null;
   activeSubscriptions: Record<string, number>;
   requestedSubscriptions: Record<string, number>;
+  staleSymbolCount: number;
+  messageRatePerMinute: number;
   stale: boolean;
+}
+
+export interface SharedStreamerState {
+  updatedAt: string;
+  health: SchwabStreamerHealth;
+  quotes: Record<string, SharedCachedQuote>;
+  charts: Record<string, SharedCachedChartPoint>;
 }
 
 export class SchwabStreamerSession {
@@ -105,7 +125,7 @@ export class SchwabStreamerSession {
   private readonly subscriptionIdleTtlMs: number;
   private readonly reconnectBaseDelayMs: number;
   private readonly reconnectMaxDelayMs: number;
-  private readonly supervisionIntervalMs: number;
+  private readonly stateSink?: (state: SharedStreamerState) => void;
   private ws: WebSocketLike | null = null;
   private connectPromise: Promise<void> | null = null;
   private loginResolve: (() => void) | null = null;
@@ -120,12 +140,14 @@ export class SchwabStreamerSession {
   };
   private readonly quoteCache = new Map<string, CachedQuote>();
   private readonly chartCache = new Map<string, CachedChartPoint>();
+  private readonly messageTimestamps: number[] = [];
   private lastMessageAt = 0;
   private lastHeartbeatAt = 0;
   private lastLoginAt = 0;
   private lastDisconnectAt = 0;
   private lastDisconnectReason: string | null = null;
   private reconnectAttempts = 0;
+  private reconnectFailureStreak = 0;
   private nextReconnectAt = 0;
   private requestCounter = 0;
   private currentPreferences: SchwabStreamerPreferences | null = null;
@@ -145,10 +167,10 @@ export class SchwabStreamerSession {
     this.subscriptionIdleTtlMs = options.subscriptionIdleTtlMs ?? 10 * 60_000;
     this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
     this.reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
-    this.supervisionIntervalMs = options.supervisionIntervalMs ?? 5_000;
+    this.stateSink = options.stateSink;
     this.supervisionTimer = setInterval(() => {
       void this.runSupervisionCycle();
-    }, this.supervisionIntervalMs);
+    }, options.supervisionIntervalMs ?? 5_000);
     this.supervisionTimer.unref?.();
   }
 
@@ -207,7 +229,34 @@ export class SchwabStreamerSession {
       this.connectPromise = null;
       this.loginResolve = null;
       this.loginReject = null;
+      this.emitStateSnapshot();
     }
+  }
+
+  getHealth(): SchwabStreamerHealth {
+    const activeSubscriptions = Object.fromEntries(
+      Object.entries(this.activeSubscriptions).map(([service, symbols]) => [service, symbols.size]),
+    );
+    const requestedSubscriptions = Object.fromEntries(
+      Object.entries(this.subscriptions).map(([service, symbols]) => [service, symbols.size]),
+    );
+    return {
+      enabled: true,
+      connected: Boolean(this.ws && this.ws.readyState === 1),
+      lastMessageAt: this.lastMessageAt ? new Date(this.lastMessageAt).toISOString() : null,
+      lastHeartbeatAt: this.lastHeartbeatAt ? new Date(this.lastHeartbeatAt).toISOString() : null,
+      lastLoginAt: this.lastLoginAt ? new Date(this.lastLoginAt).toISOString() : null,
+      lastDisconnectAt: this.lastDisconnectAt ? new Date(this.lastDisconnectAt).toISOString() : null,
+      lastDisconnectReason: this.lastDisconnectReason,
+      reconnectAttempts: this.reconnectAttempts,
+      reconnectFailureStreak: this.reconnectFailureStreak,
+      nextReconnectAt: this.nextReconnectAt ? new Date(this.nextReconnectAt).toISOString() : null,
+      activeSubscriptions,
+      requestedSubscriptions,
+      staleSymbolCount: this.countStaleSymbols(),
+      messageRatePerMinute: this.currentMessageRatePerMinute(),
+      stale: this.isStale(),
+    };
   }
 
   private getFreshQuote(symbol: string): MarketDataQuote | null {
@@ -266,7 +315,7 @@ export class SchwabStreamerSession {
     this.lastMessageAt = Date.now();
     this.lastHeartbeatAt = 0;
 
-    const opened = await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Schwab streamer open timeout")), this.connectTimeoutMs);
       ws.onopen = () => {
         clearTimeout(timeout);
@@ -281,7 +330,6 @@ export class SchwabStreamerSession {
         reject(new Error(`Schwab streamer closed during connect (${event.code ?? "unknown"})`));
       };
     });
-    await opened;
 
     ws.onmessage = (event) => this.handleMessage(event.data);
     ws.onerror = (event) => {
@@ -338,7 +386,10 @@ export class SchwabStreamerSession {
   }
 
   private handleMessage(raw: string): void {
-    this.lastMessageAt = Date.now();
+    const now = Date.now();
+    this.lastMessageAt = now;
+    this.recordMessageActivity(now);
+
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(raw) as Record<string, unknown>;
@@ -354,8 +405,9 @@ export class SchwabStreamerSession {
       }
       const content = (entry.content ?? {}) as StreamerResponseContent;
       if (Number(content.code ?? -1) === 0) {
-        this.lastLoginAt = Date.now();
+        this.lastLoginAt = now;
         this.reconnectAttempts = 0;
+        this.reconnectFailureStreak = 0;
         this.nextReconnectAt = 0;
         this.loginResolve?.();
         this.loginResolve = null;
@@ -374,22 +426,16 @@ export class SchwabStreamerSession {
       const service = String(entry.service ?? "");
       if (service === STREAMER_SERVICES.LEVELONE_EQUITIES) {
         for (const row of content) {
-          const normalized = normalizeStreamerEquityQuote(row as Record<string, unknown>, Number(entry.timestamp ?? Date.now()));
+          const normalized = normalizeStreamerEquityQuote(row as Record<string, unknown>, Number(entry.timestamp ?? now));
           if (normalized) {
-            this.quoteCache.set(normalized.symbol, {
-              quote: normalized,
-              receivedAt: Date.now(),
-            });
+            this.quoteCache.set(normalized.symbol, { quote: normalized, receivedAt: now });
           }
         }
       } else if (service === STREAMER_SERVICES.CHART_EQUITY) {
         for (const row of content) {
           const normalized = normalizeStreamerChartEquity(row as Record<string, unknown>);
           if (normalized) {
-            this.chartCache.set(normalized.symbol, {
-              point: normalized,
-              receivedAt: Date.now(),
-            });
+            this.chartCache.set(normalized.symbol, { point: normalized, receivedAt: now });
           }
         }
       }
@@ -397,31 +443,9 @@ export class SchwabStreamerSession {
 
     const notifications = Array.isArray(payload.notify) ? payload.notify : [];
     if (notifications.length) {
-      this.lastHeartbeatAt = Date.now();
+      this.lastHeartbeatAt = firstHeartbeat(notifications[0] as Record<string, unknown>) ?? now;
     }
-  }
-
-  getHealth(): SchwabStreamerHealth {
-    const activeSubscriptions = Object.fromEntries(
-      Object.entries(this.activeSubscriptions).map(([service, symbols]) => [service, symbols.size]),
-    );
-    const requestedSubscriptions = Object.fromEntries(
-      Object.entries(this.subscriptions).map(([service, symbols]) => [service, symbols.size]),
-    );
-    return {
-      enabled: true,
-      connected: Boolean(this.ws && this.ws.readyState === 1),
-      lastMessageAt: this.lastMessageAt ? new Date(this.lastMessageAt).toISOString() : null,
-      lastHeartbeatAt: this.lastHeartbeatAt ? new Date(this.lastHeartbeatAt).toISOString() : null,
-      lastLoginAt: this.lastLoginAt ? new Date(this.lastLoginAt).toISOString() : null,
-      lastDisconnectAt: this.lastDisconnectAt ? new Date(this.lastDisconnectAt).toISOString() : null,
-      lastDisconnectReason: this.lastDisconnectReason,
-      reconnectAttempts: this.reconnectAttempts,
-      nextReconnectAt: this.nextReconnectAt ? new Date(this.nextReconnectAt).toISOString() : null,
-      activeSubscriptions,
-      requestedSubscriptions,
-      stale: this.isStale(),
-    };
+    this.emitStateSnapshot();
   }
 
   private async runSupervisionCycle(): Promise<void> {
@@ -452,12 +476,10 @@ export class SchwabStreamerSession {
       const existing = registry.get(symbol);
       if (existing) {
         existing.lastRequestedAt = now;
-        existing.requestCount += 1;
         continue;
       }
       registry.set(symbol, {
         symbol,
-        requestCount: 1,
         lastRequestedAt: now,
         active: false,
       });
@@ -472,26 +494,40 @@ export class SchwabStreamerSession {
       if (active.size) {
         this.sendSubscriptionCommand(service, "UNSUBS", [...active]);
         active.clear();
+        this.emitStateSnapshot();
       }
       return;
     }
-    const changed =
-      wantedSymbols.length !== active.size || wantedSymbols.some((symbol) => !active.has(symbol));
-    if (!changed) {
-      return;
-    }
-    this.sendSubscriptionCommand(service, "SUBS", wantedSymbols);
-    active.clear();
-    wantedSymbols.forEach((symbol) => {
-      active.add(symbol);
-      const entry = registry.get(symbol);
-      if (entry) {
+    if (!active.size) {
+      this.sendSubscriptionCommand(service, "SUBS", wantedSymbols);
+      wantedSymbols.forEach((symbol) => active.add(symbol));
+      for (const entry of registry.values()) {
         entry.active = true;
       }
-    });
+      this.emitStateSnapshot();
+      return;
+    }
+
+    const additions = wantedSymbols.filter((symbol) => !active.has(symbol));
+    const removals = [...active].filter((symbol) => !registry.has(symbol));
+    if (!additions.length && !removals.length) {
+      return;
+    }
+    if (additions.length) {
+      this.sendSubscriptionCommand(service, "ADD", additions);
+      additions.forEach((symbol) => active.add(symbol));
+    }
+    if (removals.length) {
+      this.sendSubscriptionCommand(service, "UNSUBS", removals);
+      removals.forEach((symbol) => active.delete(symbol));
+    }
+    for (const [symbol, entry] of registry.entries()) {
+      entry.active = active.has(symbol);
+    }
+    this.emitStateSnapshot();
   }
 
-  private sendSubscriptionCommand(service: StreamerServiceName, command: "SUBS" | "UNSUBS", symbols: string[]): void {
+  private sendSubscriptionCommand(service: StreamerServiceName, command: "SUBS" | "ADD" | "UNSUBS", symbols: string[]): void {
     if (!symbols.length) {
       return;
     }
@@ -523,9 +559,11 @@ export class SchwabStreamerSession {
         if (activeRemoved.length) {
           this.sendSubscriptionCommand(service, "UNSUBS", activeRemoved);
           activeRemoved.forEach((symbol) => active.delete(symbol));
+          this.emitStateSnapshot();
         }
       } else if (removed.length) {
         removed.forEach((symbol) => active.delete(symbol));
+        this.emitStateSnapshot();
       }
     }
   }
@@ -563,9 +601,77 @@ export class SchwabStreamerSession {
     }
     if (this.hasRequestedSubscriptions()) {
       this.reconnectAttempts += 1;
-      const backoff = Math.min(this.reconnectBaseDelayMs * 2 ** Math.max(this.reconnectAttempts - 1, 0), this.reconnectMaxDelayMs);
+      this.reconnectFailureStreak += 1;
+      const backoff = Math.min(
+        this.reconnectBaseDelayMs * 2 ** Math.max(this.reconnectAttempts - 1, 0),
+        this.reconnectMaxDelayMs,
+      );
       this.nextReconnectAt = Date.now() + backoff;
     }
+    this.emitStateSnapshot();
+  }
+
+  private recordMessageActivity(timestamp: number): void {
+    this.messageTimestamps.push(timestamp);
+    const cutoff = timestamp - 60_000;
+    while (this.messageTimestamps.length && this.messageTimestamps[0] < cutoff) {
+      this.messageTimestamps.shift();
+    }
+  }
+
+  private currentMessageRatePerMinute(): number {
+    const now = Date.now();
+    const cutoff = now - 60_000;
+    while (this.messageTimestamps.length && this.messageTimestamps[0] < cutoff) {
+      this.messageTimestamps.shift();
+    }
+    return this.messageTimestamps.length;
+  }
+
+  private countStaleSymbols(): number {
+    const now = Date.now();
+    let stale = 0;
+    for (const value of this.quoteCache.values()) {
+      if (now - value.receivedAt > this.freshnessTtlMs) {
+        stale += 1;
+      }
+    }
+    for (const value of this.chartCache.values()) {
+      if (now - value.receivedAt > this.freshnessTtlMs) {
+        stale += 1;
+      }
+    }
+    return stale;
+  }
+
+  private emitStateSnapshot(): void {
+    if (!this.stateSink) {
+      return;
+    }
+    const quotes = Object.fromEntries(
+      [...this.quoteCache.entries()].map(([symbol, cached]) => [
+        symbol,
+        {
+          quote: cached.quote,
+          receivedAt: new Date(cached.receivedAt).toISOString(),
+        },
+      ]),
+    );
+    const charts = Object.fromEntries(
+      [...this.chartCache.entries()].map(([symbol, cached]) => [
+        symbol,
+        {
+          point: cached.point,
+          receivedAt: new Date(cached.receivedAt).toISOString(),
+        },
+      ]),
+    );
+    this.stateSink({
+      updatedAt: new Date().toISOString(),
+      health: this.getHealth(),
+      quotes,
+      charts,
+    });
   }
 }
 
@@ -581,4 +687,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function firstHeartbeat(entry: Record<string, unknown>): number | undefined {
+  const value = entry.heartbeat;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
 }

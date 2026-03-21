@@ -26,6 +26,8 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
   SCHWAB_USER_PREFERENCES_URL: "https://api.schwabapi.com/trader/v1/userPreference",
   SCHWAB_STREAMER_ENABLED: "1",
+  SCHWAB_STREAMER_ROLE: "leader",
+  SCHWAB_STREAMER_SHARED_STATE_PATH: ".cache/market_data/test-schwab-streamer-state.json",
   SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 1_000,
   SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
   FRED_API_KEY: "",
@@ -45,7 +47,7 @@ const TEST_CONFIG: AppConfig = {
 
 class FakeWebSocket implements WebSocketLike {
   static createdCount = 0;
-  static sentRequests: Array<{ service: string; command: string }> = [];
+  static sentRequests: Array<{ service: string; command: string; keys?: string }> = [];
   readyState = 0;
   onopen: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
@@ -61,12 +63,14 @@ class FakeWebSocket implements WebSocketLike {
   }
 
   send(data: string): void {
-    const payload = JSON.parse(data) as { requests?: Array<{ service: string; command: string }> };
+    const payload = JSON.parse(data) as {
+      requests?: Array<{ service: string; command: string; parameters?: { keys?: string } }>;
+    };
     const request = payload.requests?.[0];
     if (!request) {
       return;
     }
-    FakeWebSocket.sentRequests.push({ service: request.service, command: request.command });
+    FakeWebSocket.sentRequests.push({ service: request.service, command: request.command, keys: request.parameters?.keys });
     if (request.service === "ADMIN" && request.command === "LOGIN") {
       queueMicrotask(() => {
         this.onmessage?.({
@@ -84,7 +88,8 @@ class FakeWebSocket implements WebSocketLike {
       });
       return;
     }
-    if (request.service === "LEVELONE_EQUITIES" && request.command === "SUBS") {
+    if (request.service === "LEVELONE_EQUITIES" && (request.command === "SUBS" || request.command === "ADD")) {
+      const firstKey = request.parameters?.keys?.split(",")[0] ?? "AAPL";
       queueMicrotask(() => {
         this.onmessage?.({
           data: JSON.stringify({
@@ -92,10 +97,10 @@ class FakeWebSocket implements WebSocketLike {
               {
                 service: "LEVELONE_EQUITIES",
                 timestamp: 1_710_000_100_000,
-                command: "SUBS",
+                command: request.command,
                 content: [
                   {
-                    key: "AAPL",
+                    key: firstKey,
                     "3": 201.5,
                     "34": 1_710_000_100_000,
                   },
@@ -107,7 +112,8 @@ class FakeWebSocket implements WebSocketLike {
       });
       return;
     }
-    if (request.service === "CHART_EQUITY" && request.command === "SUBS") {
+    if (request.service === "CHART_EQUITY" && (request.command === "SUBS" || request.command === "ADD")) {
+      const firstKey = request.parameters?.keys?.split(",")[0] ?? "AAPL";
       queueMicrotask(() => {
         this.onmessage?.({
           data: JSON.stringify({
@@ -115,10 +121,10 @@ class FakeWebSocket implements WebSocketLike {
               {
                 service: "CHART_EQUITY",
                 timestamp: 1_710_000_120_000,
-                command: "SUBS",
+                command: request.command,
                 content: [
                   {
-                    "0": "AAPL",
+                    "0": firstKey,
                     "1": 200.9,
                     "2": 202.1,
                     "3": 200.4,
@@ -183,7 +189,51 @@ describe("market-data routes", () => {
     expect(quote.body.source).toBe("schwab_streamer");
     expect(streamerMeta.connected).toBe(true);
     expect(streamerMeta.stale).toBe(false);
+    expect(streamerMeta.messageRatePerMinute).toBeGreaterThan(0);
+    expect(streamerMeta.reconnectFailureStreak).toBe(0);
     expect((streamerMeta.requestedSubscriptions as Record<string, number>).LEVELONE_EQUITIES).toBe(1);
+  });
+
+  it("uses ADD for incremental streamer subscriptions after the initial SUBS", async () => {
+    FakeWebSocket.createdCount = 0;
+    FakeWebSocket.sentRequests = [];
+    const service = new MarketDataService({
+      config: TEST_CONFIG,
+      websocketFactory: () => new FakeWebSocket(),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/trader/v1/userPreference")) {
+          return new Response(
+            JSON.stringify({
+              streamerInfo: {
+                streamerSocketUrl: "wss://streamer.example.test/ws",
+                schwabClientCustomerId: "customer-id",
+                schwabClientCorrelId: "correl-id",
+                schwabClientChannel: "N9",
+                schwabClientFunctionId: "APIAP",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    await service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL");
+    await service.handleQuote(new Request("http://localhost/market-data/quote/MSFT"), "MSFT");
+
+    const equityCommands = FakeWebSocket.sentRequests
+      .filter((request) => request.service === "LEVELONE_EQUITIES")
+      .map((request) => `${request.command}:${request.keys ?? ""}`);
+    expect(equityCommands).toContain("SUBS:AAPL");
+    expect(equityCommands).toContain("ADD:MSFT");
   });
 
   it("returns yahoo-backed quote payload for quote endpoint", async () => {
@@ -388,6 +438,103 @@ describe("market-data routes", () => {
     const result = await service.handleUniverseRefresh();
     expect(result.body.data.source).toBe("local_json");
     expect(result.body.data.symbols).toEqual(["NVDA", "GOOGL"]);
+  });
+
+  it("reads streamer-backed quote state from the shared state file in follower mode", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-streamer-state-"));
+    const sharedStatePath = path.join(tempDir, "streamer-state.json");
+    fs.writeFileSync(
+      sharedStatePath,
+      JSON.stringify(
+        {
+          updatedAt: new Date().toISOString(),
+          health: { connected: true },
+          quotes: {
+            AAPL: {
+              quote: {
+                symbol: "AAPL",
+                price: 211.11,
+                timestamp: new Date().toISOString(),
+                currency: "USD",
+              },
+              receivedAt: new Date().toISOString(),
+            },
+          },
+          charts: {},
+        },
+        null,
+        2,
+      ),
+    );
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ROLE: "follower",
+        SCHWAB_STREAMER_SHARED_STATE_PATH: sharedStatePath,
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response("not found", { status: 404 });
+        }
+        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+          return new Response(
+            JSON.stringify({
+              quoteResponse: { result: [{ symbol: "AAPL", regularMarketPrice: 199.0, currency: "USD" }] },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/quote/AAPL");
+    const body = (await response.json()) as { source: string; data: { price?: number } };
+
+    expect(body.source).toBe("schwab_streamer_shared");
+    expect(body.data.price).toBe(211.11);
+  });
+
+  it("deduplicates concurrent Schwab token refreshes", async () => {
+    let refreshCalls = 0;
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_TOKEN_PATH: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "schwab-token-")), "token.json"),
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          refreshCalls += 1;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: { quote: { lastPrice: 200.5, tradeTimeInLong: 1_710_000_000_000 } },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    const [one, two] = await Promise.all([
+      service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL"),
+      service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL"),
+    ]);
+
+    expect(one.body.source).toBe("schwab");
+    expect(two.body.source).toBe("schwab");
+    expect(refreshCalls).toBe(1);
   });
 
   it("returns alpaca comparison metadata without changing the primary quote source", async () => {

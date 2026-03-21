@@ -7,7 +7,12 @@ import type { AppConfig } from "../config.js";
 import { HttpError, readJsonResponse } from "../lib/http.js";
 import type { AppLogger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
-import { SchwabStreamerSession, type SchwabStreamerPreferences, type WebSocketFactory } from "./streamer.js";
+import {
+  SchwabStreamerSession,
+  type SchwabStreamerPreferences,
+  type SharedStreamerState,
+  type WebSocketFactory,
+} from "./streamer.js";
 import type {
   MarketDataComparison,
   MarketDataGenericPayload,
@@ -95,6 +100,14 @@ interface UniverseSeedResult {
   source: string;
 }
 
+interface ProviderMetrics {
+  lastSuccessfulSchwabRestAt: string | null;
+  lastSuccessfulYahooFallbackAt: string | null;
+  lastSuccessfulUniverseRefreshAt: string | null;
+  tokenRefreshInFlight: boolean;
+  lastTokenRefreshAt: string | null;
+}
+
 export class MarketDataService {
   private readonly logger: AppLogger;
   private readonly fetchImpl: FetchImpl;
@@ -106,8 +119,18 @@ export class MarketDataService {
   private readonly universeRemoteJsonUrl: string;
   private readonly universeLocalJsonPath: string | null;
   private readonly schwabTokenPath: string;
+  private readonly streamerRole: "leader" | "follower" | "disabled";
+  private readonly streamerSharedStatePath: string;
   private readonly streamerEnabled: boolean;
   private readonly streamer: SchwabStreamerSession | null;
+  private readonly providerMetrics: ProviderMetrics = {
+    lastSuccessfulSchwabRestAt: null,
+    lastSuccessfulYahooFallbackAt: null,
+    lastSuccessfulUniverseRefreshAt: null,
+    tokenRefreshInFlight: false,
+    lastTokenRefreshAt: null,
+  };
+  private tokenRefreshPromise: Promise<string> | null = null;
 
   constructor(config: MarketDataServiceConfig = {}) {
     this.logger = config.logger ?? createLogger("market-data");
@@ -128,6 +151,8 @@ export class MarketDataService {
       SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
       SCHWAB_USER_PREFERENCES_URL: "",
       SCHWAB_STREAMER_ENABLED: "1",
+      SCHWAB_STREAMER_ROLE: "leader",
+      SCHWAB_STREAMER_SHARED_STATE_PATH: ".cache/market_data/schwab-streamer-state.json",
       SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 5_000,
       SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
       FRED_API_KEY: "",
@@ -151,11 +176,13 @@ export class MarketDataService {
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
     this.universeLocalJsonPath = resolveOptionalRepoPath(this.config.MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH);
     this.schwabTokenPath = resolveRepoPath(this.config.SCHWAB_TOKEN_PATH);
+    this.streamerRole = this.config.SCHWAB_STREAMER_ROLE;
+    this.streamerSharedStatePath = resolveRepoPath(this.config.SCHWAB_STREAMER_SHARED_STATE_PATH);
     this.streamerEnabled = !["0", "false", "no", "off"].includes(
       this.config.SCHWAB_STREAMER_ENABLED.trim().toLowerCase(),
     );
     this.streamer =
-      this.streamerEnabled && this.isSchwabConfigured()
+      this.streamerEnabled && this.streamerRole === "leader" && this.isSchwabConfigured()
         ? new SchwabStreamerSession({
             logger: this.logger,
             websocketFactory: config.websocketFactory,
@@ -163,23 +190,29 @@ export class MarketDataService {
             preferencesProvider: () => this.fetchSchwabStreamerPreferences(),
             connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
             freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
+            stateSink: (state) => this.writeSharedStreamerState(state),
           })
         : null;
   }
 
   async checkHealth(): Promise<Record<string, unknown>> {
+    const sharedState = this.readSharedStreamerState();
     return {
       status: "healthy",
       providers: {
         schwab: this.isSchwabConfigured() ? "configured" : "disabled",
         schwabStreamer: this.streamer ? "enabled" : "disabled",
         schwabStreamerMeta: this.streamer?.getHealth() ?? null,
+        schwabStreamerRole: this.streamerRole,
+        schwabStreamerSharedStatePath: this.streamerSharedStatePath,
+        schwabStreamerSharedStateUpdatedAt: sharedState?.updatedAt ?? null,
         yahoo: "ready",
         fred: this.config.FRED_API_KEY ? "configured" : "unauthenticated",
         universeSeedPath: this.universeSeedPath,
         universeSourceLadder: this.universeSourceLadder,
         universeRemoteJsonUrl: this.universeRemoteJsonUrl || null,
         universeLocalJsonPath: this.universeLocalJsonPath,
+        providerMetrics: this.providerMetrics,
       },
     };
   }
@@ -462,6 +495,7 @@ export class MarketDataService {
     }
 
     const rows = await this.fetchYahooHistory(symbol, period);
+    this.recordYahooFallbackSuccess();
     return {
       source: "yahoo",
       status: reasons.length ? "degraded" : "ok",
@@ -482,6 +516,10 @@ export class MarketDataService {
       } catch (error) {
         reasons.push(`Schwab streamer failed: ${summarizeError(error)}`);
       }
+      const shared = this.readSharedStreamerQuote(symbol);
+      if (shared?.price != null) {
+        return { source: "schwab_streamer_shared", status: "ok", stalenessSeconds: 0, quote: shared };
+      }
       try {
         const quote = await this.fetchSchwabQuote(symbol);
         return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
@@ -492,6 +530,7 @@ export class MarketDataService {
     }
 
     const quote = await this.fetchYahooQuote(symbol);
+    this.recordYahooFallbackSuccess();
     return {
       source: "yahoo",
       status: reasons.length ? "degraded" : "ok",
@@ -503,7 +542,8 @@ export class MarketDataService {
 
   private async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
     const quote = await this.fetchPrimaryQuote(symbol);
-    const chartEquity = await this.streamer?.getChartEquity(symbol).catch(() => null);
+    const chartEquity =
+      (await this.streamer?.getChartEquity(symbol).catch(() => null)) ?? this.readSharedStreamerChart(symbol);
     const [metadata, fundamentals] = await Promise.all([
       this.fetchYahooMetadata(symbol).catch(() => ({})),
       this.fetchYahooFundamentals(symbol).catch(() => ({})),
@@ -792,6 +832,7 @@ export class MarketDataService {
     ) {
       throw new Error("Schwab user preferences did not include complete streamer connection details");
     }
+    this.recordSchwabRestSuccess();
     return prefs;
   }
 
@@ -816,6 +857,7 @@ export class MarketDataService {
     if (!rows.length) {
       throw new Error(`Schwab returned no candles for ${symbol}`);
     }
+    this.recordSchwabRestSuccess();
     return rows;
   }
 
@@ -835,6 +877,7 @@ export class MarketDataService {
     if (!Object.keys(quote).length) {
       throw new Error(`Schwab returned no quote for ${symbol}`);
     }
+    this.recordSchwabRestSuccess();
     return {
       symbol,
       price: firstNumber(quote.lastPrice, quote.mark, quote.closePrice, quote.bidPrice),
@@ -935,32 +978,45 @@ export class MarketDataService {
     if (cached && cached.expiresAt > Date.now() + 60_000) {
       return cached.accessToken;
     }
-
-    const body = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: this.config.SCHWAB_REFRESH_TOKEN,
-    });
-    const auth = Buffer.from(`${this.config.SCHWAB_CLIENT_ID}:${this.config.SCHWAB_CLIENT_SECRET}`).toString("base64");
-    const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "content-type": "application/x-www-form-urlencoded",
-        accept: "application/json",
-      },
-      body,
-    });
-    const payload = await readJsonResponse<JsonRecord>(response);
-    const accessToken = String(payload.access_token ?? "").trim();
-    const expiresIn = Number(payload.expires_in ?? 1800);
-    if (!accessToken) {
-      throw new Error("Schwab token refresh returned no access token");
+    if (this.tokenRefreshPromise) {
+      return this.tokenRefreshPromise;
     }
-    this.writeCachedSchwabToken({
-      accessToken,
-      expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
-    });
-    return accessToken;
+
+    this.providerMetrics.tokenRefreshInFlight = true;
+    this.tokenRefreshPromise = (async () => {
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: this.config.SCHWAB_REFRESH_TOKEN,
+      });
+      const auth = Buffer.from(`${this.config.SCHWAB_CLIENT_ID}:${this.config.SCHWAB_CLIENT_SECRET}`).toString("base64");
+      const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "content-type": "application/x-www-form-urlencoded",
+          accept: "application/json",
+        },
+        body,
+      });
+      const payload = await readJsonResponse<JsonRecord>(response);
+      const accessToken = String(payload.access_token ?? "").trim();
+      const expiresIn = Number(payload.expires_in ?? 1800);
+      if (!accessToken) {
+        throw new Error("Schwab token refresh returned no access token");
+      }
+      this.writeCachedSchwabToken({
+        accessToken,
+        expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
+      });
+      this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
+      return accessToken;
+    })();
+    try {
+      return await this.tokenRefreshPromise;
+    } finally {
+      this.tokenRefreshPromise = null;
+      this.providerMetrics.tokenRefreshInFlight = false;
+    }
   }
 
   private readCachedSchwabToken(): CachedTokenPayload | null {
@@ -1003,6 +1059,7 @@ export class MarketDataService {
     };
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     fs.writeFileSync(artifactPath, JSON.stringify(payload, null, 2));
+    this.providerMetrics.lastSuccessfulUniverseRefreshAt = payload.updatedAt;
     return payload;
   }
 
@@ -1206,6 +1263,59 @@ export class MarketDataService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private recordSchwabRestSuccess(): void {
+    this.providerMetrics.lastSuccessfulSchwabRestAt = new Date().toISOString();
+  }
+
+  private recordYahooFallbackSuccess(): void {
+    this.providerMetrics.lastSuccessfulYahooFallbackAt = new Date().toISOString();
+  }
+
+  private writeSharedStreamerState(state: SharedStreamerState): void {
+    try {
+      fs.mkdirSync(path.dirname(this.streamerSharedStatePath), { recursive: true });
+      fs.writeFileSync(this.streamerSharedStatePath, JSON.stringify(state, null, 2));
+    } catch (error) {
+      this.logger.error("Unable to persist shared Schwab streamer state", error);
+    }
+  }
+
+  private readSharedStreamerState(): SharedStreamerState | null {
+    return readJsonFile<SharedStreamerState>(this.streamerSharedStatePath);
+  }
+
+  private readSharedStreamerQuote(symbol: string): MarketDataQuote | null {
+    if (this.streamerRole !== "follower") {
+      return null;
+    }
+    const state = this.readSharedStreamerState();
+    const quote = state?.quotes?.[symbol];
+    if (!quote?.receivedAt || !quote.quote) {
+      return null;
+    }
+    const ageSeconds = this.secondsSince(quote.receivedAt);
+    if (ageSeconds == null || ageSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
+      return null;
+    }
+    return quote.quote;
+  }
+
+  private readSharedStreamerChart(symbol: string): Record<string, unknown> | null {
+    if (this.streamerRole !== "follower") {
+      return null;
+    }
+    const state = this.readSharedStreamerState();
+    const chart = state?.charts?.[symbol];
+    if (!chart?.receivedAt || !chart.point) {
+      return null;
+    }
+    const ageSeconds = this.secondsSince(chart.receivedAt);
+    if (ageSeconds == null || ageSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
+      return null;
+    }
+    return chart.point as unknown as Record<string, unknown>;
   }
 
   private secondsSince(value: string | null | undefined): number | null {
