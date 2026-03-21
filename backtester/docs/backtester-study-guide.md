@@ -80,6 +80,10 @@ flowchart TD
 
 Important note:
 - the TS service owns the base-universe artifact now
+- the TS service can build that artifact from a source ladder:
+  - configured remote JSON source
+  - configured local JSON source
+  - Python static seed fallback
 - the bundled `SP500_TICKERS` list is only a fallback
 - Python no longer scrapes Wikipedia directly for this path
 
@@ -208,6 +212,7 @@ Important clarification:
 - Python is no longer talking to Schwab or Yahoo directly for the normal path
 - it calls the local TS market-data service, which picks `Schwab -> Yahoo -> cache`
 - quote freshness can come from `LEVELONE_EQUITIES` and intraday candle freshness can come from `CHART_EQUITY` inside the Schwab streamer session, but Python still only sees normalized HTTP JSON
+- the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, and automatic resubscribe for active symbols
 
 ##### 2. Fundamentals
 

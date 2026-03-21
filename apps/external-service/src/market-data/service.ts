@@ -90,6 +90,11 @@ interface RiskRow {
   fear_greed: number;
 }
 
+interface UniverseSeedResult {
+  symbols: string[];
+  source: string;
+}
+
 export class MarketDataService {
   private readonly logger: AppLogger;
   private readonly fetchImpl: FetchImpl;
@@ -97,6 +102,9 @@ export class MarketDataService {
   private readonly requestTimeoutMs: number;
   private readonly cacheDir: string;
   private readonly universeSeedPath: string;
+  private readonly universeSourceLadder: string[];
+  private readonly universeRemoteJsonUrl: string;
+  private readonly universeLocalJsonPath: string | null;
   private readonly schwabTokenPath: string;
   private readonly streamerEnabled: boolean;
   private readonly streamer: SchwabStreamerSession | null;
@@ -109,6 +117,9 @@ export class MarketDataService {
       MARKET_DATA_CACHE_DIR: ".cache/market_data",
       MARKET_DATA_REQUEST_TIMEOUT_MS: 30_000,
       MARKET_DATA_UNIVERSE_SEED_PATH: "backtester/data/universe.py",
+      MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
+      MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
+      MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
@@ -136,6 +147,9 @@ export class MarketDataService {
     this.requestTimeoutMs = this.config.MARKET_DATA_REQUEST_TIMEOUT_MS;
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
     this.universeSeedPath = resolveRepoPath(this.config.MARKET_DATA_UNIVERSE_SEED_PATH);
+    this.universeSourceLadder = parseUniverseSourceLadder(this.config.MARKET_DATA_UNIVERSE_SOURCE_LADDER);
+    this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
+    this.universeLocalJsonPath = resolveOptionalRepoPath(this.config.MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH);
     this.schwabTokenPath = resolveRepoPath(this.config.SCHWAB_TOKEN_PATH);
     this.streamerEnabled = !["0", "false", "no", "off"].includes(
       this.config.SCHWAB_STREAMER_ENABLED.trim().toLowerCase(),
@@ -159,9 +173,13 @@ export class MarketDataService {
       providers: {
         schwab: this.isSchwabConfigured() ? "configured" : "disabled",
         schwabStreamer: this.streamer ? "enabled" : "disabled",
+        schwabStreamerMeta: this.streamer?.getHealth() ?? null,
         yahoo: "ready",
         fred: this.config.FRED_API_KEY ? "configured" : "unauthenticated",
         universeSeedPath: this.universeSeedPath,
+        universeSourceLadder: this.universeSourceLadder,
+        universeRemoteJsonUrl: this.universeRemoteJsonUrl || null,
+        universeLocalJsonPath: this.universeLocalJsonPath,
       },
     };
   }
@@ -977,15 +995,37 @@ export class MarketDataService {
       }
     }
 
-    const symbols = await this.seedUniverseFromPython();
+    const seeded = await this.resolveUniverseSeed();
     const payload: MarketDataUniverse = {
-      symbols,
-      source: "static_python_seed",
+      symbols: seeded.symbols,
+      source: seeded.source,
       updatedAt: new Date().toISOString(),
     };
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     fs.writeFileSync(artifactPath, JSON.stringify(payload, null, 2));
     return payload;
+  }
+
+  private async resolveUniverseSeed(): Promise<UniverseSeedResult> {
+    const errors: string[] = [];
+    for (const source of this.universeSourceLadder) {
+      try {
+        if (source === "remote_json") {
+          return { symbols: await this.seedUniverseFromRemoteJson(), source: "remote_json" };
+        }
+        if (source === "local_json") {
+          return { symbols: await this.seedUniverseFromLocalJson(), source: "local_json" };
+        }
+        if (source === "python_seed") {
+          return { symbols: await this.seedUniverseFromPython(), source: "static_python_seed" };
+        }
+      } catch (error) {
+        const summary = summarizeError(error);
+        this.logger.error(`Universe seed source ${source} failed`, error);
+        errors.push(`${source}: ${summary}`);
+      }
+    }
+    throw new Error(`Unable to resolve universe seed (${errors.join("; ")})`);
   }
 
   private async seedUniverseFromPython(): Promise<string[]> {
@@ -998,6 +1038,24 @@ export class MarketDataService {
     const block = raw.slice(start, end > start ? end : undefined);
     const matches = [...block.matchAll(/"([A-Z0-9.\-^]+)"/g)].map((match) => match[1].replaceAll(".", "-"));
     return dedupe(matches);
+  }
+
+  private async seedUniverseFromRemoteJson(): Promise<string[]> {
+    if (!this.universeRemoteJsonUrl) {
+      throw new Error("MARKET_DATA_UNIVERSE_REMOTE_JSON_URL is not configured");
+    }
+    const payload = await this.fetchJson<unknown>(this.universeRemoteJsonUrl, {
+      headers: { accept: "application/json", "user-agent": YAHOO_USER_AGENT },
+    });
+    return extractUniverseSymbols(payload);
+  }
+
+  private async seedUniverseFromLocalJson(): Promise<string[]> {
+    if (!this.universeLocalJsonPath) {
+      throw new Error("MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH is not configured");
+    }
+    const raw = await fs.promises.readFile(this.universeLocalJsonPath, "utf8");
+    return extractUniverseSymbols(JSON.parse(raw) as unknown);
   }
 
   private async buildRiskPayload(days: number): Promise<{
@@ -1382,6 +1440,51 @@ function resolveRepoPath(rawPath: string): string {
     return rawPath;
   }
   return path.join(repoRoot, rawPath);
+}
+
+function resolveOptionalRepoPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return resolveRepoPath(trimmed);
+}
+
+function parseUniverseSourceLadder(raw: string): string[] {
+  const parsed = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((value) => ["remote_json", "local_json", "python_seed"].includes(value));
+  return parsed.length ? parsed : ["python_seed"];
+}
+
+function extractUniverseSymbols(payload: unknown): string[] {
+  const rows = extractUniverseRows(payload);
+  const symbols = rows
+    .map((value) => String(value ?? "").trim().toUpperCase().replaceAll(".", "-"))
+    .filter(Boolean)
+    .filter((value) => /^[A-Z0-9\-^]+$/.test(value));
+  if (!symbols.length) {
+    throw new Error("Universe payload did not contain any valid symbols");
+  }
+  return dedupe(symbols);
+}
+
+function extractUniverseRows(payload: unknown): string[] {
+  if (Array.isArray(payload)) {
+    return payload.map((value) => String(value));
+  }
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.symbols)) {
+      return record.symbols.map((value) => String(value));
+    }
+    if (record.data && typeof record.data === "object" && Array.isArray((record.data as Record<string, unknown>).symbols)) {
+      return ((record.data as Record<string, unknown>).symbols as unknown[]).map((value) => String(value));
+    }
+  }
+  throw new Error("Universe payload format is unsupported");
 }
 
 function readJsonFile<T>(filePath: string): T | null {

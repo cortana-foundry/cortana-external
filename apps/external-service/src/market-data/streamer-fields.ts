@@ -1,0 +1,96 @@
+import type { MarketDataQuote } from "./types.js";
+import type { StreamerChartEquityPoint } from "./streamer.js";
+
+export const STREAMER_SERVICES = {
+  LEVELONE_EQUITIES: "LEVELONE_EQUITIES",
+  CHART_EQUITY: "CHART_EQUITY",
+} as const;
+
+export type StreamerServiceName = (typeof STREAMER_SERVICES)[keyof typeof STREAMER_SERVICES];
+
+export const LEVELONE_EQUITIES_FIELDS = {
+  symbol: ["key", "symbol"],
+  price: ["3", "2", "1"],
+  timestamp: ["34", "35", "37"],
+} as const;
+
+export const CHART_EQUITY_FIELDS = {
+  symbol: ["0", "key"],
+  open: ["1"],
+  high: ["2"],
+  low: ["3"],
+  close: ["4"],
+  volume: ["5"],
+  sequence: ["6"],
+  chartTime: ["7"],
+} as const;
+
+export function normalizeStreamerEquityQuote(
+  row: Record<string, unknown>,
+  fallbackTimestamp: number,
+): MarketDataQuote | null {
+  const symbol = firstString(row, LEVELONE_EQUITIES_FIELDS.symbol)?.trim().toUpperCase() ?? "";
+  if (!symbol) {
+    return null;
+  }
+  const price = firstNumber(row, LEVELONE_EQUITIES_FIELDS.price);
+  if (price == null) {
+    return null;
+  }
+  const timestampMs = firstNumber(row, LEVELONE_EQUITIES_FIELDS.timestamp) ?? fallbackTimestamp;
+  return {
+    symbol,
+    price,
+    timestamp: new Date(timestampMs).toISOString(),
+    currency: "USD",
+  };
+}
+
+export function normalizeStreamerChartEquity(row: Record<string, unknown>): StreamerChartEquityPoint | null {
+  const symbol = firstString(row, CHART_EQUITY_FIELDS.symbol)?.trim().toUpperCase() ?? "";
+  const open = firstNumber(row, CHART_EQUITY_FIELDS.open);
+  const high = firstNumber(row, CHART_EQUITY_FIELDS.high);
+  const low = firstNumber(row, CHART_EQUITY_FIELDS.low);
+  const close = firstNumber(row, CHART_EQUITY_FIELDS.close);
+  const volume = firstNumber(row, CHART_EQUITY_FIELDS.volume);
+  const chartTimeMs = firstNumber(row, CHART_EQUITY_FIELDS.chartTime);
+  if (!symbol || open == null || high == null || low == null || close == null || volume == null || chartTimeMs == null) {
+    return null;
+  }
+  return {
+    symbol,
+    open,
+    high,
+    low,
+    close,
+    volume,
+    sequence: firstNumber(row, CHART_EQUITY_FIELDS.sequence),
+    chartTime: new Date(chartTimeMs).toISOString(),
+  };
+}
+
+function firstNumber(row: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function firstString(row: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+}

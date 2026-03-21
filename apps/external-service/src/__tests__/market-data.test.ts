@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
@@ -11,6 +15,9 @@ const TEST_CONFIG: AppConfig = {
   MARKET_DATA_CACHE_DIR: ".cache/market_data",
   MARKET_DATA_REQUEST_TIMEOUT_MS: 30_000,
   MARKET_DATA_UNIVERSE_SEED_PATH: "backtester/data/universe.py",
+  MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
+  MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
+  MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
@@ -37,6 +44,8 @@ const TEST_CONFIG: AppConfig = {
 };
 
 class FakeWebSocket implements WebSocketLike {
+  static createdCount = 0;
+  static sentRequests: Array<{ service: string; command: string }> = [];
   readyState = 0;
   onopen: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
@@ -44,6 +53,7 @@ class FakeWebSocket implements WebSocketLike {
   onclose: ((event: { code?: number; reason?: string }) => void) | null = null;
 
   constructor() {
+    FakeWebSocket.createdCount += 1;
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.({});
@@ -56,6 +66,7 @@ class FakeWebSocket implements WebSocketLike {
     if (!request) {
       return;
     }
+    FakeWebSocket.sentRequests.push({ service: request.service, command: request.command });
     if (request.service === "ADMIN" && request.command === "LOGIN") {
       queueMicrotask(() => {
         this.onmessage?.({
@@ -132,6 +143,49 @@ class FakeWebSocket implements WebSocketLike {
 }
 
 describe("market-data routes", () => {
+  it("surfaces streamer health metadata after a streamer-backed quote", async () => {
+    FakeWebSocket.createdCount = 0;
+    FakeWebSocket.sentRequests = [];
+    const service = new MarketDataService({
+      config: TEST_CONFIG,
+      websocketFactory: () => new FakeWebSocket(),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/trader/v1/userPreference")) {
+          return new Response(
+            JSON.stringify({
+              streamerInfo: {
+                streamerSocketUrl: "wss://streamer.example.test/ws",
+                schwabClientCustomerId: "customer-id",
+                schwabClientCorrelId: "correl-id",
+                schwabClientChannel: "N9",
+                schwabClientFunctionId: "APIAP",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    const quote = await service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL");
+    const health = await service.checkHealth();
+    const providers = (health.providers ?? {}) as Record<string, unknown>;
+    const streamerMeta = (providers.schwabStreamerMeta ?? {}) as Record<string, unknown>;
+
+    expect(quote.body.source).toBe("schwab_streamer");
+    expect(streamerMeta.connected).toBe(true);
+    expect(streamerMeta.stale).toBe(false);
+    expect((streamerMeta.requestedSubscriptions as Record<string, number>).LEVELONE_EQUITIES).toBe(1);
+  });
+
   it("returns yahoo-backed quote payload for quote endpoint", async () => {
     const app = new Hono();
     const service = new MarketDataService({
@@ -285,6 +339,55 @@ describe("market-data routes", () => {
     expect(result.status).toBe(200);
     expect(result.body.data.source).toBe("static_python_seed");
     expect(result.body.data.symbols.length).toBeGreaterThan(300);
+  });
+
+  it("prefers a configured remote universe JSON source", async () => {
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_CLIENT_ID: "",
+        SCHWAB_CLIENT_SECRET: "",
+        SCHWAB_REFRESH_TOKEN: "",
+        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,python_seed",
+        MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "https://example.test/universe.json",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url === "https://example.test/universe.json") {
+          return new Response(JSON.stringify({ symbols: ["msft", "brk.b", "spy"] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    const result = await service.handleUniverseRefresh();
+    expect(result.body.data.source).toBe("remote_json");
+    expect(result.body.data.symbols).toEqual(["MSFT", "BRK-B", "SPY"]);
+  });
+
+  it("falls back to a configured local universe JSON source when the remote source fails", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-universe-"));
+    const universePath = path.join(tempDir, "universe.json");
+    fs.writeFileSync(universePath, JSON.stringify({ data: { symbols: ["nvda", "googl"] } }, null, 2));
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_CLIENT_ID: "",
+        SCHWAB_CLIENT_SECRET: "",
+        SCHWAB_REFRESH_TOKEN: "",
+        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,local_json,python_seed",
+        MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "https://example.test/universe.json",
+        MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: universePath,
+      },
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+
+    const result = await service.handleUniverseRefresh();
+    expect(result.body.data.source).toBe("local_json");
+    expect(result.body.data.symbols).toEqual(["NVDA", "GOOGL"]);
   });
 
   it("returns alpaca comparison metadata without changing the primary quote source", async () => {

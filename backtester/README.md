@@ -58,7 +58,9 @@ Important notes:
 - the Python engine now reads external market data through the local TS service
 - default runtime order is `Schwab -> Yahoo (inside TS) -> Python cache`
 - quote freshness can use `LEVELONE_EQUITIES` and snapshot freshness can use `CHART_EQUITY` inside the Schwab streamer session when credentials and user preferences are available
+- the Schwab streamer is now supervised inside TS with heartbeat tracking, reconnect backoff, and automatic resubscribe for active symbols
 - FRED, CBOE, and the base-universe artifact are also owned by the TS service
+- the base-universe artifact now supports a source ladder in TS: `remote_json -> local_json -> python_seed`
 - Alpaca is no longer part of the default runtime chain; use it only for explicit compare/diagnostic checks
 - Polymarket integration is read-only
 - if you skip Polymarket refresh, the Python backtester still runs
@@ -232,6 +234,11 @@ Provider order:
 - `Schwab streamer` for fresher `LEVELONE_EQUITIES` quote state and `CHART_EQUITY` intraday candle state when available
 - `Yahoo` fallback inside TS
 - Python local cache as the last fallback
+
+Operational notes:
+- streamer health and reconnect state are exposed through the TS service health payload
+- the streamer keeps a bounded subscription registry for active quote/chart symbols and resubscribes them after reconnects
+- base-universe refresh is no longer just a Python static-seed copy; TS can prefer a configured remote or local JSON universe source and only fall back to the Python seed when needed
 
 Backtester-facing service endpoints:
 - `GET /market-data/history/:symbol`

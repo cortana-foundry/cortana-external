@@ -1,5 +1,11 @@
 import type { AppLogger } from "../lib/logger.js";
 import type { MarketDataQuote } from "./types.js";
+import {
+  normalizeStreamerChartEquity,
+  normalizeStreamerEquityQuote,
+  STREAMER_SERVICES,
+  type StreamerServiceName,
+} from "./streamer-fields.js";
 
 export interface SchwabStreamerPreferences {
   streamerSocketUrl: string;
@@ -18,6 +24,11 @@ export interface SchwabStreamerSessionOptions {
   connectTimeoutMs?: number;
   quoteWaitTimeoutMs?: number;
   freshnessTtlMs?: number;
+  heartbeatTimeoutMs?: number;
+  subscriptionIdleTtlMs?: number;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+  supervisionIntervalMs?: number;
 }
 
 export interface WebSocketLike {
@@ -58,6 +69,28 @@ interface StreamerResponseContent {
   msg?: string;
 }
 
+interface SubscriptionEntry {
+  symbol: string;
+  requestCount: number;
+  lastRequestedAt: number;
+  active: boolean;
+}
+
+export interface SchwabStreamerHealth {
+  enabled: boolean;
+  connected: boolean;
+  lastMessageAt: string | null;
+  lastHeartbeatAt: string | null;
+  lastLoginAt: string | null;
+  lastDisconnectAt: string | null;
+  lastDisconnectReason: string | null;
+  reconnectAttempts: number;
+  nextReconnectAt: string | null;
+  activeSubscriptions: Record<string, number>;
+  requestedSubscriptions: Record<string, number>;
+  stale: boolean;
+}
+
 export class SchwabStreamerSession {
   private readonly logger: AppLogger;
   private readonly websocketFactory: WebSocketFactory;
@@ -68,17 +101,35 @@ export class SchwabStreamerSession {
   private readonly connectTimeoutMs: number;
   private readonly quoteWaitTimeoutMs: number;
   private readonly freshnessTtlMs: number;
+  private readonly heartbeatTimeoutMs: number;
+  private readonly subscriptionIdleTtlMs: number;
+  private readonly reconnectBaseDelayMs: number;
+  private readonly reconnectMaxDelayMs: number;
+  private readonly supervisionIntervalMs: number;
   private ws: WebSocketLike | null = null;
   private connectPromise: Promise<void> | null = null;
   private loginResolve: (() => void) | null = null;
   private loginReject: ((error: Error) => void) | null = null;
-  private readonly subscribedEquitySymbols = new Set<string>();
-  private readonly subscribedChartSymbols = new Set<string>();
+  private readonly subscriptions: Record<StreamerServiceName, Map<string, SubscriptionEntry>> = {
+    [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Map(),
+    [STREAMER_SERVICES.CHART_EQUITY]: new Map(),
+  };
+  private readonly activeSubscriptions: Record<StreamerServiceName, Set<string>> = {
+    [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Set(),
+    [STREAMER_SERVICES.CHART_EQUITY]: new Set(),
+  };
   private readonly quoteCache = new Map<string, CachedQuote>();
   private readonly chartCache = new Map<string, CachedChartPoint>();
   private lastMessageAt = 0;
+  private lastHeartbeatAt = 0;
+  private lastLoginAt = 0;
+  private lastDisconnectAt = 0;
+  private lastDisconnectReason: string | null = null;
+  private reconnectAttempts = 0;
+  private nextReconnectAt = 0;
   private requestCounter = 0;
   private currentPreferences: SchwabStreamerPreferences | null = null;
+  private readonly supervisionTimer: NodeJS.Timeout;
 
   constructor(options: SchwabStreamerSessionOptions) {
     this.logger = options.logger;
@@ -90,6 +141,15 @@ export class SchwabStreamerSession {
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
     this.quoteWaitTimeoutMs = options.quoteWaitTimeoutMs ?? 750;
     this.freshnessTtlMs = options.freshnessTtlMs ?? 15_000;
+    this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? Math.max(this.freshnessTtlMs * 2, 30_000);
+    this.subscriptionIdleTtlMs = options.subscriptionIdleTtlMs ?? 10 * 60_000;
+    this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
+    this.reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
+    this.supervisionIntervalMs = options.supervisionIntervalMs ?? 5_000;
+    this.supervisionTimer = setInterval(() => {
+      void this.runSupervisionCycle();
+    }, this.supervisionIntervalMs);
+    this.supervisionTimer.unref?.();
   }
 
   async getQuote(symbol: string): Promise<MarketDataQuote | null> {
@@ -137,6 +197,7 @@ export class SchwabStreamerSession {
   }
 
   close(): void {
+    clearInterval(this.supervisionTimer);
     try {
       this.ws?.close(1000, "shutdown");
     } catch {
@@ -172,54 +233,22 @@ export class SchwabStreamerSession {
   }
 
   private async ensureConnectedAndSubscribed(equitySymbols: string[], chartSymbols: string[]): Promise<void> {
+    this.touchSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES, equitySymbols);
+    this.touchSubscriptions(STREAMER_SERVICES.CHART_EQUITY, chartSymbols);
     await this.ensureConnected();
-    const wantedEquities = new Set([
-      ...this.subscribedEquitySymbols,
-      ...equitySymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean),
-    ]);
-    const equitiesChanged =
-      wantedEquities.size !== this.subscribedEquitySymbols.size ||
-      [...wantedEquities].some((symbol) => !this.subscribedEquitySymbols.has(symbol));
-    if (equitiesChanged) {
-      this.subscribedEquitySymbols.clear();
-      wantedEquities.forEach((symbol) => this.subscribedEquitySymbols.add(symbol));
-      this.sendRequest({
-        service: "LEVELONE_EQUITIES",
-        command: "SUBS",
-        parameters: {
-          keys: [...this.subscribedEquitySymbols].join(","),
-          fields: this.equitySubscriptionFields,
-        },
-      });
-    }
-
-    const wantedCharts = new Set([
-      ...this.subscribedChartSymbols,
-      ...chartSymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean),
-    ]);
-    const chartsChanged =
-      wantedCharts.size !== this.subscribedChartSymbols.size ||
-      [...wantedCharts].some((symbol) => !this.subscribedChartSymbols.has(symbol));
-    if (chartsChanged) {
-      this.subscribedChartSymbols.clear();
-      wantedCharts.forEach((symbol) => this.subscribedChartSymbols.add(symbol));
-      this.sendRequest({
-        service: "CHART_EQUITY",
-        command: "SUBS",
-        parameters: {
-          keys: [...this.subscribedChartSymbols].join(","),
-          fields: this.chartSubscriptionFields,
-        },
-      });
-    }
+    this.syncSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES);
+    this.syncSubscriptions(STREAMER_SERVICES.CHART_EQUITY);
   }
 
   private async ensureConnected(): Promise<void> {
-    if (this.ws && this.ws.readyState === 1 && Date.now() - this.lastMessageAt <= this.freshnessTtlMs) {
+    if (this.ws && this.ws.readyState === 1 && !this.isStale()) {
       return;
     }
     if (this.connectPromise) {
       return this.connectPromise;
+    }
+    if (this.nextReconnectAt > Date.now()) {
+      await sleep(this.nextReconnectAt - Date.now());
     }
     this.connectPromise = this.connect();
     try {
@@ -235,6 +264,7 @@ export class SchwabStreamerSession {
     const ws = this.websocketFactory(preferences.streamerSocketUrl);
     this.ws = ws;
     this.lastMessageAt = Date.now();
+    this.lastHeartbeatAt = 0;
 
     const opened = await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Schwab streamer open timeout")), this.connectTimeoutMs);
@@ -258,10 +288,7 @@ export class SchwabStreamerSession {
       this.logger.error("schwab streamer error", event);
     };
     ws.onclose = (event) => {
-      this.logger.error("schwab streamer closed", { code: event.code, reason: event.reason });
-      this.ws = null;
-      this.loginResolve = null;
-      this.loginReject = null;
+      this.handleClose(event.code, event.reason);
     };
 
     await new Promise<void>((resolve, reject) => {
@@ -327,6 +354,9 @@ export class SchwabStreamerSession {
       }
       const content = (entry.content ?? {}) as StreamerResponseContent;
       if (Number(content.code ?? -1) === 0) {
+        this.lastLoginAt = Date.now();
+        this.reconnectAttempts = 0;
+        this.nextReconnectAt = 0;
         this.loginResolve?.();
         this.loginResolve = null;
         this.loginReject = null;
@@ -342,7 +372,7 @@ export class SchwabStreamerSession {
       const entry = item as Record<string, unknown>;
       const content = Array.isArray(entry.content) ? entry.content : [];
       const service = String(entry.service ?? "");
-      if (service === "LEVELONE_EQUITIES") {
+      if (service === STREAMER_SERVICES.LEVELONE_EQUITIES) {
         for (const row of content) {
           const normalized = normalizeStreamerEquityQuote(row as Record<string, unknown>, Number(entry.timestamp ?? Date.now()));
           if (normalized) {
@@ -352,7 +382,7 @@ export class SchwabStreamerSession {
             });
           }
         }
-      } else if (service === "CHART_EQUITY") {
+      } else if (service === STREAMER_SERVICES.CHART_EQUITY) {
         for (const row of content) {
           const normalized = normalizeStreamerChartEquity(row as Record<string, unknown>);
           if (normalized) {
@@ -364,63 +394,179 @@ export class SchwabStreamerSession {
         }
       }
     }
-  }
-}
 
-function normalizeStreamerEquityQuote(row: Record<string, unknown>, fallbackTimestamp: number): MarketDataQuote | null {
-  const symbol = String(row.key ?? row.symbol ?? "").trim().toUpperCase();
-  if (!symbol) {
-    return null;
-  }
-  const price = firstNumber(row["3"], row["2"], row["1"]);
-  if (price == null) {
-    return null;
-  }
-  const timestampMs = firstNumber(row["34"], row["35"], row["37"]) ?? fallbackTimestamp;
-  return {
-    symbol,
-    price,
-    timestamp: new Date(timestampMs).toISOString(),
-    currency: "USD",
-  };
-}
-
-function normalizeStreamerChartEquity(row: Record<string, unknown>): StreamerChartEquityPoint | null {
-  const symbol = String(row["0"] ?? row.key ?? "").trim().toUpperCase();
-  const open = firstNumber(row["1"]);
-  const high = firstNumber(row["2"]);
-  const low = firstNumber(row["3"]);
-  const close = firstNumber(row["4"]);
-  const volume = firstNumber(row["5"]);
-  const chartTimeMs = firstNumber(row["7"]);
-  if (!symbol || open == null || high == null || low == null || close == null || volume == null || chartTimeMs == null) {
-    return null;
-  }
-  return {
-    symbol,
-    open,
-    high,
-    low,
-    close,
-    volume,
-    sequence: firstNumber(row["6"]),
-    chartTime: new Date(chartTimeMs).toISOString(),
-  };
-}
-
-function firstNumber(...values: unknown[]): number | undefined {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
+    const notifications = Array.isArray(payload.notify) ? payload.notify : [];
+    if (notifications.length) {
+      this.lastHeartbeatAt = Date.now();
     }
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
+  }
+
+  getHealth(): SchwabStreamerHealth {
+    const activeSubscriptions = Object.fromEntries(
+      Object.entries(this.activeSubscriptions).map(([service, symbols]) => [service, symbols.size]),
+    );
+    const requestedSubscriptions = Object.fromEntries(
+      Object.entries(this.subscriptions).map(([service, symbols]) => [service, symbols.size]),
+    );
+    return {
+      enabled: true,
+      connected: Boolean(this.ws && this.ws.readyState === 1),
+      lastMessageAt: this.lastMessageAt ? new Date(this.lastMessageAt).toISOString() : null,
+      lastHeartbeatAt: this.lastHeartbeatAt ? new Date(this.lastHeartbeatAt).toISOString() : null,
+      lastLoginAt: this.lastLoginAt ? new Date(this.lastLoginAt).toISOString() : null,
+      lastDisconnectAt: this.lastDisconnectAt ? new Date(this.lastDisconnectAt).toISOString() : null,
+      lastDisconnectReason: this.lastDisconnectReason,
+      reconnectAttempts: this.reconnectAttempts,
+      nextReconnectAt: this.nextReconnectAt ? new Date(this.nextReconnectAt).toISOString() : null,
+      activeSubscriptions,
+      requestedSubscriptions,
+      stale: this.isStale(),
+    };
+  }
+
+  private async runSupervisionCycle(): Promise<void> {
+    this.pruneIdleSubscriptions();
+    if (!this.hasRequestedSubscriptions()) {
+      return;
+    }
+    if (this.ws && this.ws.readyState === 1 && this.isStale()) {
+      this.logger.error("schwab streamer stale; forcing reconnect", { lastMessageAt: this.lastMessageAt });
+      this.forceReconnect("stale stream");
+      return;
+    }
+    if (!this.ws && this.nextReconnectAt > 0 && Date.now() >= this.nextReconnectAt && !this.connectPromise) {
+      try {
+        await this.ensureConnected();
+        this.syncSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES);
+        this.syncSubscriptions(STREAMER_SERVICES.CHART_EQUITY);
+      } catch (error) {
+        this.logger.error("schwab streamer reconnect failed", error);
       }
     }
   }
-  return undefined;
+
+  private touchSubscriptions(service: StreamerServiceName, symbols: string[]): void {
+    const registry = this.subscriptions[service];
+    const now = Date.now();
+    for (const symbol of symbols.map((value) => value.trim().toUpperCase()).filter(Boolean)) {
+      const existing = registry.get(symbol);
+      if (existing) {
+        existing.lastRequestedAt = now;
+        existing.requestCount += 1;
+        continue;
+      }
+      registry.set(symbol, {
+        symbol,
+        requestCount: 1,
+        lastRequestedAt: now,
+        active: false,
+      });
+    }
+  }
+
+  private syncSubscriptions(service: StreamerServiceName): void {
+    const registry = this.subscriptions[service];
+    const active = this.activeSubscriptions[service];
+    const wantedSymbols = [...registry.keys()];
+    if (!wantedSymbols.length) {
+      if (active.size) {
+        this.sendSubscriptionCommand(service, "UNSUBS", [...active]);
+        active.clear();
+      }
+      return;
+    }
+    const changed =
+      wantedSymbols.length !== active.size || wantedSymbols.some((symbol) => !active.has(symbol));
+    if (!changed) {
+      return;
+    }
+    this.sendSubscriptionCommand(service, "SUBS", wantedSymbols);
+    active.clear();
+    wantedSymbols.forEach((symbol) => {
+      active.add(symbol);
+      const entry = registry.get(symbol);
+      if (entry) {
+        entry.active = true;
+      }
+    });
+  }
+
+  private sendSubscriptionCommand(service: StreamerServiceName, command: "SUBS" | "UNSUBS", symbols: string[]): void {
+    if (!symbols.length) {
+      return;
+    }
+    this.sendRequest({
+      service,
+      command,
+      parameters: {
+        keys: symbols.join(","),
+        fields: service === STREAMER_SERVICES.LEVELONE_EQUITIES ? this.equitySubscriptionFields : this.chartSubscriptionFields,
+      },
+    });
+  }
+
+  private pruneIdleSubscriptions(): void {
+    const now = Date.now();
+    for (const service of Object.values(STREAMER_SERVICES)) {
+      const registry = this.subscriptions[service];
+      const active = this.activeSubscriptions[service];
+      const removed: string[] = [];
+      for (const [symbol, entry] of registry.entries()) {
+        if (now - entry.lastRequestedAt <= this.subscriptionIdleTtlMs) {
+          continue;
+        }
+        registry.delete(symbol);
+        removed.push(symbol);
+      }
+      if (removed.length && this.ws && this.ws.readyState === 1) {
+        const activeRemoved = removed.filter((symbol) => active.has(symbol));
+        if (activeRemoved.length) {
+          this.sendSubscriptionCommand(service, "UNSUBS", activeRemoved);
+          activeRemoved.forEach((symbol) => active.delete(symbol));
+        }
+      } else if (removed.length) {
+        removed.forEach((symbol) => active.delete(symbol));
+      }
+    }
+  }
+
+  private hasRequestedSubscriptions(): boolean {
+    return Object.values(this.subscriptions).some((registry) => registry.size > 0);
+  }
+
+  private isStale(): boolean {
+    const referenceTimestamp = Math.max(this.lastHeartbeatAt, this.lastMessageAt);
+    if (!referenceTimestamp) {
+      return false;
+    }
+    return Date.now() - referenceTimestamp > this.heartbeatTimeoutMs;
+  }
+
+  private forceReconnect(reason: string): void {
+    try {
+      this.ws?.close(1012, reason);
+    } catch {
+      // ignore close races
+    }
+    this.handleClose(1012, reason);
+  }
+
+  private handleClose(code?: number, reason?: string): void {
+    this.logger.error("schwab streamer closed", { code, reason });
+    this.ws = null;
+    this.loginResolve = null;
+    this.loginReject = null;
+    this.lastDisconnectAt = Date.now();
+    this.lastDisconnectReason = `${code ?? "unknown"}:${reason ?? "no reason"}`;
+    for (const active of Object.values(this.activeSubscriptions)) {
+      active.clear();
+    }
+    if (this.hasRequestedSubscriptions()) {
+      this.reconnectAttempts += 1;
+      const backoff = Math.min(this.reconnectBaseDelayMs * 2 ** Math.max(this.reconnectAttempts - 1, 0), this.reconnectMaxDelayMs);
+      this.nextReconnectAt = Date.now() + backoff;
+    }
+  }
 }
 
 function defaultWebSocketFactory(url: string): WebSocketLike {
