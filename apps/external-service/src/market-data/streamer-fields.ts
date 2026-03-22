@@ -11,6 +11,11 @@ export type StreamerServiceName = (typeof STREAMER_SERVICES)[keyof typeof STREAM
 export const LEVELONE_EQUITIES_FIELDS = {
   symbol: ["key", "symbol"],
   price: ["3", "2", "1"],
+  volume: ["8"],
+  week52High: ["19"],
+  week52Low: ["20"],
+  securityStatus: ["32"],
+  changePercent: ["42"],
   timestamp: ["34", "35", "37"],
 } as const;
 
@@ -41,6 +46,11 @@ export function normalizeStreamerEquityQuote(
   return {
     symbol,
     price,
+    volume: firstNumber(row, LEVELONE_EQUITIES_FIELDS.volume) ?? undefined,
+    week52High: firstNumber(row, LEVELONE_EQUITIES_FIELDS.week52High) ?? undefined,
+    week52Low: firstNumber(row, LEVELONE_EQUITIES_FIELDS.week52Low) ?? undefined,
+    securityStatus: firstString(row, LEVELONE_EQUITIES_FIELDS.securityStatus),
+    changePercent: firstNumber(row, LEVELONE_EQUITIES_FIELDS.changePercent) ?? undefined,
     timestamp: new Date(timestampMs).toISOString(),
     currency: "USD",
   };

@@ -3,9 +3,25 @@ import type { Hono } from "hono";
 import type { MarketDataService } from "./service.js";
 
 export function registerMarketDataRoutes(app: Hono, service: MarketDataService): void {
+  app.get("/market-data/ready", async (c) => {
+    void c;
+    const result = await service.handleReady();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/history/batch", async (c) => {
+    const result = await service.handleHistoryBatch(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
   app.get("/market-data/history/:symbol", async (c) => {
     const compareWith = c.req.query("compare_with");
     const result = await service.handleHistory(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/quote/batch", async (c) => {
+    const result = await service.handleQuoteBatch(c.req.raw);
     return c.json(result.body, result.status as never);
   });
 

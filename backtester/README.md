@@ -259,17 +259,23 @@ Operational notes:
 - Postgres-backed shared streamer state now propagates with `LISTEN/NOTIFY` so follower instances react to quote/chart updates faster than file polling
 - file-backed follower mode now rechecks shared-state file mtimes instead of pinning the first cached snapshot forever
 - `/market-data/ops` and `/market-data/universe/audit` provide a compact operator surface for streamer role, lock ownership, health, source/fallback mix, and universe artifact refresh history
+- `/market-data/ready` now gives a compact readiness answer for scans or wrappers that want to check service state before doing a full run
 - token refresh is single-flight inside TS so concurrent Schwab requests do not stampede the refresh endpoint
+- Yahoo now has a bounded circuit breaker in TS, so repeated Yahoo failures open a short cooldown window instead of letting every request keep stacking timeouts
 - base-universe refresh is no longer just a Python static-seed copy; TS can prefer a configured remote or local JSON universe source and only fall back to the Python seed when needed
 - universe ownership is now more explicit in ops: the service exposes the artifact path, audit path, source ladder, and the expectation that `python_seed` is terminal fallback only
 - recommended production shape is now:
   - `SCHWAB_STREAMER_ROLE=auto`
   - `SCHWAB_STREAMER_SHARED_STATE_BACKEND=postgres`
   - `SCHWAB_STREAMER_SYMBOL_SOFT_CAP=<bounded value>` so the ops surface can warn before Schwab returns `REACHED_SYMBOL_LIMIT`
+  - `SCHWAB_STREAMER_EQUITY_FIELDS=<explicit field set>` if you want to widen or narrow the default Level 1 equity stream payload
 
 Backtester-facing service endpoints:
+- `GET /market-data/ready`
 - `GET /market-data/history/:symbol`
+- `GET /market-data/history/batch`
 - `GET /market-data/quote/:symbol`
+- `GET /market-data/quote/batch`
 - `GET /market-data/snapshot/:symbol`
 - `GET /market-data/fundamentals/:symbol`
 - `GET /market-data/metadata/:symbol`
@@ -285,6 +291,11 @@ History route notes:
 - this is separate from `compare_with=<provider>`:
   - `provider=` changes the primary source for that history response
   - `compare_with=` leaves the primary source alone and adds comparison metadata
+- `GET /market-data/history/batch?symbols=AAPL,MSFT,...` applies one shared `period` / `interval` / `provider` request shape across many symbols and returns per-symbol items in one response
+
+Quote route notes:
+- `GET /market-data/quote/batch?symbols=AAPL,MSFT,...` returns a per-symbol quote list in one response, which is useful for larger scan surfaces or external tooling
+- the default Schwab `LEVELONE_EQUITIES` subscription now requests a richer field set, including total volume, 52-week high/low, security status, and net percent change, so fresher quote responses can carry more of the context that used to require extra polling
 
 Optional compare mode:
 - use `compare_with=alpaca` or another provider on the TS endpoints when you want a diagnostic comparison without changing the default runtime chain

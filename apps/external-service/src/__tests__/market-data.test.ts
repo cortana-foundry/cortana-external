@@ -18,6 +18,8 @@ const TEST_CONFIG: AppConfig = {
   MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
   MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
   MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+  MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
+  MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
@@ -33,6 +35,8 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 1_000,
   SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
   SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
+  SCHWAB_STREAMER_CACHE_SOFT_CAP: 500,
+  SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
   FRED_API_KEY: "",
   WHOOP_CLIENT_ID: "",
   WHOOP_CLIENT_SECRET: "",
@@ -894,6 +898,126 @@ describe("market-data routes", () => {
     delete process.env.ALPACA_KEY;
     delete process.env.ALPACA_SECRET_KEY;
     delete process.env.ALPACA_DATA_URL;
+  });
+
+  it("serves batch quotes through a single route response", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: { ...TEST_CONFIG, SCHWAB_CLIENT_ID: "", SCHWAB_CLIENT_SECRET: "", SCHWAB_REFRESH_TOKEN: "" },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+          const symbol = url.includes("MSFT") ? "MSFT" : "AAPL";
+          return new Response(
+            JSON.stringify({
+              quoteResponse: {
+                result: [
+                  {
+                    symbol,
+                    regularMarketPrice: symbol === "MSFT" ? 410.5 : 201.25,
+                    regularMarketChangePercent: 1.5,
+                    regularMarketTime: 1_710_000_000,
+                    currency: "USD",
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/quote/batch?symbols=AAPL,MSFT");
+    const body = (await response.json()) as { data: { items: Array<{ symbol: string; source: string; data: { price?: number } }> } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.items).toHaveLength(2);
+    expect(body.data.items.map((item) => item.symbol)).toEqual(["AAPL", "MSFT"]);
+    expect(body.data.items.every((item) => item.source === "yahoo")).toBe(true);
+  });
+
+  it("serves batch history with shared interval/provider inputs", async () => {
+    process.env.ALPACA_KEY = "test-key";
+    process.env.ALPACA_SECRET_KEY = "test-secret";
+    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
+
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: { ...TEST_CONFIG, SCHWAB_CLIENT_ID: "", SCHWAB_CLIENT_SECRET: "", SCHWAB_REFRESH_TOKEN: "" },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("data.alpaca.markets") && url.includes("/bars")) {
+          const symbol = url.includes("/MSFT/") ? "MSFT" : "AAPL";
+          return new Response(
+            JSON.stringify({
+              bars: [{ t: "2026-03-20T00:00:00Z", o: 10, h: 12, l: 9, c: symbol === "MSFT" ? 11.5 : 10.5, v: 1000 }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/history/batch?symbols=AAPL,MSFT&period=1mo&interval=1wk&provider=alpaca");
+    const body = (await response.json()) as { data: { items: Array<{ symbol: string; source: string; data: { interval: string; rows: Array<unknown> } }> } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.items).toHaveLength(2);
+    expect(body.data.items.every((item) => item.source === "alpaca")).toBe(true);
+    expect(body.data.items.every((item) => item.data.interval === "1wk")).toBe(true);
+
+    delete process.env.ALPACA_KEY;
+    delete process.env.ALPACA_SECRET_KEY;
+    delete process.env.ALPACA_DATA_URL;
+  });
+
+  it("exposes a readiness route with operator state", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: { ...TEST_CONFIG, SCHWAB_CLIENT_ID: "", SCHWAB_CLIENT_SECRET: "", SCHWAB_REFRESH_TOKEN: "" },
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/ready");
+    const body = (await response.json()) as { data: { ready: boolean; operatorState: string } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.ready).toBe(true);
+    expect(body.data.operatorState).toBe("healthy");
+  });
+
+  it("opens the Yahoo circuit after repeated failures", async () => {
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_CLIENT_ID: "",
+        SCHWAB_CLIENT_SECRET: "",
+        SCHWAB_REFRESH_TOKEN: "",
+        MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 2,
+        MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
+      },
+      fetchImpl: async () => new Response("bad gateway", { status: 502 }),
+    });
+
+    await expect(service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL")).resolves.toMatchObject({
+      status: 503,
+    });
+    await expect(service.handleQuote(new Request("http://localhost/market-data/quote/MSFT"), "MSFT")).resolves.toMatchObject({
+      status: 503,
+    });
+
+    const health = await service.checkHealth();
+    const providers = (health.providers ?? {}) as Record<string, unknown>;
+    const metrics = (providers.providerMetrics ?? {}) as Record<string, unknown>;
+
+    expect(metrics.yahooConsecutiveFailures).toBe(2);
+    expect(metrics.yahooCircuitOpenUntil).toBeTruthy();
   });
 
   it("honors weekly history intervals when falling back to Yahoo", async () => {

@@ -49,6 +49,10 @@ export interface MarketDataQuote {
   changePercent?: number;
   timestamp?: string;
   currency?: string;
+  volume?: number;
+  week52High?: number;
+  week52Low?: number;
+  securityStatus?: string;
 }
 
 export interface MarketDataSnapshot {

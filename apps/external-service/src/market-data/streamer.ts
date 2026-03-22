@@ -21,6 +21,7 @@ export interface SchwabStreamerSessionOptions {
   accessTokenProvider: () => Promise<string>;
   preferencesProvider: () => Promise<SchwabStreamerPreferences>;
   subscriptionFields?: string;
+  cacheSoftCap?: number;
   connectTimeoutMs?: number;
   quoteWaitTimeoutMs?: number;
   freshnessTtlMs?: number;
@@ -90,6 +91,11 @@ interface PendingRequestMeta {
 interface PendingAck {
   resolve: () => void;
   reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
+
+interface PendingDataWaiter<T> {
+  resolve: (value: T | null) => void;
   timeout: NodeJS.Timeout;
 }
 
@@ -164,6 +170,7 @@ export class SchwabStreamerSession {
   private readonly preferencesProvider: () => Promise<SchwabStreamerPreferences>;
   private readonly equitySubscriptionFields: string;
   private readonly chartSubscriptionFields: string;
+  private readonly cacheSoftCap: number;
   private readonly connectTimeoutMs: number;
   private readonly quoteWaitTimeoutMs: number;
   private readonly freshnessTtlMs: number;
@@ -190,6 +197,8 @@ export class SchwabStreamerSession {
   private readonly chartCache = new Map<string, CachedChartPoint>();
   private readonly pendingRequests = new Map<string, PendingRequestMeta>();
   private readonly pendingAcks = new Map<string, PendingAck>();
+  private readonly quoteWaiters = new Map<string, Set<PendingDataWaiter<MarketDataQuote>>>();
+  private readonly chartWaiters = new Map<string, Set<PendingDataWaiter<StreamerChartEquityPoint>>>();
   private readonly confirmedSubscriptions: Record<StreamerServiceName, Set<string>> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Set(),
     [STREAMER_SERVICES.CHART_EQUITY]: new Set(),
@@ -231,8 +240,9 @@ export class SchwabStreamerSession {
     this.websocketFactory = options.websocketFactory ?? defaultWebSocketFactory;
     this.accessTokenProvider = options.accessTokenProvider;
     this.preferencesProvider = options.preferencesProvider;
-    this.equitySubscriptionFields = options.subscriptionFields ?? "0,1,2,3,34";
+    this.equitySubscriptionFields = options.subscriptionFields ?? "0,1,2,3,8,19,20,32,34,42";
     this.chartSubscriptionFields = "0,1,2,3,4,5,6,7";
+    this.cacheSoftCap = options.cacheSoftCap ?? 500;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
     this.quoteWaitTimeoutMs = options.quoteWaitTimeoutMs ?? 750;
     this.freshnessTtlMs = options.freshnessTtlMs ?? 15_000;
@@ -260,15 +270,7 @@ export class SchwabStreamerSession {
     }
 
     await this.ensureConnectedAndSubscribed([normalized], []);
-    const deadline = Date.now() + this.quoteWaitTimeoutMs;
-    while (Date.now() < deadline) {
-      const next = this.getFreshQuote(normalized);
-      if (next) {
-        return next;
-      }
-      await sleep(50);
-    }
-    return this.getFreshQuote(normalized);
+    return this.waitForFreshData(normalized, this.quoteWaiters, () => this.getFreshQuote(normalized));
   }
 
   async getChartEquity(symbol: string): Promise<StreamerChartEquityPoint | null> {
@@ -282,15 +284,7 @@ export class SchwabStreamerSession {
     }
 
     await this.ensureConnectedAndSubscribed([], [normalized]);
-    const deadline = Date.now() + this.quoteWaitTimeoutMs;
-    while (Date.now() < deadline) {
-      const next = this.getFreshChart(normalized);
-      if (next) {
-        return next;
-      }
-      await sleep(50);
-    }
-    return this.getFreshChart(normalized);
+    return this.waitForFreshData(normalized, this.chartWaiters, () => this.getFreshChart(normalized));
   }
 
   close(): void {
@@ -590,14 +584,16 @@ export class SchwabStreamerSession {
         for (const row of content) {
           const normalized = normalizeStreamerEquityQuote(row as Record<string, unknown>, Number(entry.timestamp ?? now));
           if (normalized) {
-            this.quoteCache.set(normalized.symbol, { quote: normalized, receivedAt: now });
+            this.storeQuote(normalized, now);
+            this.resolveDataWaiters(this.quoteWaiters, normalized.symbol, normalized);
           }
         }
       } else if (service === STREAMER_SERVICES.CHART_EQUITY) {
         for (const row of content) {
           const normalized = normalizeStreamerChartEquity(row as Record<string, unknown>);
           if (normalized) {
-            this.chartCache.set(normalized.symbol, { point: normalized, receivedAt: now });
+            this.storeChart(normalized, now);
+            this.resolveDataWaiters(this.chartWaiters, normalized.symbol, normalized);
           }
         }
       }
@@ -612,6 +608,7 @@ export class SchwabStreamerSession {
 
   private async runSupervisionCycle(): Promise<void> {
     this.pruneIdleSubscriptions();
+    this.evictStaleCaches();
     if (!this.hasRequestedSubscriptions()) {
       return;
     }
@@ -789,6 +786,8 @@ export class SchwabStreamerSession {
       pending.reject(new Error(`Schwab streamer closed before ack (${requestId})`));
       this.pendingAcks.delete(requestId);
     }
+    this.resolveAllDataWaiters(this.quoteWaiters);
+    this.resolveAllDataWaiters(this.chartWaiters);
     this.pendingRequests.clear();
     for (const active of Object.values(this.activeSubscriptions)) {
       active.clear();
@@ -838,6 +837,43 @@ export class SchwabStreamerSession {
       }
     }
     return stale;
+  }
+
+  private storeQuote(quote: MarketDataQuote, receivedAt: number): void {
+    this.quoteCache.delete(quote.symbol);
+    this.quoteCache.set(quote.symbol, { quote, receivedAt });
+    this.evictOverflow(this.quoteCache);
+  }
+
+  private storeChart(point: StreamerChartEquityPoint, receivedAt: number): void {
+    this.chartCache.delete(point.symbol);
+    this.chartCache.set(point.symbol, { point, receivedAt });
+    this.evictOverflow(this.chartCache);
+  }
+
+  private evictOverflow<T>(cache: Map<string, T>): void {
+    while (cache.size > this.cacheSoftCap) {
+      const oldestKey = cache.keys().next().value;
+      if (!oldestKey) {
+        return;
+      }
+      cache.delete(oldestKey);
+    }
+  }
+
+  private evictStaleCaches(): void {
+    const now = Date.now();
+    const maxAgeMs = this.freshnessTtlMs * 2;
+    for (const [symbol, cached] of this.quoteCache.entries()) {
+      if (now - cached.receivedAt > maxAgeMs) {
+        this.quoteCache.delete(symbol);
+      }
+    }
+    for (const [symbol, cached] of this.chartCache.entries()) {
+      if (now - cached.receivedAt > maxAgeMs) {
+        this.chartCache.delete(symbol);
+      }
+    }
   }
 
   private emitStateSnapshot(): void {
@@ -1082,6 +1118,65 @@ export class SchwabStreamerSession {
     clearTimeout(pending.timeout);
     this.pendingAcks.delete(requestId);
     pending.reject(error);
+  }
+
+  private waitForFreshData<T>(
+    symbol: string,
+    waiterMap: Map<string, Set<PendingDataWaiter<T>>>,
+    readFresh: () => T | null,
+  ): Promise<T | null> {
+    const immediate = readFresh();
+    if (immediate) {
+      return Promise.resolve(immediate);
+    }
+
+    return new Promise<T | null>((resolve) => {
+      const waiter: PendingDataWaiter<T> = {
+        resolve: (value) => {
+          clearTimeout(waiter.timeout);
+          resolve(value ?? readFresh());
+        },
+        timeout: setTimeout(() => {
+          const waiters = waiterMap.get(symbol);
+          if (waiters) {
+            waiters.delete(waiter);
+            if (!waiters.size) {
+              waiterMap.delete(symbol);
+            }
+          }
+          resolve(readFresh());
+        }, this.quoteWaitTimeoutMs),
+      };
+      const waiters = waiterMap.get(symbol) ?? new Set<PendingDataWaiter<T>>();
+      waiters.add(waiter);
+      waiterMap.set(symbol, waiters);
+    });
+  }
+
+  private resolveDataWaiters<T>(
+    waiterMap: Map<string, Set<PendingDataWaiter<T>>>,
+    symbol: string,
+    value: T,
+  ): void {
+    const waiters = waiterMap.get(symbol);
+    if (!waiters?.size) {
+      return;
+    }
+    waiterMap.delete(symbol);
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timeout);
+      waiter.resolve(value);
+    }
+  }
+
+  private resolveAllDataWaiters<T>(waiterMap: Map<string, Set<PendingDataWaiter<T>>>): void {
+    for (const [symbol, waiters] of waiterMap.entries()) {
+      waiterMap.delete(symbol);
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeout);
+        waiter.resolve(null);
+      }
+    }
   }
 }
 

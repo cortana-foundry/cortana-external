@@ -108,6 +108,8 @@ interface ProviderMetrics {
   lastSharedStateNotificationAt: string | null;
   tokenRefreshInFlight: boolean;
   lastTokenRefreshAt: string | null;
+  yahooConsecutiveFailures: number;
+  yahooCircuitOpenUntil: string | null;
   sourceUsage: Record<string, number>;
   fallbackUsage: Record<string, number>;
 }
@@ -125,6 +127,8 @@ export class MarketDataService {
   private readonly config: AppConfig;
   private readonly requestTimeoutMs: number;
   private readonly cacheDir: string;
+  private readonly yahooCircuitFailureThreshold: number;
+  private readonly yahooCircuitCooldownMs: number;
   private readonly universeSeedPath: string;
   private readonly universeSourceLadder: string[];
   private readonly universeRemoteJsonUrl: string;
@@ -144,9 +148,12 @@ export class MarketDataService {
     lastSharedStateNotificationAt: null,
     tokenRefreshInFlight: false,
     lastTokenRefreshAt: null,
+    yahooConsecutiveFailures: 0,
+    yahooCircuitOpenUntil: null,
     sourceUsage: {},
     fallbackUsage: {},
   };
+  private yahooCircuitOpenUntilMs = 0;
   private tokenRefreshPromise: Promise<string> | null = null;
   private pool: Pool | null = null;
   private dbReadyPromise: Promise<void> | null = null;
@@ -167,6 +174,8 @@ export class MarketDataService {
       MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
       MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
       MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+      MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
+      MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
@@ -182,6 +191,8 @@ export class MarketDataService {
       SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 5_000,
       SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
       SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
+      SCHWAB_STREAMER_CACHE_SOFT_CAP: 500,
+      SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
       FRED_API_KEY: "",
       WHOOP_CLIENT_ID: "",
       WHOOP_CLIENT_SECRET: "",
@@ -198,6 +209,8 @@ export class MarketDataService {
     } satisfies AppConfig);
     this.requestTimeoutMs = this.config.MARKET_DATA_REQUEST_TIMEOUT_MS;
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
+    this.yahooCircuitFailureThreshold = this.config.MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD;
+    this.yahooCircuitCooldownMs = this.config.MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS;
     this.universeSeedPath = resolveRepoPath(this.config.MARKET_DATA_UNIVERSE_SEED_PATH);
     this.universeSourceLadder = parseUniverseSourceLadder(this.config.MARKET_DATA_UNIVERSE_SOURCE_LADDER);
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
@@ -360,6 +373,43 @@ export class MarketDataService {
     }
   }
 
+  async handleQuoteBatch(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    await this.ensureRuntimeReady();
+    const symbols = parseBatchSymbols(request.url);
+    if (!symbols.length) {
+      return { status: 400, body: marketDataErrorResponse("invalid symbols", "error", { reason: "symbols query is required" }) };
+    }
+    const compareWith = resolveQuery(request.url, "compare_with", "").trim() || undefined;
+    const items = await Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const primary = await this.fetchPrimaryQuote(symbol);
+          this.recordSourceUsage(primary.source);
+          const compare = await this.buildQuoteComparison(symbol, compareWith, primary.quote);
+          return {
+            symbol,
+            source: primary.source,
+            status: primary.status,
+            degradedReason: primary.degradedReason ?? null,
+            stalenessSeconds: primary.stalenessSeconds,
+            data: primary.quote,
+            ...(compare ? { compare_with: compare } : {}),
+          };
+        } catch (error) {
+          return {
+            symbol,
+            source: "service",
+            status: "error",
+            degradedReason: summarizeError(error),
+            stalenessSeconds: null,
+            data: { symbol },
+          };
+        }
+      }),
+    );
+    return this.toBatchRouteResult(items);
+  }
+
   async handleSnapshot(
     _request: Request,
     rawSymbol: string,
@@ -389,6 +439,71 @@ export class MarketDataService {
     } catch (error) {
       return this.toErrorRoute<MarketDataSnapshot>(error, { symbol, quote: {}, fundamentals: {}, metadata: {} });
     }
+  }
+
+  async handleHistoryBatch(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    await this.ensureRuntimeReady();
+    const symbols = parseBatchSymbols(request.url);
+    if (!symbols.length) {
+      return { status: 400, body: marketDataErrorResponse("invalid symbols", "error", { reason: "symbols query is required" }) };
+    }
+
+    const period = resolveQuery(request.url, "period", "1y");
+    const rawInterval = resolveQuery(request.url, "interval", DEFAULT_INTERVAL);
+    const interval = normalizeHistoryInterval(rawInterval);
+    if (!interval) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid interval", "error", {
+          reason: `unsupported interval '${rawInterval}'; supported intervals are 1d, 1wk, and 1mo`,
+        }),
+      };
+    }
+    const rawProvider = resolveQuery(request.url, "provider", "service");
+    const provider = normalizeHistoryProvider(rawProvider);
+    if (!provider) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid provider", "error", {
+          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, yahoo, and alpaca`,
+        }),
+      };
+    }
+    const compareWith = resolveQuery(request.url, "compare_with", "").trim() || undefined;
+    const items = await Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const primary = await this.fetchPrimaryHistory(symbol, period, interval, provider);
+          this.recordSourceUsage(primary.source);
+          const compare = await this.buildHistoryComparison(symbol, period, interval, compareWith, primary.rows);
+          return {
+            symbol,
+            source: primary.source,
+            status: primary.status,
+            degradedReason: primary.degradedReason ?? null,
+            stalenessSeconds: primary.stalenessSeconds,
+            data: {
+              symbol,
+              period,
+              interval,
+              rows: primary.rows,
+              comparisonHint: compare?.source,
+            },
+            ...(compare ? { compare_with: compare } : {}),
+          };
+        } catch (error) {
+          return {
+            symbol,
+            source: "service",
+            status: "error",
+            degradedReason: summarizeError(error),
+            stalenessSeconds: null,
+            data: { symbol, period, interval, rows: [] },
+          };
+        }
+      }),
+    );
+    return this.toBatchRouteResult(items);
   }
 
   async handleFundamentals(
@@ -608,6 +723,36 @@ export class MarketDataService {
     };
   }
 
+  async handleReady(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    try {
+      const health = await this.checkHealth();
+      const streamerMeta =
+        (((health.providers as Record<string, unknown> | undefined)?.schwabStreamerMeta as Record<string, unknown> | undefined) ?? {});
+      const operatorState = String(streamerMeta.operatorState ?? "healthy");
+      const ready = !["human_action_required", "max_connections_blocked"].includes(operatorState);
+      return {
+        status: ready ? 200 : 503,
+        body: {
+          source: "service",
+          status: ready ? "ok" : "degraded",
+          degradedReason: ready ? null : `service not ready (${operatorState})`,
+          stalenessSeconds: 0,
+          data: {
+            ready,
+            checkedAt: new Date().toISOString(),
+            operatorState,
+            operatorAction: streamerMeta.operatorAction ?? "No operator action required.",
+          },
+        },
+      };
+    } catch (error) {
+      return this.toErrorRoute(error, {
+        ready: false,
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   async handleUniverseAudit(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
     const limit = Math.max(parseInt(resolveQuery(request.url, "limit", "20"), 10) || 20, 1);
     const audit = this.readUniverseAudit(limit);
@@ -806,67 +951,74 @@ export class MarketDataService {
     period: string,
     interval: HistoryInterval = DEFAULT_INTERVAL,
   ): Promise<MarketDataHistoryPoint[]> {
-    const range = normalizeYahooRange(period);
-    const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-    url.searchParams.set("range", range);
-    url.searchParams.set("interval", interval);
-    url.searchParams.set("includePrePost", "false");
-    url.searchParams.set("events", "div,splits");
+    return this.runYahooRequest("history", async () => {
+      const range = normalizeYahooRange(period);
+      const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
+      url.searchParams.set("range", range);
+      url.searchParams.set("interval", interval);
+      url.searchParams.set("includePrePost", "false");
+      url.searchParams.set("events", "div,splits");
 
-    const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-      headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
-    });
-    const result = (((payload.chart as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {};
-    const timestamps = ((result.timestamp as number[] | undefined) ?? []).map((value) => Number(value));
-    const quote = ((((result.indicators as JsonRecord | undefined)?.quote as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-    const opens = toNumberArray(quote.open);
-    const highs = toNumberArray(quote.high);
-    const lows = toNumberArray(quote.low);
-    const closes = toNumberArray(quote.close);
-    const volumes = toNumberArray(quote.volume);
-    const out: MarketDataHistoryPoint[] = [];
-    for (let index = 0; index < timestamps.length; index += 1) {
-      const open = opens[index];
-      const high = highs[index];
-      const low = lows[index];
-      const close = closes[index];
-      const volume = volumes[index];
-      if ([open, high, low, close, volume].some((value) => value == null || Number.isNaN(value))) {
-        continue;
-      }
-      out.push({
-        timestamp: new Date(timestamps[index] * 1000).toISOString(),
-        open: Number(open),
-        high: Number(high),
-        low: Number(low),
-        close: Number(close),
-        volume: Number(volume),
+      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
+        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
       });
-    }
-    if (!out.length) {
-      throw new Error(`Yahoo returned no usable history for ${symbol}`);
-    }
-    return out;
+      const result = (((payload.chart as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {};
+      const timestamps = ((result.timestamp as number[] | undefined) ?? []).map((value) => Number(value));
+      const quote = ((((result.indicators as JsonRecord | undefined)?.quote as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
+      const opens = toNumberArray(quote.open);
+      const highs = toNumberArray(quote.high);
+      const lows = toNumberArray(quote.low);
+      const closes = toNumberArray(quote.close);
+      const volumes = toNumberArray(quote.volume);
+      const out: MarketDataHistoryPoint[] = [];
+      for (let index = 0; index < timestamps.length; index += 1) {
+        const open = opens[index];
+        const high = highs[index];
+        const low = lows[index];
+        const close = closes[index];
+        const volume = volumes[index];
+        if ([open, high, low, close, volume].some((value) => value == null || Number.isNaN(value))) {
+          continue;
+        }
+        out.push({
+          timestamp: new Date(timestamps[index] * 1000).toISOString(),
+          open: Number(open),
+          high: Number(high),
+          low: Number(low),
+          close: Number(close),
+          volume: Number(volume),
+        });
+      }
+      if (!out.length) {
+        throw new Error(`Yahoo returned no usable history for ${symbol}`);
+      }
+      return out;
+    });
   }
 
   private async fetchYahooQuote(symbol: string): Promise<MarketDataQuote> {
-    const url = new URL("https://query1.finance.yahoo.com/v7/finance/quote");
-    url.searchParams.set("symbols", symbol);
-    const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-      headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+    return this.runYahooRequest("quote", async () => {
+      const url = new URL("https://query1.finance.yahoo.com/v7/finance/quote");
+      url.searchParams.set("symbols", symbol);
+      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
+        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+      });
+      const result = ((((payload.quoteResponse as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
+      if (!Object.keys(result).length) {
+        throw new Error(`Yahoo returned no quote for ${symbol}`);
+      }
+      return {
+        symbol,
+        price: toNumber(result.regularMarketPrice) ?? undefined,
+        change: toNumber(result.regularMarketChange) ?? undefined,
+        changePercent: toNumber(result.regularMarketChangePercent) ?? undefined,
+        timestamp: result.regularMarketTime ? new Date(Number(result.regularMarketTime) * 1000).toISOString() : new Date().toISOString(),
+        currency: typeof result.currency === "string" ? result.currency : undefined,
+        volume: toNumber(result.regularMarketVolume) ?? undefined,
+        week52High: toNumber(result.fiftyTwoWeekHigh) ?? undefined,
+        week52Low: toNumber(result.fiftyTwoWeekLow) ?? undefined,
+      };
     });
-    const result = ((((payload.quoteResponse as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-    if (!Object.keys(result).length) {
-      throw new Error(`Yahoo returned no quote for ${symbol}`);
-    }
-    return {
-      symbol,
-      price: toNumber(result.regularMarketPrice) ?? undefined,
-      change: toNumber(result.regularMarketChange) ?? undefined,
-      changePercent: toNumber(result.regularMarketChangePercent) ?? undefined,
-      timestamp: result.regularMarketTime ? new Date(Number(result.regularMarketTime) * 1000).toISOString() : new Date().toISOString(),
-      currency: typeof result.currency === "string" ? result.currency : undefined,
-    };
   }
 
   private async fetchYahooMetadata(symbol: string): Promise<Record<string, unknown>> {
@@ -934,33 +1086,37 @@ export class MarketDataService {
   }
 
   private async fetchYahooNews(symbol: string): Promise<Record<string, unknown>> {
-    const url = new URL("https://query1.finance.yahoo.com/v1/finance/search");
-    url.searchParams.set("q", symbol);
-    url.searchParams.set("quotesCount", "0");
-    url.searchParams.set("newsCount", "8");
-    const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-      headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+    return this.runYahooRequest("news", async () => {
+      const url = new URL("https://query1.finance.yahoo.com/v1/finance/search");
+      url.searchParams.set("q", symbol);
+      url.searchParams.set("quotesCount", "0");
+      url.searchParams.set("newsCount", "8");
+      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
+        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+      });
+      const news = ((payload.news as JsonRecord[] | undefined) ?? []).map((item) => ({
+        title: firstString(item.title),
+        publisher: firstString(item.publisher),
+        link: firstString(item.link),
+        summary: firstString(item.summary),
+      }));
+      return { items: news };
     });
-    const news = ((payload.news as JsonRecord[] | undefined) ?? []).map((item) => ({
-      title: firstString(item.title),
-      publisher: firstString(item.publisher),
-      link: firstString(item.link),
-      summary: firstString(item.summary),
-    }));
-    return { items: news };
   }
 
   private async fetchYahooQuoteSummary(symbol: string, modules: string[]): Promise<JsonRecord> {
-    const url = new URL(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}`);
-    url.searchParams.set("modules", modules.join(","));
-    const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-      headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+    return this.runYahooRequest("quoteSummary", async () => {
+      const url = new URL(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}`);
+      url.searchParams.set("modules", modules.join(","));
+      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
+        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
+      });
+      const result = ((((payload.quoteSummary as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
+      if (!Object.keys(result).length) {
+        throw new Error(`Yahoo quoteSummary returned no data for ${symbol}`);
+      }
+      return result;
     });
-    const result = ((((payload.quoteSummary as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-    if (!Object.keys(result).length) {
-      throw new Error(`Yahoo quoteSummary returned no data for ${symbol}`);
-    }
-    return result;
   }
 
   private isSchwabConfigured(): boolean {
@@ -1013,6 +1169,8 @@ export class MarketDataService {
       connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
       freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
       subscriptionSoftCap: this.config.SCHWAB_STREAMER_SYMBOL_SOFT_CAP,
+      cacheSoftCap: this.config.SCHWAB_STREAMER_CACHE_SOFT_CAP,
+      subscriptionFields: this.config.SCHWAB_STREAMER_EQUITY_FIELDS,
       stateSink: (state) => {
         void this.writeSharedStreamerState(state);
       },
@@ -1592,8 +1750,51 @@ export class MarketDataService {
   }
 
   private recordYahooFallbackSuccess(): void {
+    this.recordYahooSuccess();
     this.providerMetrics.lastSuccessfulYahooFallbackAt = new Date().toISOString();
     this.providerMetrics.fallbackUsage.yahoo = (this.providerMetrics.fallbackUsage.yahoo ?? 0) + 1;
+  }
+
+  private recordYahooSuccess(): void {
+    this.providerMetrics.yahooConsecutiveFailures = 0;
+    this.yahooCircuitOpenUntilMs = 0;
+    this.providerMetrics.yahooCircuitOpenUntil = null;
+  }
+
+  private recordYahooFailure(): void {
+    this.providerMetrics.yahooConsecutiveFailures += 1;
+    if (this.providerMetrics.yahooConsecutiveFailures < this.yahooCircuitFailureThreshold) {
+      return;
+    }
+    this.yahooCircuitOpenUntilMs = Date.now() + this.yahooCircuitCooldownMs;
+    this.providerMetrics.yahooCircuitOpenUntil = new Date(this.yahooCircuitOpenUntilMs).toISOString();
+  }
+
+  private isYahooCircuitOpen(): boolean {
+    if (!this.yahooCircuitOpenUntilMs) {
+      return false;
+    }
+    if (Date.now() >= this.yahooCircuitOpenUntilMs) {
+      this.yahooCircuitOpenUntilMs = 0;
+      this.providerMetrics.yahooCircuitOpenUntil = null;
+      this.providerMetrics.yahooConsecutiveFailures = 0;
+      return false;
+    }
+    return true;
+  }
+
+  private async runYahooRequest<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    if (this.isYahooCircuitOpen()) {
+      throw new Error(`Yahoo circuit open for ${operation} until ${this.providerMetrics.yahooCircuitOpenUntil}`);
+    }
+    try {
+      const result = await fn();
+      this.recordYahooSuccess();
+      return result;
+    } catch (error) {
+      this.recordYahooFailure();
+      throw error;
+    }
   }
 
   private recordSharedStateFallbackSuccess(): void {
@@ -1602,6 +1803,21 @@ export class MarketDataService {
 
   private recordSourceUsage(source: string): void {
     this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
+  }
+
+  private toBatchRouteResult(items: Array<Record<string, unknown>>): MarketDataRouteResult<Record<string, unknown>> {
+    const successCount = items.filter((item) => String(item.status ?? "") !== "error").length;
+    const status = successCount === items.length ? "ok" : successCount > 0 ? "degraded" : "error";
+    return {
+      status: successCount > 0 ? 200 : 503,
+      body: {
+        source: "service",
+        status,
+        degradedReason: successCount === items.length ? null : `${items.length - successCount} batch item(s) failed`,
+        stalenessSeconds: 0,
+        data: { items },
+      },
+    };
   }
 
   private async writeSharedStreamerState(state: SharedStreamerState): Promise<void> {
@@ -1820,6 +2036,18 @@ function resolveQuery(url: string, key: string, defaultValue: string): string {
   } catch {
     return defaultValue;
   }
+}
+
+function parseBatchSymbols(url: string): string[] {
+  const raw = resolveQuery(url, "symbols", "");
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((value) => normalizeMarketSymbol(value))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function marketDataErrorResponse<T>(

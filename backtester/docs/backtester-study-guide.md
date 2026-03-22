@@ -196,6 +196,172 @@ flowchart LR
 
 #### What advisor.py looks at
 
+##### 1a. TS Market-Data Service Boundary
+
+This is the biggest architecture change:
+
+- Python is now the analysis engine
+- TS is now the external-data layer
+
+Plain-English meaning:
+- Python should not worry about broker auth, websocket sessions, or fallback logic
+- Python should ask one local service for normalized data
+- the TS service should decide where that data came from
+
+Simple flow:
+
+```mermaid
+flowchart LR
+    A["Python engine<br/>advisor.py / market_regime.py / universe.py"] --> B["TS market-data service"]
+    B --> C["Schwab streamer<br/>fresh quotes + chart updates"]
+    B --> D["Schwab REST<br/>history / quote / metadata"]
+    B --> E["Yahoo fallback"]
+    E --> F["Normalized JSON response"]
+    D --> F
+    C --> F
+    F --> G["Python cache fallback if service is unavailable"]
+```
+
+The mental model is:
+
+- Python asks: "Give me market data for this symbol."
+- TS decides: "Use Schwab first, then Yahoo if needed."
+- Python then scores the stock using the normalized answer.
+
+Why this is better:
+
+- one place owns auth and provider bugs
+- one place owns streamer sessions
+- Python stays focused on scoring and decisions
+- you can swap providers without rewriting strategy code
+
+What the TS service owns now:
+
+- Schwab REST requests
+- Schwab streamer session lifecycle
+- Yahoo fallback
+- Yahoo circuit-breaker behavior when repeated Yahoo failures happen
+- risk-data fetches used by regime/risk logic
+- base-universe artifact refresh
+
+What Python still owns:
+
+- scoring
+- market-regime logic
+- technical analysis
+- recommendation logic
+- alert formatting
+
+##### 1b. How The Schwab Streamer Fits In
+
+The streamer exists so the TS service can keep fresher quote and chart state than plain polling.
+
+Simple flow:
+
+```mermaid
+flowchart TD
+    A["TS service starts"] --> B["Open Schwab websocket"]
+    B --> C["LOGIN"]
+    C --> D["Subscribe to LEVELONE_EQUITIES"]
+    C --> E["Subscribe to CHART_EQUITY"]
+    D --> F["Fresh quote updates"]
+    E --> G["Fresh intraday candle updates"]
+    F --> H["TS keeps in-memory / shared state"]
+    G --> H
+    H --> I["Python reads fresh data through HTTP"]
+```
+
+Plain-English meaning:
+
+- `LEVELONE_EQUITIES` gives fresher quote-style updates
+- `CHART_EQUITY` gives fresher intraday candle-style updates
+- Python never talks to the websocket directly
+- Python still reads normal HTTP JSON from the TS service
+- the default `LEVELONE_EQUITIES` field set is now a little richer too:
+  - price
+  - total volume
+  - 52-week high / low
+  - security status
+  - net percent change
+
+So when you run the backtester, the engine is not "streaming."
+The TS service is streaming on its behalf.
+
+##### 1c. How The Stream Stays Healthy
+
+The streamer is not just "open a websocket and hope."
+
+The TS service now does all of this:
+
+- heartbeat tracking
+- reconnect backoff
+- explicit handling for Schwab failure codes
+- serialized mutation commands so `SUBS` / `ADD` / `UNSUBS` / `VIEW` do not race
+- leader/follower coordination when multiple TS instances exist
+- shared quote/chart state for follower instances
+- bounded in-memory cache eviction for older streamer data
+- ops reporting through `/market-data/ops`
+- readiness reporting through `/market-data/ready`
+- Yahoo cooldown protection when repeated Yahoo fallback failures happen
+
+Simple health model:
+
+```mermaid
+flowchart LR
+    A["Healthy streamer"] --> B["Quotes + charts stay fresh"]
+    B --> C["TS serves fresh data"]
+    C --> D["Python scores stocks"]
+
+    A --> E["Failure or disconnect"]
+    E --> F["Reconnect / recover / fall back"]
+    F --> G["Use Schwab REST or Yahoo if needed"]
+    G --> D
+```
+
+This is why the system is easier to trust now:
+
+- fresh data is preferred
+- degraded data is still available
+- the engine does not need to know which recovery path happened
+
+##### 1d. What You See As The Operator
+
+When you run the local scripts, you are mostly seeing the result of this service boundary:
+
+- fresher market context
+- clearer source/fallback behavior
+- leader/follower and ops summaries
+- streamer health and symbol-budget visibility
+
+Important operator terms:
+
+- `source`
+  - where the data came from
+- `status`
+  - whether the response is normal or degraded
+- `degradedReason`
+  - why fallback was needed
+- `stalenessSeconds`
+  - how old the returned data is
+
+Diagnostic modes:
+
+- `provider=schwab|yahoo|alpaca`
+  - force the primary history source for that request
+- `compare_with=<provider>`
+  - keep the normal primary source, but add comparison metadata
+- `quote/batch` and `history/batch`
+  - ask the TS service for many symbols in one HTTP request instead of one symbol at a time
+
+Use `provider=` when you want:
+- "Show me what this provider alone would return."
+
+Use `compare_with=` when you want:
+- "Keep the normal answer, but tell me how another provider differs."
+
+Use the batch routes when you want:
+- "Give me the same kind of answer for many symbols at once."
+
 ##### 1. Price history
 
 The advisor first gets recent market data for the stock.
@@ -210,21 +376,9 @@ This is the basic question:
 - "What has the stock actually been doing?"
 
 Important clarification:
-- Python is no longer talking to Schwab or Yahoo directly for the normal path
-- it calls the local TS market-data service, which picks `Schwab -> Yahoo -> cache`
-- when you need diagnostics, the history route can also force a one-off primary provider with `provider=schwab|yahoo|alpaca`, while `compare_with=<provider>` adds comparison metadata without changing the primary source
-- the history route now honors `interval=1d|1wk|1mo` explicitly instead of pretending a non-daily interval was used while still returning daily bars
-- quote freshness can come from `LEVELONE_EQUITIES` and intraday candle freshness can come from `CHART_EQUITY` inside the Schwab streamer session, but Python still only sees normalized HTTP JSON
-- the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, delta subscription updates, and automatic resubscribe for active symbols
-- streamer mutation commands are serialized per service and wait for Schwab acks, which reduces request races around `SUBS`, `ADD`, `UNSUBS`, and `VIEW`
-- if you deploy multiple TS instances, the recommended setup is `SCHWAB_STREAMER_ROLE=auto`, which uses Postgres advisory locks to elect one streamer leader while follower instances read shared quote/chart state
-- the TS streamer also applies periodic `VIEW` reconciliation for the subscribed field sets and treats documented Schwab failure codes like `LOGIN_DENIED`, `STREAM_CONN_NOT_FOUND`, `STOP_STREAMING`, `CLOSE_CONNECTION`, and `REACHED_SYMBOL_LIMIT` as explicit runtime states
-- the ops surface now includes runbook-grade operator state plus subscription-budget accounting, so max-connection and symbol-limit problems are visible without reading raw streamer logs
-- `SCHWAB_STREAMER_SYMBOL_SOFT_CAP` is now part of the operating model: it is a bounded warning threshold that helps you see budget pressure before Schwab returns `REACHED_SYMBOL_LIMIT`
-- the streamer now applies a real chunk/prune policy: larger subscription mutations are split into smaller commands, and older requested symbols are pruned back to the configured soft cap before the registry drifts too far
-- Postgres-backed shared streamer state now uses `LISTEN/NOTIFY` so follower instances can react to leader updates without waiting on slow polling
-- file-backed follower mode now rechecks the shared-state file before reusing cache, so it does not get stuck on the first snapshot it loaded
-- the TS service now exposes a compact `/market-data/ops` operator surface plus `/market-data/universe/audit` so you can inspect streamer role, advisory-lock ownership, provider/fallback mix, and universe artifact ownership/history from outside the Python engine, and the local daytime/nighttime wrappers now show that summary directly
+- this now comes through the TS market-data service boundary described above
+- normal history requests now honor `interval=1d|1wk|1mo`
+- if you need diagnostics, you can force `provider=` or add `compare_with=`
 
 ##### 2. Fundamentals
 
