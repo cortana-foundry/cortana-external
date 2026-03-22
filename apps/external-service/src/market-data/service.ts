@@ -28,6 +28,7 @@ import {
   resolveQuery,
 } from "./route-utils.js";
 import { normalizeSchwabQuoteEnvelope, type SchwabQuoteEnvelope } from "./schwab-normalizers.js";
+import { buildRiskPayload, type RiskPayloadResult } from "./risk-stack.js";
 import {
   SchwabStreamerSession,
   type SchwabStreamerPreferences,
@@ -35,6 +36,13 @@ import {
   type WebSocketFactory,
 } from "./streamer.js";
 import { UniverseArtifactManager, type UniverseAuditEntry } from "./universe-manager.js";
+import {
+  fetchYahooFundamentals as fetchYahooFundamentalsClient,
+  fetchYahooHistory as fetchYahooHistoryClient,
+  fetchYahooMetadata as fetchYahooMetadataClient,
+  fetchYahooNews as fetchYahooNewsClient,
+  fetchYahooQuote as fetchYahooQuoteClient,
+} from "./yahoo-client.js";
 import type {
   MarketDataComparison,
   MarketDataGenericPayload,
@@ -59,15 +67,6 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const DEFAULT_INTERVAL = "1d";
-const YAHOO_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-const CBOE_ENDPOINTS = [
-  "https://cdn.cboe.com/api/global/us_indices/market_statistics/put_call_ratio.csv",
-  "https://cdn.cboe.com/api/global/us_indices/market_statistics/daily_options_data.csv",
-  "https://cdn.cboe.com/api/global/us_indices/market_statistics/put_call_ratio/daily.csv",
-  "https://cdn.cboe.com/api/global/us_indices/market_statistics/put_call_ratio.json",
-];
-
 type FetchImpl = typeof fetch;
 
 interface MarketDataServiceConfig {
@@ -109,18 +108,6 @@ interface AlpacaKeys {
   key_id: string;
   secret_key: string;
   data_url: string;
-}
-
-interface RiskRow {
-  date: string;
-  vix: number;
-  spy_close: number;
-  hy_spread: number;
-  put_call: number;
-  vix_percentile: number;
-  hy_spread_percentile: number;
-  spy_distance_score: number;
-  fear_greed: number;
 }
 
 interface ProviderMetrics {
@@ -1105,172 +1092,32 @@ export class MarketDataService {
     period: string,
     interval: HistoryInterval = DEFAULT_INTERVAL,
   ): Promise<MarketDataHistoryPoint[]> {
-    return this.runYahooRequest("history", async () => {
-      const range = normalizeYahooRange(period);
-      const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-      url.searchParams.set("range", range);
-      url.searchParams.set("interval", interval);
-      url.searchParams.set("includePrePost", "false");
-      url.searchParams.set("events", "div,splits");
-
-      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
-      });
-      const result = (((payload.chart as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {};
-      const timestamps = ((result.timestamp as number[] | undefined) ?? []).map((value) => Number(value));
-      const quote = ((((result.indicators as JsonRecord | undefined)?.quote as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-      const opens = toNumberArray(quote.open);
-      const highs = toNumberArray(quote.high);
-      const lows = toNumberArray(quote.low);
-      const closes = toNumberArray(quote.close);
-      const volumes = toNumberArray(quote.volume);
-      const out: MarketDataHistoryPoint[] = [];
-      for (let index = 0; index < timestamps.length; index += 1) {
-        const open = opens[index];
-        const high = highs[index];
-        const low = lows[index];
-        const close = closes[index];
-        const volume = volumes[index];
-        if ([open, high, low, close, volume].some((value) => value == null || Number.isNaN(value))) {
-          continue;
-        }
-        out.push({
-          timestamp: new Date(timestamps[index] * 1000).toISOString(),
-          open: Number(open),
-          high: Number(high),
-          low: Number(low),
-          close: Number(close),
-          volume: Number(volume),
-        });
-      }
-      if (!out.length) {
-        throw new Error(`Yahoo returned no usable history for ${symbol}`);
-      }
-      return out;
-    });
+    return fetchYahooHistoryClient(
+      { runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) },
+      symbol,
+      period,
+      interval,
+    );
   }
 
   private async fetchYahooQuote(symbol: string): Promise<MarketDataQuote> {
-    return this.runYahooRequest("quote", async () => {
-      const url = new URL("https://query1.finance.yahoo.com/v7/finance/quote");
-      url.searchParams.set("symbols", symbol);
-      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
-      });
-      const result = ((((payload.quoteResponse as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-      if (!Object.keys(result).length) {
-        throw new Error(`Yahoo returned no quote for ${symbol}`);
-      }
-      return {
-        symbol,
-        price: toNumber(result.regularMarketPrice) ?? undefined,
-        change: toNumber(result.regularMarketChange) ?? undefined,
-        changePercent: toNumber(result.regularMarketChangePercent) ?? undefined,
-        timestamp: result.regularMarketTime ? new Date(Number(result.regularMarketTime) * 1000).toISOString() : new Date().toISOString(),
-        currency: typeof result.currency === "string" ? result.currency : undefined,
-        volume: toNumber(result.regularMarketVolume) ?? undefined,
-        week52High: toNumber(result.fiftyTwoWeekHigh) ?? undefined,
-        week52Low: toNumber(result.fiftyTwoWeekLow) ?? undefined,
-      };
-    });
+    return fetchYahooQuoteClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
   }
 
   private async fetchYahooMetadata(symbol: string): Promise<Record<string, unknown>> {
-    const [quoteSummary, quote] = await Promise.all([
-      this.fetchYahooQuoteSummary(symbol, ["summaryProfile", "defaultKeyStatistics", "financialData", "price"]),
-      this.fetchYahooQuote(symbol).catch((): MarketDataQuote => ({ symbol })),
-    ]);
-    const summaryProfile = (quoteSummary.summaryProfile as JsonRecord | undefined) ?? {};
-    const defaultKeyStats = (quoteSummary.defaultKeyStatistics as JsonRecord | undefined) ?? {};
-    const price = (quoteSummary.price as JsonRecord | undefined) ?? {};
-    return {
-      name: firstString(price.shortName, price.longName, symbol),
-      market_cap: unwrapYahooValue(firstValue(price.marketCap, defaultKeyStats.marketCap)),
-      float_shares: unwrapYahooValue(defaultKeyStats.floatShares),
-      beta: unwrapYahooValue(defaultKeyStats.beta),
-      sector: firstString(summaryProfile.sector),
-      industry: firstString(summaryProfile.industry),
-      price: quote.price,
-      change: quote.change,
-      change_percent: quote.changePercent,
-      currency: quote.currency,
-    };
+    return fetchYahooMetadataClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
   }
 
   private async fetchYahooFundamentals(symbol: string, asOfDate?: string): Promise<Record<string, unknown>> {
-    const summary = await this.fetchYahooQuoteSummary(symbol, [
-      "summaryProfile",
-      "defaultKeyStatistics",
-      "financialData",
-      "price",
-      "calendarEvents",
-      "earningsTrend",
-    ]);
-    const financialData = (summary.financialData as JsonRecord | undefined) ?? {};
-    const defaultKeyStatistics = (summary.defaultKeyStatistics as JsonRecord | undefined) ?? {};
-    const summaryProfile = (summary.summaryProfile as JsonRecord | undefined) ?? {};
-    const calendarEvents = (summary.calendarEvents as JsonRecord | undefined) ?? {};
-    const earnings = (calendarEvents.earnings as JsonRecord | undefined) ?? {};
-    const earningsDates = ((earnings.earningsDate as JsonRecord[] | undefined) ?? [])
-      .map((entry) => unwrapYahooValue(entry.fmt ?? entry.raw ?? entry.date))
-      .filter((value): value is string => typeof value === "string");
-    const eventWindow = earningsDates.map((date) => ({ date }));
-    const earningsTrend = ((summary.earningsTrend as JsonRecord | undefined)?.trend as JsonRecord[] | undefined) ?? [];
-    const annualGrowth = toNumber(unwrapYahooValue(earningsTrend[0]?.growth ?? financialData.earningsGrowth));
-    const result: Record<string, unknown> = {
+    return fetchYahooFundamentalsClient(
+      { runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) },
       symbol,
-      as_of_date: asOfDate ?? new Date().toISOString().slice(0, 10),
-      eps_growth: percentOrNone(unwrapYahooValue(financialData.earningsGrowth)),
-      annual_eps_growth: percentOrNone(annualGrowth),
-      revenue_growth: percentOrNone(unwrapYahooValue(financialData.revenueGrowth)),
-      institutional_pct: toNumber(unwrapYahooValue(defaultKeyStatistics.heldPercentInstitutions)),
-      float_shares: unwrapYahooValue(defaultKeyStatistics.floatShares),
-      shares_outstanding: unwrapYahooValue(defaultKeyStatistics.sharesOutstanding),
-      short_ratio: unwrapYahooValue(defaultKeyStatistics.shortRatio),
-      short_pct_of_float: unwrapYahooValue(defaultKeyStatistics.shortPercentOfFloat),
-      sector: firstString(summaryProfile.sector),
-      industry: firstString(summaryProfile.industry),
-      earnings_event_window: eventWindow,
-      last_earnings_date: eventWindow.length ? String(eventWindow[eventWindow.length - 1]?.date ?? "") : null,
-      next_earnings_date: eventWindow.length ? String(eventWindow[0]?.date ?? "") : null,
-      earnings_history: [],
-      quarterly_financials: [],
-    };
-    return result;
+      asOfDate,
+    );
   }
 
   private async fetchYahooNews(symbol: string): Promise<Record<string, unknown>> {
-    return this.runYahooRequest("news", async () => {
-      const url = new URL("https://query1.finance.yahoo.com/v1/finance/search");
-      url.searchParams.set("q", symbol);
-      url.searchParams.set("quotesCount", "0");
-      url.searchParams.set("newsCount", "8");
-      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
-      });
-      const news = ((payload.news as JsonRecord[] | undefined) ?? []).map((item) => ({
-        title: firstString(item.title),
-        publisher: firstString(item.publisher),
-        link: firstString(item.link),
-        summary: firstString(item.summary),
-      }));
-      return { items: news };
-    });
-  }
-
-  private async fetchYahooQuoteSummary(symbol: string, modules: string[]): Promise<JsonRecord> {
-    return this.runYahooRequest("quoteSummary", async () => {
-      const url = new URL(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}`);
-      url.searchParams.set("modules", modules.join(","));
-      const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-        headers: { "user-agent": YAHOO_USER_AGENT, accept: "application/json" },
-      });
-      const result = ((((payload.quoteSummary as JsonRecord | undefined)?.result as JsonRecord[] | undefined) ?? [])[0] ?? {}) as JsonRecord;
-      if (!Object.keys(result).length) {
-        throw new Error(`Yahoo quoteSummary returned no data for ${symbol}`);
-      }
-      return result;
-    });
+    return fetchYahooNewsClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
   }
 
   private isSchwabConfigured(): boolean {
@@ -1684,135 +1531,14 @@ export class MarketDataService {
     return payload;
   }
 
-  private async buildRiskPayload(days: number): Promise<{
-    rows: RiskRow[];
-    meta: ServiceMetadata;
-    warning: string;
-    hySpreadSource: string;
-    hySpreadFallback: boolean;
-  }> {
-    const lookbackDays = Math.max(days, 160) * 2;
-    const [vixHistory, spyHistory, hySeries, putCallSeries] = await Promise.all([
-      this.fetchYahooHistory("^VIX", "1y").catch(() => []),
-      this.fetchYahooHistory("SPY", "1y").catch(() => []),
-      this.fetchFredSeries("BAMLH0A0HYM2", lookbackDays).catch(() => []),
-      this.fetchPutCallHistory(lookbackDays).catch(() => []),
-    ]);
-
-    const baseDates = dedupe([
-      ...spyHistory.map((row) => row.timestamp.slice(0, 10)),
-      ...vixHistory.map((row) => row.timestamp.slice(0, 10)),
-      ...hySeries.map((row) => row.date),
-      ...putCallSeries.map((row) => row.date),
-    ]).sort();
-    if (!baseDates.length) {
-      throw new Error("Unable to build risk payload from upstream sources");
-    }
-
-    const vixMap = buildSeriesMap(vixHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close })));
-    const spyMap = buildSeriesMap(spyHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close })));
-    const hyMap = buildSeriesMap(hySeries);
-    const putCallMap = buildSeriesMap(putCallSeries);
-
-    const rows: RiskRow[] = [];
-    let lastVix = 20;
-    let lastSpy = 500;
-    let lastHy = 450;
-    let lastPutCall = 1;
-    const hySpreadFallback = !hySeries.length;
-    const warning = hySpreadFallback
-      ? "FRED HY spread unavailable; using neutral 450 bps fallback."
-      : "";
-    for (const date of baseDates) {
-      lastVix = vixMap.get(date) ?? lastVix;
-      lastSpy = spyMap.get(date) ?? lastSpy;
-      lastHy = hyMap.get(date) ?? lastHy;
-      lastPutCall = putCallMap.get(date) ?? lastPutCall;
-      rows.push({
-        date,
-        vix: lastVix,
-        spy_close: lastSpy,
-        hy_spread: lastHy,
-        put_call: clamp(lastPutCall, 0.3, 3.0),
-        vix_percentile: 0,
-        hy_spread_percentile: 0,
-        spy_distance_score: 50,
-        fear_greed: 50,
-      });
-    }
-
-    const vixValues = rows.map((row) => row.vix);
-    const hyValues = rows.map((row) => row.hy_spread);
-    const spyValues = rows.map((row) => row.spy_close);
-    const vixPercentiles = percentileArray(vixValues);
-    const hyPercentiles = percentileArray(hyValues);
-    const spyDistanceScores = spyDistanceScoresFromClose(spyValues);
-    for (let index = 0; index < rows.length; index += 1) {
-      rows[index].vix_percentile = vixPercentiles[index];
-      rows[index].hy_spread_percentile = hyPercentiles[index];
-      rows[index].spy_distance_score = spyDistanceScores[index];
-      rows[index].fear_greed = clamp((vixPercentiles[index] + hyPercentiles[index] + spyDistanceScores[index]) / 3, 0, 100);
-    }
-
-    return {
-      rows: rows.slice(-days),
-      meta: {
-        source: "ts-risk-stack",
-        status: hySpreadFallback ? "degraded" : "ok",
-        degradedReason: hySpreadFallback ? warning : null,
-        stalenessSeconds: 0,
-      },
-      warning,
-      hySpreadSource: hySpreadFallback ? "fallback_default_450" : "fred",
-      hySpreadFallback,
-    };
-  }
-
-  private async fetchFredSeries(seriesId: string, lookbackDays: number): Promise<Array<{ date: string; value: number }>> {
-    const end = new Date();
-    const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-    const url = new URL("https://api.stlouisfed.org/fred/series/observations");
-    url.searchParams.set("series_id", seriesId);
-    url.searchParams.set("file_type", "json");
-    url.searchParams.set("observation_start", start.toISOString().slice(0, 10));
-    url.searchParams.set("observation_end", end.toISOString().slice(0, 10));
-    if (this.config.FRED_API_KEY.trim()) {
-      url.searchParams.set("api_key", this.config.FRED_API_KEY.trim());
-    }
-    const payload = await this.fetchJson<JsonRecord>(url.toString(), {
-      headers: { accept: "application/json" },
+  private async buildRiskPayload(days: number): Promise<RiskPayloadResult> {
+    return buildRiskPayload({
+      days,
+      fredApiKey: this.config.FRED_API_KEY,
+      fetchYahooHistory: (symbol, period) => this.fetchYahooHistory(symbol, period),
+      fetchJson: this.fetchJson.bind(this),
+      fetchResponse: this.fetchResponse.bind(this),
     });
-    const observations = ((payload.observations as JsonRecord[] | undefined) ?? [])
-      .map((row) => ({
-        date: String(row.date ?? ""),
-        value: toNumber(row.value),
-      }))
-      .filter((row): row is { date: string; value: number } => Boolean(row.date) && row.value != null);
-    return observations;
-  }
-
-  private async fetchPutCallHistory(lookbackDays: number): Promise<Array<{ date: string; value: number }>> {
-    const startDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    for (const endpoint of CBOE_ENDPOINTS) {
-      try {
-        const response = await this.fetchResponse(endpoint, { headers: { accept: "*/*" } }, 10_000);
-        if (!response.ok) {
-          continue;
-        }
-        const contentType = response.headers.get("content-type") ?? "";
-        const body = await response.text();
-        const rows = contentType.includes("json") || endpoint.endsWith(".json")
-          ? parsePutCallJson(body)
-          : parsePutCallCsv(body);
-        const filtered = rows.filter((row) => row.date >= startDate);
-        if (filtered.length) {
-          return filtered.map((row) => ({ date: row.date, value: clamp(row.value, 0.3, 3.0) }));
-        }
-      } catch {
-        continue;
-      }
-    }
-    return [];
   }
 
   private async fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -2158,13 +1884,6 @@ function normalizeCompare(rawCompareWith: string | undefined): string | undefine
 }
 
 
-function toNumberArray(value: unknown): Array<number | null> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map((item) => toNumber(item));
-}
-
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -2193,51 +1912,6 @@ function firstString(...values: unknown[]): string | undefined {
     }
   }
   return undefined;
-}
-
-function firstValue(...values: unknown[]): unknown {
-  for (const value of values) {
-    if (value != null) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function unwrapYahooValue(value: unknown): unknown {
-  if (value && typeof value === "object" && "raw" in (value as JsonRecord)) {
-    return (value as JsonRecord).raw;
-  }
-  return value;
-}
-
-function normalizeYahooRange(period: string): string {
-  const normalized = period.trim().toLowerCase();
-  const supported = new Set(["5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]);
-  if (supported.has(normalized)) {
-    return normalized;
-  }
-  if (normalized.endsWith("d")) {
-    return normalized;
-  }
-  if (normalized.endsWith("mo")) {
-    return normalized;
-  }
-  if (normalized.endsWith("y")) {
-    return normalized;
-  }
-  return "1y";
-}
-
-function percentOrNone(value: unknown): number | null {
-  const numeric = toNumber(value);
-  if (numeric == null) {
-    return null;
-  }
-  if (Math.abs(numeric) <= 2) {
-    return numeric * 100;
-  }
-  return numeric;
 }
 
 function mergePreferPrimary(
@@ -2270,78 +1944,6 @@ function resolveOptionalRepoPath(rawPath: string): string | null {
   return resolveRepoPath(trimmed);
 }
 
-function buildSeriesMap(rows: Array<{ date: string; value: number }>): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const row of rows) {
-    if (row.date && Number.isFinite(row.value)) {
-      out.set(row.date, row.value);
-    }
-  }
-  return out;
-}
-
-function percentileArray(values: number[]): number[] {
-  const sorted = values
-    .map((value, index) => ({ value, index }))
-    .filter((item) => Number.isFinite(item.value))
-    .sort((a, b) => a.value - b.value);
-  const out = Array.from({ length: values.length }, () => 50);
-  sorted.forEach((item, index) => {
-    out[item.index] = ((index + 1) / sorted.length) * 100;
-  });
-  return out;
-}
-
-function spyDistanceScoresFromClose(close: number[]): number[] {
-  const out: number[] = [];
-  for (let index = 0; index < close.length; index += 1) {
-    const window = close.slice(Math.max(0, index - 124), index + 1);
-    const average = window.reduce((sum, value) => sum + value, 0) / window.length;
-    const distancePct = average ? ((average - close[index]) / average) * 100 : 0;
-    out.push(clamp(((distancePct + 10) / 20) * 100, 0, 100));
-  }
-  return out;
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
-}
-
 function summarizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parsePutCallCsv(body: string): Array<{ date: string; value: number }> {
-  const [headerLine, ...lines] = body.split(/\r?\n/).filter(Boolean);
-  if (!headerLine) {
-    return [];
-  }
-  const headers = headerLine.split(",").map((value) => value.trim());
-  const dateIndex = headers.findIndex((value) => value.toLowerCase().includes("date"));
-  const ratioIndex = headers.findIndex((value) => {
-    const lowered = value.toLowerCase();
-    return lowered.includes("ratio") || lowered.includes("put/call") || lowered.includes("put_call") || lowered.includes("p/c");
-  });
-  if (dateIndex < 0 || ratioIndex < 0) {
-    return [];
-  }
-  return lines
-    .map((line) => line.split(","))
-    .map((parts) => ({ date: parts[dateIndex]?.trim() ?? "", value: Number(parts[ratioIndex]) }))
-    .filter((row) => row.date && Number.isFinite(row.value));
-}
-
-function parsePutCallJson(body: string): Array<{ date: string; value: number }> {
-  try {
-    const payload = JSON.parse(body) as JsonRecord;
-    const rows = Array.isArray(payload.data) ? payload.data : Array.isArray(payload) ? (payload as unknown as JsonRecord[]) : [];
-    return rows
-      .map((row) => ({
-        date: String(firstValue(row.date, row.tradeDate, row.asOfDate) ?? ""),
-        value: toNumber(firstValue(row.putCallRatio, row.put_call_ratio, row.totalPutCallRatio)) ?? NaN,
-      }))
-      .filter((row) => row.date && Number.isFinite(row.value));
-  } catch {
-    return [];
-  }
 }
