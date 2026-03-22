@@ -1,7 +1,7 @@
 import type { MarketDataHistoryPoint, MarketDataQuote } from "./types.js";
 
 export type HistoryInterval = "1d" | "1wk" | "1mo";
-export type HistoryProvider = "service" | "schwab" | "yahoo" | "alpaca";
+export type HistoryProvider = "service" | "schwab" | "alpaca";
 
 export function normalizeHistoryInterval(rawInterval: string | undefined): HistoryInterval | undefined {
   const normalized = (rawInterval ?? "1d").trim().toLowerCase();
@@ -13,7 +13,7 @@ export function normalizeHistoryInterval(rawInterval: string | undefined): Histo
 
 export function normalizeHistoryProvider(rawProvider: string | undefined): HistoryProvider | undefined {
   const normalized = (rawProvider ?? "service").trim().toLowerCase();
-  if (normalized === "service" || normalized === "schwab" || normalized === "yahoo" || normalized === "alpaca") {
+  if (normalized === "service" || normalized === "schwab" || normalized === "alpaca") {
     return normalized;
   }
   return undefined;

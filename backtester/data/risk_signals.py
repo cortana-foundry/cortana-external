@@ -8,8 +8,6 @@ Normal runtime path:
 - TS market-data service for FRED high-yield spreads
 - TS market-data service for CBOE put/call data
 - local cache fallback
-
-Legacy direct provider fallback remains opt-in for diagnostics only.
 """
 
 from __future__ import annotations
@@ -25,7 +23,6 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 import time
 
 
@@ -280,30 +277,11 @@ class RiskSignalFetcher:
     # Fetch helpers
     # ---------------------------------------------------------------------
 
-    def _fetch_yfinance_history(self, symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
-        try:
-            hist = yf.Ticker(symbol).history(start=start, end=end)
-        except Exception:
-            return pd.DataFrame()
-
-        if hist is None or hist.empty:
-            return pd.DataFrame()
-
-        hist = hist.copy()
-        hist.index = pd.to_datetime(hist.index).tz_localize(None)
-        return hist
-
     def _fetch_vix_history(self, start: datetime, end: datetime) -> pd.Series:
-        hist = self._fetch_yfinance_history(self.vix_symbol, start, end)
-        if hist.empty or 'Close' not in hist.columns:
-            return pd.Series(dtype=float, name="vix")
-        return hist['Close'].rename("vix")
+        return pd.Series(dtype=float, name="vix")
 
     def _fetch_spy_history(self, start: datetime, end: datetime) -> pd.Series:
-        hist = self._fetch_yfinance_history(self.spy_symbol, start, end)
-        if hist.empty or 'Close' not in hist.columns:
-            return pd.Series(dtype=float, name="spy_close")
-        return hist['Close'].rename("spy_close")
+        return pd.Series(dtype=float, name="spy_close")
 
     def _fetch_fred_series(
         self,
@@ -467,50 +445,10 @@ class RiskSignalFetcher:
 
         return pd.Series(dtype=float, name="put_call")
 
-    def _fetch_put_call_from_yfinance_options(self, start: datetime, end: datetime) -> pd.Series:
-        """Fallback PCR proxy using SPY option chain volume (snapshot-based proxy)."""
-        try:
-            ticker = yf.Ticker(self.spy_symbol)
-            expirations = ticker.options or []
-            if not expirations:
-                return pd.Series(dtype=float, name="put_call")
-
-            put_volume = 0.0
-            call_volume = 0.0
-            for expiry in expirations[:3]:
-                chain = ticker.option_chain(expiry)
-                if chain.puts is not None and not chain.puts.empty:
-                    put_volume += pd.to_numeric(chain.puts.get('volume', 0), errors='coerce').fillna(0).sum()
-                if chain.calls is not None and not chain.calls.empty:
-                    call_volume += pd.to_numeric(chain.calls.get('volume', 0), errors='coerce').fillna(0).sum()
-
-            if call_volume <= 0:
-                return pd.Series(dtype=float, name="put_call")
-
-            ratio = float(put_volume / call_volume)
-            ratio = self._validate_put_call_series(pd.Series([ratio])).iloc[0]
-            idx = pd.date_range(start=start, end=end, freq='B')
-            return pd.Series(ratio, index=idx, name="put_call")
-        except Exception as exc:
-            self.logger.warning("yfinance option-chain PCR proxy failed: %s", exc)
-            return pd.Series(dtype=float, name="put_call")
-
     def _fetch_put_call_history(self, start: datetime, end: datetime) -> pd.Series:
         series = self._fetch_put_call_from_cboe(start, end)
         if not series.empty:
             return series
-
-        series = self._fetch_put_call_from_yfinance_options(start, end)
-        if not series.empty:
-            return series
-
-        for symbol in ["^PCR", "PUT", "PCCE", "^PCC", "PCC"]:
-            hist = self._fetch_yfinance_history(symbol, start, end)
-            if hist.empty or 'Close' not in hist.columns:
-                continue
-            series = self._validate_put_call_series(hist['Close'].dropna().rename("put_call"))
-            if not series.empty:
-                return series
 
         return pd.Series(dtype=float, name="put_call")
 

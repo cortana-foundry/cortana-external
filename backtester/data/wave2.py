@@ -154,6 +154,8 @@ class HeadlineSentimentAnalyzer:
     def analyze(self, ticker: str) -> Dict:
         symbol = ticker.upper().strip()
         payload = self.service_client.get_symbol_payload("news", symbol)
+        if payload is None:
+            return self._default_result(symbol)
         data = self.service_client.extract_data(payload) or {}
         items = data.get("items", []) if isinstance(data, dict) else []
         texts = self._extract_texts(items)

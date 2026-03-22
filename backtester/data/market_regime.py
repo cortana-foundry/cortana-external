@@ -33,7 +33,7 @@ class MarketStatus:
     trend_direction: str
     position_sizing: float
     notes: str
-    data_source: str = "unknown"  # alpaca|yahoo|cache
+    data_source: str = "unknown"  # schwab|schwab_streamer|alpaca|cache
     status: str = "ok"  # ok|degraded
     degraded_reason: str = ""
     snapshot_age_seconds: float = 0.0

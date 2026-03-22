@@ -218,7 +218,7 @@ flowchart LR
     A["Python engine<br/>advisor.py / market_regime.py / universe.py"] --> B["TS market-data service"]
     B --> C["Schwab streamer<br/>fresh quotes + chart updates"]
     B --> D["Schwab REST<br/>history / quote / metadata"]
-    B --> E["Yahoo fallback"]
+    B --> E["Schwab REST / cache fallback"]
     E --> F["Normalized JSON response"]
     D --> F
     C --> F
@@ -228,7 +228,7 @@ flowchart LR
 The mental model is:
 
 - Python asks: "Give me market data for this symbol."
-- TS decides: "Use Schwab first, then Yahoo if needed."
+- TS decides: "Use Schwab first, then cache if needed."
 - Python then scores the stock using the normalized answer.
 
 Why this is better:
@@ -242,8 +242,7 @@ What the TS service owns now:
 
 - Schwab REST requests
 - Schwab streamer session lifecycle
-- Yahoo fallback
-- Yahoo circuit-breaker behavior when repeated Yahoo failures happen
+- cache fallback
 - risk-data fetches used by regime/risk logic
 - base-universe artifact refresh
 - account activity groundwork for future position awareness
@@ -306,7 +305,7 @@ The TS service now does all of this:
 - bounded in-memory cache eviction for older streamer data
 - ops reporting through `/market-data/ops`
 - readiness reporting through `/market-data/ready`
-- Yahoo cooldown protection when repeated Yahoo fallback failures happen
+- cache fallback protection when repeated service failures happen
 
 Simple health model:
 
@@ -318,7 +317,7 @@ flowchart LR
 
     A --> E["Failure or disconnect"]
     E --> F["Reconnect / recover / fall back"]
-    F --> G["Use Schwab REST or Yahoo if needed"]
+    F --> G["Use Schwab REST or cache if needed"]
     G --> D
 ```
 
@@ -403,7 +402,7 @@ This is the basic question:
 Important clarification:
 - market regime logic still lives in Python
 - but its raw inputs now come from the TS service risk endpoints
-- those TS risk endpoints own the external fetches for Schwab/Yahoo/FRED/CBOE
+- those TS risk endpoints own the external fetches for Schwab/FRED/CBOE
 
 Simple version:
 - market regime = "How healthy is the market?"

@@ -36,13 +36,6 @@ import {
   type WebSocketFactory,
 } from "./streamer.js";
 import { UniverseArtifactManager, type UniverseAuditEntry } from "./universe-manager.js";
-import {
-  fetchYahooFundamentals as fetchYahooFundamentalsClient,
-  fetchYahooHistory as fetchYahooHistoryClient,
-  fetchYahooMetadata as fetchYahooMetadataClient,
-  fetchYahooNews as fetchYahooNewsClient,
-  fetchYahooQuote as fetchYahooQuoteClient,
-} from "./yahoo-client.js";
 import type {
   MarketDataComparison,
   MarketDataGenericPayload,
@@ -112,7 +105,6 @@ interface AlpacaKeys {
 
 interface ProviderMetrics {
   lastSuccessfulSchwabRestAt: string | null;
-  lastSuccessfulYahooFallbackAt: string | null;
   lastSuccessfulUniverseRefreshAt: string | null;
   lastSharedStateNotificationAt: string | null;
   tokenRefreshInFlight: boolean;
@@ -123,8 +115,6 @@ interface ProviderMetrics {
   lastSchwabFailureAt: string | null;
   schwabConsecutiveFailures: number;
   schwabCooldownUntil: string | null;
-  yahooConsecutiveFailures: number;
-  yahooCircuitOpenUntil: string | null;
   sourceUsage: Record<string, number>;
   fallbackUsage: Record<string, number>;
 }
@@ -137,8 +127,6 @@ export class MarketDataService {
   private readonly cacheDir: string;
   private readonly schwabFailureThreshold: number;
   private readonly schwabCooldownMs: number;
-  private readonly yahooCircuitFailureThreshold: number;
-  private readonly yahooCircuitCooldownMs: number;
   private readonly universeSeedPath: string;
   private readonly universeSourceLadder: string[];
   private readonly universeRemoteJsonUrl: string;
@@ -154,7 +142,6 @@ export class MarketDataService {
   private streamer: SchwabStreamerSession | null = null;
   private readonly providerMetrics: ProviderMetrics = {
     lastSuccessfulSchwabRestAt: null,
-    lastSuccessfulYahooFallbackAt: null,
     lastSuccessfulUniverseRefreshAt: null,
     lastSharedStateNotificationAt: null,
     tokenRefreshInFlight: false,
@@ -165,13 +152,10 @@ export class MarketDataService {
     lastSchwabFailureAt: null,
     schwabConsecutiveFailures: 0,
     schwabCooldownUntil: null,
-    yahooConsecutiveFailures: 0,
-    yahooCircuitOpenUntil: null,
     sourceUsage: {},
     fallbackUsage: {},
   };
   private schwabCooldownUntilMs = 0;
-  private yahooCircuitOpenUntilMs = 0;
   private tokenRefreshPromise: Promise<string> | null = null;
   private pool: Pool | null = null;
   private dbReadyPromise: Promise<void> | null = null;
@@ -194,8 +178,6 @@ export class MarketDataService {
       MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
       MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
       MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
-      MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
-      MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
@@ -233,8 +215,6 @@ export class MarketDataService {
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
     this.schwabFailureThreshold = this.config.MARKET_DATA_SCHWAB_FAILURE_THRESHOLD;
     this.schwabCooldownMs = this.config.MARKET_DATA_SCHWAB_COOLDOWN_MS;
-    this.yahooCircuitFailureThreshold = this.config.MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD;
-    this.yahooCircuitCooldownMs = this.config.MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS;
     this.universeSeedPath = resolveRepoPath(this.config.MARKET_DATA_UNIVERSE_SEED_PATH);
     this.universeSourceLadder = parseUniverseSourceLadder(this.config.MARKET_DATA_UNIVERSE_SOURCE_LADDER);
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
@@ -281,7 +261,6 @@ export class MarketDataService {
         schwabStreamerSharedStateUpdatedAt: sharedState?.updatedAt ?? null,
         schwabTokenStatus: this.providerMetrics.schwabTokenStatus,
         schwabTokenReason: this.providerMetrics.schwabTokenReason,
-        yahoo: "ready",
         fred: this.config.FRED_API_KEY ? "configured" : "unauthenticated",
         universeSeedPath: this.universeSeedPath,
         universeSourceLadder: this.universeSourceLadder,
@@ -347,19 +326,36 @@ export class MarketDataService {
       };
     }
     const rawProvider = resolveQuery(request.url, "provider", "service");
-    const provider = normalizeHistoryProvider(rawProvider);
-    if (!provider) {
+    if (rawProvider.trim().toLowerCase() === "yahoo") {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, yahoo, and alpaca`,
+          reason: "unsupported provider 'yahoo'; supported providers are service, schwab, and alpaca",
         }),
       };
     }
+    const provider = normalizeHistoryProvider(rawProvider);
+    if (!provider) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid provider", "error", {
+            reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, and alpaca`,
+          }),
+        };
+      }
     try {
       const primary = await this.fetchPrimaryHistory(symbol, period, interval, provider);
       this.recordSourceUsage(primary.source);
-      const compare = await this.buildHistoryComparison(symbol, period, interval, compareWith, primary.rows);
+      const compareProvider = resolveCompareProvider(compareWith);
+      if (compareProvider === null) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid compare provider", "error", {
+            reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+          }),
+        };
+      }
+      const compare = await this.buildHistoryComparison(symbol, period, interval, compareProvider ?? undefined, primary.rows);
       return {
         status: 200,
         body: {
@@ -391,7 +387,16 @@ export class MarketDataService {
     try {
       const primary = await this.fetchPrimaryQuote(symbol);
       this.recordSourceUsage(primary.source);
-      const compare = await this.buildQuoteComparison(symbol, compareWith, primary.quote);
+      const compareProvider = resolveCompareProvider(compareWith);
+      if (compareProvider === null) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid compare provider", "error", {
+            reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+          }),
+        };
+      }
+      const compare = await this.buildQuoteComparison(symbol, compareProvider ?? undefined, primary.quote);
       return {
         status: 200,
         body: {
@@ -415,12 +420,21 @@ export class MarketDataService {
       return { status: 400, body: marketDataErrorResponse("invalid symbols", "error", { reason: "symbols query is required" }) };
     }
     const compareWith = resolveQuery(request.url, "compare_with", "").trim() || undefined;
+    const compareProvider = resolveCompareProvider(compareWith);
+    if (compareProvider === null) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid compare provider", "error", {
+          reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+        }),
+      };
+    }
     const items = await Promise.all(
       symbols.map(async (symbol) => {
         try {
           const primary = await this.fetchPrimaryQuote(symbol);
           this.recordSourceUsage(primary.source);
-          const compare = await this.buildQuoteComparison(symbol, compareWith, primary.quote);
+          const compare = await this.buildQuoteComparison(symbol, compareProvider ?? undefined, primary.quote);
           return {
             symbol,
             source: primary.source,
@@ -459,7 +473,16 @@ export class MarketDataService {
     try {
       const primary = await this.fetchPrimarySnapshot(symbol);
       this.recordSourceUsage(primary.source);
-      const compare = await this.buildQuoteComparison(symbol, compareWith, primary.snapshot.quote as MarketDataQuote | undefined);
+      const compareProvider = resolveCompareProvider(compareWith);
+      if (compareProvider === null) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid compare provider", "error", {
+            reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+          }),
+        };
+      }
+      const compare = await this.buildQuoteComparison(symbol, compareProvider ?? undefined, primary.snapshot.quote as MarketDataQuote | undefined);
       return {
         status: 200,
         body: {
@@ -495,15 +518,23 @@ export class MarketDataService {
       };
     }
     const rawProvider = resolveQuery(request.url, "provider", "service");
-    const provider = normalizeHistoryProvider(rawProvider);
-    if (!provider) {
+    if (rawProvider.trim().toLowerCase() === "yahoo") {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, yahoo, and alpaca`,
+          reason: "unsupported provider 'yahoo'; supported providers are service, schwab, and alpaca",
         }),
       };
     }
+    const provider = normalizeHistoryProvider(rawProvider);
+    if (!provider) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid provider", "error", {
+            reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, and alpaca`,
+          }),
+        };
+      }
     const compareWith = resolveQuery(request.url, "compare_with", "").trim() || undefined;
     const items = await Promise.all(
       symbols.map(async (symbol) => {
@@ -555,7 +586,16 @@ export class MarketDataService {
       const asOfDate = resolveQuery(request.url, "as_of_date", "");
       const primary = await this.fetchPrimaryFundamentals(symbol, asOfDate || undefined);
       this.recordSourceUsage(primary.source);
-      const compare = compareWith ? buildUnavailableCompare(compareWith, "comparison is only implemented for history/quote paths") : undefined;
+      const compareProvider = resolveCompareProvider(compareWith);
+      if (compareProvider === null) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid compare provider", "error", {
+            reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+          }),
+        };
+      }
+      const compare = compareProvider ? buildUnavailableCompare(compareProvider, "comparison is only implemented for history/quote paths") : undefined;
       return {
         status: 200,
         body: {
@@ -584,7 +624,16 @@ export class MarketDataService {
 
     try {
       const payload = await this.fetchPrimaryMetadata(symbol);
-      const compare = compareWith ? buildUnavailableCompare(compareWith, "comparison is only implemented for history/quote paths") : undefined;
+      const compareProvider = resolveCompareProvider(compareWith);
+      if (compareProvider === null) {
+        return {
+          status: 400,
+          body: marketDataErrorResponse("invalid compare provider", "error", {
+            reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+          }),
+        };
+      }
+      const compare = compareProvider ? buildUnavailableCompare(compareProvider, "comparison is only implemented for history/quote paths") : undefined;
       return {
         status: 200,
         body: {
@@ -610,24 +659,13 @@ export class MarketDataService {
     if (!symbol) {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
     }
-
-    try {
-      const payload = await this.fetchYahooNews(symbol);
-      const compare = compareWith ? buildUnavailableCompare(compareWith, "comparison is only implemented for history/quote paths") : undefined;
-      return {
-        status: 200,
-        body: {
-          source: "yahoo",
-          status: "ok",
-          degradedReason: null,
-          stalenessSeconds: 0,
-          data: { symbol, payload },
-          ...(compare ? { compare_with: compare } : {}),
-        },
-      };
-    } catch (error) {
-      return this.toErrorRoute<MarketDataGenericPayload>(error, { symbol, payload: { items: [] } });
-    }
+    void compareWith;
+    return {
+      status: 501,
+      body: marketDataErrorResponse("news unavailable", "unavailable", {
+        reason: "market-data news has been removed; no Schwab replacement is available",
+      }),
+    };
   }
 
   async handleUniverseBase(): Promise<MarketDataRouteResult<MarketDataUniverse>> {
@@ -825,40 +863,25 @@ export class MarketDataService {
       const rows = await this.fetchSchwabHistory(symbol, period, interval);
       return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
     }
-    if (provider === "yahoo") {
-      const rows = await this.fetchYahooHistory(symbol, period, interval);
-      return { source: "yahoo", status: "ok", stalenessSeconds: 0, rows };
-    }
     if (provider === "alpaca") {
       const rows = await this.fetchAlpacaHistory(symbol, period, interval);
       return { source: "alpaca", status: "ok", stalenessSeconds: 0, rows };
     }
 
-    const reasons: string[] = [];
     if (this.isSchwabConfigured()) {
       if (this.shouldSkipSchwabRest()) {
-        reasons.push(this.currentSchwabRestSkipReason());
-      } else {
-        try {
-          const rows = await this.fetchSchwabHistory(symbol, period, interval);
-          return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
-        } catch (error) {
-          this.recordSchwabRestFailure(error);
-          reasons.push(summarizeError(error));
-          this.logger.error(`Schwab history failed for ${symbol}`, error);
-        }
+        throw new Error(this.currentSchwabRestSkipReason());
+      }
+      try {
+        const rows = await this.fetchSchwabHistory(symbol, period, interval);
+        return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+      } catch (error) {
+        this.recordSchwabRestFailure(error);
+        this.logger.error(`Schwab history failed for ${symbol}`, error);
+        throw error;
       }
     }
-
-    const rows = await this.fetchYahooHistory(symbol, period, interval);
-    this.recordYahooFallbackSuccess();
-    return {
-      source: "yahoo",
-      status: reasons.length ? "degraded" : "ok",
-      degradedReason: reasons.length ? `Schwab unavailable; using Yahoo fallback (${reasons[0]})` : null,
-      stalenessSeconds: 0,
-      rows,
-    };
+    throw new Error("Schwab credentials are not configured");
   }
 
   private async fetchPrimaryQuote(symbol: string): Promise<QuoteFetchResult> {
@@ -882,28 +905,18 @@ export class MarketDataService {
         throw new Error(reasons[0] ?? `No live Schwab futures quote available for ${symbol}`);
       }
       if (this.shouldSkipSchwabRest()) {
-        reasons.push(this.currentSchwabRestSkipReason());
-      } else {
-        try {
-          const quote = await this.fetchSchwabQuote(symbol);
-          return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
-        } catch (error) {
-          this.recordSchwabRestFailure(error);
-          reasons.push(summarizeError(error));
-          this.logger.error(`Schwab quote failed for ${symbol}`, error);
-        }
+        throw new Error(this.currentSchwabRestSkipReason());
+      }
+      try {
+        const quote = await this.fetchSchwabQuote(symbol);
+        return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
+      } catch (error) {
+        this.recordSchwabRestFailure(error);
+        this.logger.error(`Schwab quote failed for ${symbol}`, error);
+        throw error;
       }
     }
-
-    const quote = await this.fetchYahooQuote(symbol);
-    this.recordYahooFallbackSuccess();
-    return {
-      source: "yahoo",
-      status: reasons.length ? "degraded" : "ok",
-      degradedReason: reasons.length ? `Schwab unavailable; using Yahoo fallback (${reasons[0]})` : null,
-      stalenessSeconds: 0,
-      quote,
-    };
+    throw new Error("Schwab credentials are not configured");
   }
 
   private async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
@@ -952,34 +965,13 @@ export class MarketDataService {
         }
       }
     }
-
-    const yahooPayload = await this.fetchYahooFundamentals(symbol, targetAsOfDate).catch((error) => {
-      reasons.push(`Yahoo fundamentals failed: ${summarizeError(error)}`);
-      return {};
-    });
     if (Object.keys(schwabPayload).length) {
-      const merged = mergePreferPrimary(schwabPayload, yahooPayload);
       return {
-        source: Object.keys(yahooPayload).length ? "schwab" : "schwab",
-        status: Object.keys(yahooPayload).length && reasons.length ? "degraded" : "ok",
-        degradedReason:
-          Object.keys(yahooPayload).length && reasons.length
-            ? `Schwab fundamentals supplemented by Yahoo fallback (${reasons[0]})`
-            : reasons.length && !Object.keys(yahooPayload).length
-              ? reasons[0]
-              : null,
-        stalenessSeconds: 0,
-        payload: merged,
-      };
-    }
-    if (Object.keys(yahooPayload).length) {
-      this.recordYahooFallbackSuccess();
-      return {
-        source: "yahoo",
+        source: "schwab",
         status: reasons.length ? "degraded" : "ok",
-        degradedReason: reasons.length ? `Schwab unavailable; using Yahoo fallback (${reasons[0]})` : null,
+        degradedReason: reasons.length ? reasons[0] : null,
         stalenessSeconds: 0,
-        payload: yahooPayload,
+        payload: schwabPayload,
       };
     }
     throw new Error(reasons[0] ?? `Unable to fetch fundamentals for ${symbol}`);
@@ -1000,15 +992,8 @@ export class MarketDataService {
         }
       }
     }
-    const yahooPayload = await this.fetchYahooMetadata(symbol).catch(() => ({}));
     if (Object.keys(schwabPayload).length) {
-      return mergePreferPrimary(schwabPayload, yahooPayload);
-    }
-    if (Object.keys(yahooPayload).length) {
-      if (reasons.length) {
-        this.recordYahooFallbackSuccess();
-      }
-      return yahooPayload;
+      return schwabPayload;
     }
     throw new Error(reasons[0] ?? `Unable to fetch metadata for ${symbol}`);
   }
@@ -1020,7 +1005,7 @@ export class MarketDataService {
     compareWith: string | undefined,
     primaryRows: MarketDataHistoryPoint[],
   ): Promise<MarketDataComparison | undefined> {
-    const source = normalizeCompare(compareWith);
+    const source = compareWith;
     if (!source) {
       return undefined;
     }
@@ -1032,8 +1017,6 @@ export class MarketDataService {
           return buildUnavailableCompare(source, "Schwab credentials are not configured");
         }
         rows = await this.fetchSchwabHistory(symbol, period, interval);
-      } else if (source === "yahoo") {
-        rows = await this.fetchYahooHistory(symbol, period, interval);
       } else if (source === "alpaca") {
         rows = await this.fetchAlpacaHistory(symbol, period, interval);
       } else {
@@ -1056,7 +1039,7 @@ export class MarketDataService {
     compareWith: string | undefined,
     primaryQuote: MarketDataQuote | undefined,
   ): Promise<MarketDataComparison | undefined> {
-    const source = normalizeCompare(compareWith);
+    const source = compareWith;
     if (!source || !primaryQuote) {
       return undefined;
     }
@@ -1068,8 +1051,6 @@ export class MarketDataService {
           return buildUnavailableCompare(source, "Schwab credentials are not configured");
         }
         quote = await this.fetchSchwabQuote(symbol);
-      } else if (source === "yahoo") {
-        quote = await this.fetchYahooQuote(symbol);
       } else if (source === "alpaca") {
         quote = await this.fetchAlpacaQuote(symbol);
       } else {
@@ -1085,39 +1066,6 @@ export class MarketDataService {
     } catch (error) {
       return buildUnavailableCompare(source, summarizeError(error));
     }
-  }
-
-  private async fetchYahooHistory(
-    symbol: string,
-    period: string,
-    interval: HistoryInterval = DEFAULT_INTERVAL,
-  ): Promise<MarketDataHistoryPoint[]> {
-    return fetchYahooHistoryClient(
-      { runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) },
-      symbol,
-      period,
-      interval,
-    );
-  }
-
-  private async fetchYahooQuote(symbol: string): Promise<MarketDataQuote> {
-    return fetchYahooQuoteClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
-  }
-
-  private async fetchYahooMetadata(symbol: string): Promise<Record<string, unknown>> {
-    return fetchYahooMetadataClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
-  }
-
-  private async fetchYahooFundamentals(symbol: string, asOfDate?: string): Promise<Record<string, unknown>> {
-    return fetchYahooFundamentalsClient(
-      { runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) },
-      symbol,
-      asOfDate,
-    );
-  }
-
-  private async fetchYahooNews(symbol: string): Promise<Record<string, unknown>> {
-    return fetchYahooNewsClient({ runRequest: this.runYahooRequest.bind(this), fetchJson: this.fetchJson.bind(this) }, symbol);
   }
 
   private isSchwabConfigured(): boolean {
@@ -1535,7 +1483,7 @@ export class MarketDataService {
     return buildRiskPayload({
       days,
       fredApiKey: this.config.FRED_API_KEY,
-      fetchYahooHistory: (symbol, period) => this.fetchYahooHistory(symbol, period),
+      fetchSchwabHistory: (symbol, period, interval) => this.fetchSchwabHistory(symbol, period, interval),
       fetchJson: this.fetchJson.bind(this),
       fetchResponse: this.fetchResponse.bind(this),
     });
@@ -1606,54 +1554,6 @@ export class MarketDataService {
       return `Schwab REST cooldown open until ${this.providerMetrics.schwabCooldownUntil}`;
     }
     return "Schwab REST temporarily unavailable";
-  }
-
-  private recordYahooFallbackSuccess(): void {
-    this.recordYahooSuccess();
-    this.providerMetrics.lastSuccessfulYahooFallbackAt = new Date().toISOString();
-    this.providerMetrics.fallbackUsage.yahoo = (this.providerMetrics.fallbackUsage.yahoo ?? 0) + 1;
-  }
-
-  private recordYahooSuccess(): void {
-    this.providerMetrics.yahooConsecutiveFailures = 0;
-    this.yahooCircuitOpenUntilMs = 0;
-    this.providerMetrics.yahooCircuitOpenUntil = null;
-  }
-
-  private recordYahooFailure(): void {
-    this.providerMetrics.yahooConsecutiveFailures += 1;
-    if (this.providerMetrics.yahooConsecutiveFailures < this.yahooCircuitFailureThreshold) {
-      return;
-    }
-    this.yahooCircuitOpenUntilMs = Date.now() + this.yahooCircuitCooldownMs;
-    this.providerMetrics.yahooCircuitOpenUntil = new Date(this.yahooCircuitOpenUntilMs).toISOString();
-  }
-
-  private isYahooCircuitOpen(): boolean {
-    if (!this.yahooCircuitOpenUntilMs) {
-      return false;
-    }
-    if (Date.now() >= this.yahooCircuitOpenUntilMs) {
-      this.yahooCircuitOpenUntilMs = 0;
-      this.providerMetrics.yahooCircuitOpenUntil = null;
-      this.providerMetrics.yahooConsecutiveFailures = 0;
-      return false;
-    }
-    return true;
-  }
-
-  private async runYahooRequest<T>(operation: string, fn: () => Promise<T>): Promise<T> {
-    if (this.isYahooCircuitOpen()) {
-      throw new Error(`Yahoo circuit open for ${operation} until ${this.providerMetrics.yahooCircuitOpenUntil}`);
-    }
-    try {
-      const result = await fn();
-      this.recordYahooSuccess();
-      return result;
-    } catch (error) {
-      this.recordYahooFailure();
-      throw error;
-    }
   }
 
   private recordSharedStateFallbackSuccess(): void {
@@ -1872,13 +1772,13 @@ export class MarketDataService {
   }
 }
 
-function normalizeCompare(rawCompareWith: string | undefined): string | undefined {
+function resolveCompareProvider(rawCompareWith: string | undefined): string | null | undefined {
   const candidate = rawCompareWith?.trim().toLowerCase();
   if (!candidate) {
     return undefined;
   }
-  if (!["alpaca", "yahoo", "schwab", "cache"].includes(candidate)) {
-    return undefined;
+  if (!["alpaca", "schwab"].includes(candidate)) {
+    return null;
   }
   return candidate;
 }
@@ -1912,21 +1812,6 @@ function firstString(...values: unknown[]): string | undefined {
     }
   }
   return undefined;
-}
-
-function mergePreferPrimary(
-  primary: Record<string, unknown>,
-  fallback: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...fallback };
-  for (const [key, value] of Object.entries(primary)) {
-    if (value !== undefined && value !== null && value !== "") {
-      out[key] = value;
-    } else if (!(key in out)) {
-      out[key] = value;
-    }
-  }
-  return out;
 }
 
 function resolveRepoPath(rawPath: string): string {

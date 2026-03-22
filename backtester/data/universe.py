@@ -708,7 +708,7 @@ class UniverseScreener:
             candidates.append(candidate)
             passed += 1
             
-            # Rate limiting (avoid Yahoo Finance blocks)
+            # Gentle pacing for local screening loops
             time.sleep(0.2)
         
         if verbose:

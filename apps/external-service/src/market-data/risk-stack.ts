@@ -36,7 +36,7 @@ export interface RiskPayloadResult {
 interface RiskStackOptions {
   days: number;
   fredApiKey: string;
-  fetchYahooHistory: (symbol: string, period: string) => Promise<MarketDataHistoryPoint[]>;
+  fetchSchwabHistory: (symbol: string, period: string, interval: "1d" | "1wk" | "1mo") => Promise<MarketDataHistoryPoint[]>;
   fetchJson: <T>(url: string, init?: RequestInit) => Promise<T>;
   fetchResponse: (input: string | URL, init?: RequestInit, timeoutMs?: number) => Promise<Response>;
 }
@@ -44,15 +44,20 @@ interface RiskStackOptions {
 export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskPayloadResult> {
   const lookbackDays = Math.max(options.days, 160) * 2;
   const [vixHistory, spyHistory, hySeries, putCallSeries] = await Promise.all([
-    options.fetchYahooHistory("^VIX", "1y").catch(() => []),
-    options.fetchYahooHistory("SPY", "1y").catch(() => []),
+    options.fetchSchwabHistory("^VIX", "1y", "1d").catch(() => []),
+    options.fetchSchwabHistory("SPY", "1y", "1d").catch(() => []),
     fetchFredSeries(options.fetchJson, options.fredApiKey, "BAMLH0A0HYM2", lookbackDays).catch(() => []),
     fetchPutCallHistory(options.fetchResponse, lookbackDays).catch(() => []),
   ]);
+  const vixProxySeries = vixHistory.length ? [] : deriveVixProxySeries(spyHistory);
+  const vixSourceRows = vixHistory.length
+    ? vixHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close }))
+    : vixProxySeries;
 
   const baseDates = dedupe([
     ...spyHistory.map((row) => row.timestamp.slice(0, 10)),
     ...vixHistory.map((row) => row.timestamp.slice(0, 10)),
+    ...vixProxySeries.map((row) => row.date),
     ...hySeries.map((row) => row.date),
     ...putCallSeries.map((row) => row.date),
   ]).sort();
@@ -60,7 +65,7 @@ export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskP
     throw new Error("Unable to build risk payload from upstream sources");
   }
 
-  const vixMap = buildSeriesMap(vixHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close })));
+  const vixMap = buildSeriesMap(vixSourceRows);
   const spyMap = buildSeriesMap(spyHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close })));
   const hyMap = buildSeriesMap(hySeries);
   const putCallMap = buildSeriesMap(putCallSeries);
@@ -104,11 +109,11 @@ export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskP
     rows: rows.slice(-options.days),
     meta: {
       source: "ts-risk-stack",
-      status: hySpreadFallback ? "degraded" : "ok",
-      degradedReason: hySpreadFallback ? warning : null,
+      status: hySpreadFallback || !vixHistory.length ? "degraded" : "ok",
+      degradedReason: hySpreadFallback ? warning : !vixHistory.length ? "Schwab VIX history unavailable; using SPY realized-vol proxy." : null,
       stalenessSeconds: 0,
     },
-    warning,
+    warning: hySpreadFallback ? warning : !vixHistory.length ? "Schwab VIX history unavailable; using SPY realized-vol proxy." : "",
     hySpreadSource: hySpreadFallback ? "fallback_default_450" : "fred",
     hySpreadFallback,
   };
@@ -196,6 +201,41 @@ function spyDistanceScoresFromClose(close: number[]): number[] {
     out.push(clamp(((distancePct + 10) / 20) * 100, 0, 100));
   }
   return out;
+}
+
+function deriveVixProxySeries(spyHistory: MarketDataHistoryPoint[]): Array<{ date: string; value: number }> {
+  if (spyHistory.length < 10) {
+    return [];
+  }
+  const closes = spyHistory
+    .map((row) => ({
+      date: row.timestamp.slice(0, 10),
+      close: row.close,
+    }))
+    .filter((row) => Boolean(row.date) && Number.isFinite(row.close));
+  const output: Array<{ date: string; value: number }> = [];
+  for (let index = 5; index < closes.length; index += 1) {
+    const window = closes.slice(Math.max(0, index - 20), index + 1);
+    const returns: number[] = [];
+    for (let cursor = 1; cursor < window.length; cursor += 1) {
+      const prev = window[cursor - 1]?.close ?? 0;
+      const current = window[cursor]?.close ?? 0;
+      if (prev > 0 && current > 0) {
+        returns.push((current - prev) / prev);
+      }
+    }
+    if (returns.length < 5) {
+      continue;
+    }
+    const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const variance = returns.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / returns.length;
+    const realizedVol = Math.sqrt(Math.max(variance, 0)) * Math.sqrt(252) * 100;
+    output.push({
+      date: closes[index]?.date ?? "",
+      value: clamp(realizedVol, 8, 80),
+    });
+  }
+  return output;
 }
 
 function clamp(value: number, low: number, high: number): number {

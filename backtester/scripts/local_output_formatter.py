@@ -392,7 +392,7 @@ def format_market_data_ops(text: str) -> str:
         )
     out.append(
         "- Fallbacks: "
-        f"yahoo {fallback_usage.get('yahoo', 0)} | shared_state {fallback_usage.get('shared_state', 0)}"
+        f"shared_state {fallback_usage.get('shared_state', 0)}"
         f" | primary source mix {', '.join(f'{k} {v}' for k, v in sorted(source_usage.items())) or 'none yet'}"
     )
     if latest_universe:

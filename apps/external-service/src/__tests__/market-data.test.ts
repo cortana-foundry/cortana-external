@@ -21,8 +21,6 @@ const TEST_CONFIG: AppConfig = {
   MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
   MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
   MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
-  MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
-  MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
@@ -558,27 +556,44 @@ describe("market-data routes", () => {
     expect(equityCommands).toContain("ADD:MSFT");
   });
 
-  it("returns yahoo-backed quote payload for quote endpoint", async () => {
+  it("returns schwab-backed quote payload for quote endpoint", async () => {
     const app = new Hono();
     const service = new MarketDataService({
-      fetchImpl: async () =>
-        new Response(
-          JSON.stringify({
-            quoteResponse: {
-              result: [
-                {
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: {
+                quote: {
                   symbol: "AAPL",
-                  regularMarketPrice: 200.12,
-                  regularMarketChange: 1.23,
-                  regularMarketChangePercent: 0.62,
-                  regularMarketTime: 1_710_000_000,
+                  lastPrice: 200.12,
+                  tradeTimeInLong: 1_710_000_000_000,
+                },
+                reference: {
+                  description: "Apple Inc.",
                   currency: "USD",
                 },
-              ],
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+                fundamental: {
+                  marketCap: 3_000_000_000_000,
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
     });
     registerMarketDataRoutes(app, service);
 
@@ -586,7 +601,7 @@ describe("market-data routes", () => {
     const body = (await response.json()) as { source: string; status: string; data: { symbol: string; price: number } };
 
     expect(response.status).toBe(200);
-    expect(body.source).toBe("yahoo");
+    expect(body.source).toBe("schwab");
     expect(body.status).toBe("ok");
     expect(body.data.symbol).toBe("AAPL");
     expect(body.data.price).toBe(200.12);
@@ -609,31 +624,6 @@ describe("market-data routes", () => {
             headers: { "content-type": "application/json" },
           });
         }
-        if (url.includes("query1.finance.yahoo.com/v8/finance/chart")) {
-          return new Response(
-            JSON.stringify({
-              chart: {
-                result: [
-                  {
-                    timestamp: [1_710_000_000, 1_710_086_400],
-                    indicators: {
-                      quote: [
-                        {
-                          open: [200, 201],
-                          high: [202, 203],
-                          low: [199, 200],
-                          close: [201, 202],
-                          volume: [1000, 1100],
-                        },
-                      ],
-                    },
-                  },
-                ],
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
         return new Response("not found", { status: 404 });
       },
     });
@@ -641,9 +631,9 @@ describe("market-data routes", () => {
 
     const historyResponse = await app.request("/market-data/history/AAPL?period=1mo");
     const historyBody = (await historyResponse.json()) as { source: string; status: string };
-    expect(historyResponse.status).toBe(200);
-    expect(historyBody.source).toBe("yahoo");
-    expect(historyBody.status).toBe("degraded");
+    expect(historyResponse.status).toBe(503);
+    expect(historyBody.source).toBe("service");
+    expect(historyBody.status).toBe("error");
 
     const readyResponse = await app.request("/market-data/ready");
     const readyBody = (await readyResponse.json()) as { data: { ready: boolean; operatorState: string; operatorAction: string } };
@@ -721,29 +711,28 @@ describe("market-data routes", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
-        if (url.includes("query1.finance.yahoo.com/v10/finance/quoteSummary")) {
+        if (url.includes("/marketdata/v1/quotes")) {
           return new Response(
             JSON.stringify({
-              quoteSummary: {
-                result: [
-                  {
-                    summaryProfile: { sector: "Technology", industry: "Consumer Electronics" },
-                    defaultKeyStatistics: {},
-                    financialData: {},
-                    price: { shortName: "Apple Inc." },
-                    calendarEvents: { earnings: { earningsDate: [] } },
-                    earningsTrend: { trend: [] },
-                  },
-                ],
+              AAPL: {
+                quote: {
+                  symbol: "AAPL",
+                  lastPrice: 200.12,
+                  tradeTimeInLong: 1_710_000_000_000,
+                },
+                reference: {
+                  description: "Apple Inc.",
+                  sector: "Technology",
+                  industry: "Consumer Electronics",
+                  currency: "USD",
+                },
+                fundamental: {
+                  floatShares: 15_500_000_000,
+                  sharesOutstanding: 15_700_000_000,
+                  marketCap: 3_100_000_000_000,
+                  beta: 1.12,
+                },
               },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
-          return new Response(
-            JSON.stringify({
-              quoteResponse: { result: [{ symbol: "AAPL", regularMarketPrice: 200.12, currency: "USD" }] },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -765,7 +754,7 @@ describe("market-data routes", () => {
     expect(body.data.chartEquity?.close).toBe(201.7);
   });
 
-  it("uses Schwab fundamentals as primary and Yahoo only for missing fields", async () => {
+  it("uses Schwab fundamentals as the only primary source", async () => {
     const app = new Hono();
     const service = new MarketDataService({
       config: {
@@ -791,6 +780,8 @@ describe("market-data routes", () => {
                 },
                 reference: {
                   description: "Apple Inc.",
+                  sector: "Technology",
+                  industry: "Consumer Electronics",
                 },
                 fundamental: {
                   floatShares: 15_500_000_000,
@@ -798,43 +789,6 @@ describe("market-data routes", () => {
                   marketCap: 3_100_000_000_000,
                   beta: 1.12,
                 },
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("quoteSummary/AAPL")) {
-          return new Response(
-            JSON.stringify({
-              quoteSummary: {
-                result: [
-                  {
-                    summaryProfile: { sector: "Technology", industry: "Consumer Electronics" },
-                    defaultKeyStatistics: { heldPercentInstitutions: { raw: 0.61 } },
-                    financialData: { earningsGrowth: { raw: 0.18 }, revenueGrowth: { raw: 0.12 } },
-                    calendarEvents: { earnings: { earningsDate: [{ fmt: "2026-05-01" }] } },
-                    earningsTrend: { trend: [{ growth: { raw: 0.22 } }] },
-                  },
-                ],
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("/v7/finance/quote")) {
-          return new Response(
-            JSON.stringify({
-              quoteResponse: {
-                result: [
-                  {
-                    symbol: "AAPL",
-                    regularMarketPrice: 201.5,
-                    regularMarketChange: 1.2,
-                    regularMarketChangePercent: 0.6,
-                    regularMarketTime: 1_710_000_000,
-                    currency: "USD",
-                  },
-                ],
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -852,7 +806,7 @@ describe("market-data routes", () => {
     expect(body.source).toBe("schwab");
     expect(body.data.payload.float_shares).toBe(15_500_000_000);
     expect(body.data.payload.sector).toBe("Technology");
-    expect(body.data.payload.institutional_pct).toBeCloseTo(0.61);
+    expect(body.data.payload.market_cap).toBe(3_100_000_000_000);
   });
 
   it("refreshes universe artifact from python static seed", async () => {
@@ -977,10 +931,14 @@ describe("market-data routes", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+        if (url.includes("/marketdata/v1/quotes")) {
           return new Response(
             JSON.stringify({
-              quoteResponse: { result: [{ symbol: "AAPL", regularMarketPrice: 199.0, currency: "USD" }] },
+              AAPL: {
+                quote: { symbol: "AAPL", lastPrice: 199.0, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
+              },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -1028,11 +986,15 @@ describe("market-data routes", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+        if (url.includes("/marketdata/v1/quotes")) {
           const symbol = url.includes("symbols=MSFT") ? "MSFT" : "AAPL";
           return new Response(
             JSON.stringify({
-              quoteResponse: { result: [{ symbol, regularMarketPrice: 199.0, currency: "USD" }] },
+              [symbol]: {
+                quote: { symbol, lastPrice: 199.0, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
+              },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -1147,10 +1109,14 @@ describe("market-data routes", () => {
         if (url.includes("/marketdata/v1/quotes")) {
           return new Response("not found", { status: 404 });
         }
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+        if (url.includes("/marketdata/v1/quotes")) {
           return new Response(
             JSON.stringify({
-              quoteResponse: { result: [{ symbol: "AAPL", regularMarketPrice: 199.0, currency: "USD" }] },
+              AAPL: {
+                quote: { symbol: "AAPL", lastPrice: 199.0, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
+              },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -1213,22 +1179,37 @@ describe("market-data routes", () => {
 
     const app = new Hono();
     const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
       fetchImpl: async (input) => {
         const url = String(input);
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+        if (url.includes("/oauth/token")) {
           return new Response(
             JSON.stringify({
-              quoteResponse: {
-                result: [
-                  {
-                    symbol: "AAPL",
-                    regularMarketPrice: 200.12,
-                    regularMarketChange: 1.23,
-                    regularMarketChangePercent: 0.62,
-                    regularMarketTime: 1_710_000_000,
-                    currency: "USD",
-                  },
-                ],
+              access_token: "access-token",
+              expires_in: 1800,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: {
+                quote: {
+                  symbol: "AAPL",
+                  lastPrice: 200.12,
+                  tradeTimeInLong: 1_710_000_000_000,
+                },
+                reference: {
+                  description: "Apple Inc.",
+                  currency: "USD",
+                },
+                fundamental: {
+                  marketCap: 3_000_000_000_000,
+                },
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -1258,7 +1239,7 @@ describe("market-data routes", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(body.source).toBe("yahoo");
+    expect(body.source).toBe("schwab");
     expect(body.data.price).toBe(200.12);
     expect(body.compare_with?.source).toBe("alpaca");
     expect(body.compare_with?.available).toBe(true);
@@ -1272,23 +1253,23 @@ describe("market-data routes", () => {
   it("serves batch quotes through a single route response", async () => {
     const app = new Hono();
     const service = new MarketDataService({
-      config: { ...TEST_CONFIG, SCHWAB_CLIENT_ID: "", SCHWAB_CLIENT_SECRET: "", SCHWAB_REFRESH_TOKEN: "" },
+      config: { ...TEST_CONFIG, SCHWAB_STREAMER_ENABLED: "0" },
       fetchImpl: async (input) => {
         const url = String(input);
-        if (url.includes("query1.finance.yahoo.com/v7/finance/quote")) {
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
           const symbol = url.includes("MSFT") ? "MSFT" : "AAPL";
           return new Response(
             JSON.stringify({
-              quoteResponse: {
-                result: [
-                  {
-                    symbol,
-                    regularMarketPrice: symbol === "MSFT" ? 410.5 : 201.25,
-                    regularMarketChangePercent: 1.5,
-                    regularMarketTime: 1_710_000_000,
-                    currency: "USD",
-                  },
-                ],
+              [symbol]: {
+                quote: { symbol, lastPrice: symbol === "MSFT" ? 410.5 : 201.25, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -1305,7 +1286,7 @@ describe("market-data routes", () => {
     expect(response.status).toBe(200);
     expect(body.data.items).toHaveLength(2);
     expect(body.data.items.map((item) => item.symbol)).toEqual(["AAPL", "MSFT"]);
-    expect(body.data.items.every((item) => item.source === "yahoo")).toBe(true);
+    expect(body.data.items.every((item) => item.source === "schwab")).toBe(true);
   });
 
   it("serves batch history with shared interval/provider inputs", async () => {
@@ -1361,38 +1342,42 @@ describe("market-data routes", () => {
     expect(body.data.operatorState).toBe("healthy");
   });
 
-  it("opens the Yahoo circuit after repeated failures", async () => {
+  it("rejects yahoo as an unsupported history provider", async () => {
     const service = new MarketDataService({
       config: {
         ...TEST_CONFIG,
-        SCHWAB_CLIENT_ID: "",
-        SCHWAB_CLIENT_SECRET: "",
-        SCHWAB_REFRESH_TOKEN: "",
-        MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 2,
-        MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
+        SCHWAB_STREAMER_ENABLED: "0",
       },
-      fetchImpl: async () => new Response("bad gateway", { status: 502 }),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/pricehistory")) {
+          return new Response(
+            JSON.stringify({
+              candles: [{ datetime: "2026-03-01T00:00:00Z", open: 100, high: 101, low: 99, close: 100.5, volume: 1000 }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
     });
 
-    await expect(service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL")).resolves.toMatchObject({
-      status: 503,
+    await expect(service.handleHistory(new Request("http://localhost/market-data/history/AAPL?provider=yahoo"), "AAPL")).resolves.toMatchObject({
+      status: 400,
     });
-    await expect(service.handleQuote(new Request("http://localhost/market-data/quote/MSFT"), "MSFT")).resolves.toMatchObject({
-      status: 503,
-    });
-
-    const health = await service.checkHealth();
-    const providers = (health.providers ?? {}) as Record<string, unknown>;
-    const metrics = (providers.providerMetrics ?? {}) as Record<string, unknown>;
-
-    expect(metrics.yahooConsecutiveFailures).toBe(2);
-    expect(metrics.yahooCircuitOpenUntil).toBeTruthy();
   });
 
-  it("honors weekly history intervals when falling back to Yahoo", async () => {
+  it("honors weekly history intervals for Schwab history", async () => {
     const requestedUrls: string[] = [];
     const app = new Hono();
     const service = new MarketDataService({
+      config: TEST_CONFIG,
       fetchImpl: async (input) => {
         const url = String(input);
         requestedUrls.push(url);
@@ -1403,28 +1388,23 @@ describe("market-data routes", () => {
           });
         }
         if (url.includes("/marketdata/v1/pricehistory")) {
-          return new Response("schwab unavailable", { status: 503 });
-        }
-        if (url.includes("query1.finance.yahoo.com/v8/finance/chart/AAPL")) {
           return new Response(
             JSON.stringify({
-              chart: {
-                result: [
-                  {
-                    timestamp: [1_710_000_000, 1_710_604_800],
-                    indicators: {
-                      quote: [
-                        {
-                          open: [100, 102],
-                          high: [105, 106],
-                          low: [99, 101],
-                          close: [104, 105],
-                          volume: [1_000_000, 900_000],
-                        },
-                      ],
-                    },
-                  },
-                ],
+              candles: [
+                { datetime: 1_741_027_200_000, open: 100, high: 105, low: 99, close: 104, volume: 1000000 },
+                { datetime: 1_741_632_000_000, open: 104, high: 108, low: 103, close: 107, volume: 900000 },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: {
+                quote: { symbol: "AAPL", lastPrice: 105, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -1439,10 +1419,10 @@ describe("market-data routes", () => {
     const body = (await response.json()) as { source: string; data: { interval: string; rows: Array<unknown> } };
 
     expect(response.status).toBe(200);
-    expect(body.source).toBe("yahoo");
+    expect(body.source).toBe("schwab");
     expect(body.data.interval).toBe("1wk");
     expect(body.data.rows).toHaveLength(2);
-    expect(requestedUrls.some((url) => url.includes("interval=1wk"))).toBe(true);
+    expect(requestedUrls.some((url) => url.includes("frequencyType=weekly"))).toBe(true);
   });
 
   it("honors explicit history provider overrides", async () => {
@@ -1460,21 +1440,6 @@ describe("market-data routes", () => {
               bars: [
                 { t: "2026-03-20T00:00:00Z", o: 10, h: 11, l: 9, c: 10.5, v: 1000 },
               ],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("query1.finance.yahoo.com/v8/finance/chart/AAPL")) {
-          return new Response(
-            JSON.stringify({
-              chart: {
-                result: [
-                  {
-                    timestamp: [1_710_000_000],
-                    indicators: { quote: [{ open: [20], high: [21], low: [19], close: [20.5], volume: [2000] }] },
-                  },
-                ],
-              },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );

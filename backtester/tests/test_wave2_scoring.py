@@ -33,7 +33,7 @@ def test_breakout_follow_through_scores_strong_trend():
     assert report["ten_day_return_pct"] > 3.0
 
 
-def test_headline_sentiment_analyzer_scores_yfinance_news():
+def test_headline_sentiment_analyzer_scores_service_news():
     analyzer = HeadlineSentimentAnalyzer()
     payload = [
         {"title": "Company beats earnings and raises outlook"},
@@ -46,6 +46,16 @@ def test_headline_sentiment_analyzer_scores_yfinance_news():
     assert result["article_count"] == 3
     assert result["sentiment"] in {"BULLISH", "VERY_BULLISH"}
     assert result["bullish_pct"] > result["bearish_pct"]
+
+
+def test_headline_sentiment_analyzer_returns_unavailable_when_news_route_is_missing():
+    analyzer = HeadlineSentimentAnalyzer()
+    analyzer.service_client.get_symbol_payload = lambda *args, **kwargs: None  # type: ignore[assignment]
+
+    result = analyzer.analyze("NVDA")
+
+    assert result["sentiment"] == "UNAVAILABLE"
+    assert result["article_count"] == 0
 
 
 def test_sentiment_overlay_neutralizes_conflicting_sources():

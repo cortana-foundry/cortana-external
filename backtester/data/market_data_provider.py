@@ -169,14 +169,14 @@ class MarketDataProvider:
         )
 
     def _fetch_with_retries(self, provider: str, symbol: str, period: str, auto_adjust: bool = False) -> tuple[pd.DataFrame, dict]:
-        if provider not in {"service", "schwab", "alpaca", "yahoo"}:
+        if provider not in {"service", "schwab", "alpaca"}:
             raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
         attempt = 0
         while True:
             try:
                 if provider == "service":
                     return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
-                if provider in {"schwab", "alpaca", "yahoo"}:
+                if provider in {"schwab", "alpaca"}:
                     return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider=provider)
                 raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
             except MarketDataError as exc:
@@ -187,7 +187,7 @@ class MarketDataProvider:
                 attempt += 1
 
     def _fetch_quote_with_retries(self, provider: str, symbol: str) -> tuple[dict, dict]:
-        if provider not in {"service", "schwab", "alpaca", "yahoo"}:
+        if provider not in {"service", "schwab", "alpaca"}:
             raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
         attempt = 0
         while True:
@@ -278,10 +278,6 @@ class MarketDataProvider:
 
     def _fetch_alpaca_history(self, symbol: str, period: str, auto_adjust: bool = False) -> pd.DataFrame:
         frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider="alpaca")
-        return frame
-
-    def _fetch_yahoo_history(self, symbol: str, period: str, auto_adjust: bool = False) -> pd.DataFrame:
-        frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider="yahoo")
         return frame
 
     @staticmethod

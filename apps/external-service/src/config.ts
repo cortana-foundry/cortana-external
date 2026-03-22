@@ -17,8 +17,6 @@ const ConfigSchema = z.object({
   MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: z.string().default(""),
   MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
   MARKET_DATA_SCHWAB_COOLDOWN_MS: z.coerce.number().int().positive().default(20_000),
-  MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
-  MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: z.coerce.number().int().positive().default(60_000),
   SCHWAB_CLIENT_ID: z.string().default(""),
   SCHWAB_CLIENT_SECRET: z.string().default(""),
   SCHWAB_REFRESH_TOKEN: z.string().default(""),

@@ -74,8 +74,8 @@ def test_degraded_cache_path_when_live_providers_fail(tmp_path):
     assert "cached" in result.degraded_reason.lower()
 
 
-def test_fallback_between_legacy_providers_defaults_to_service(tmp_path):
-    provider = MarketDataProvider(provider_order="alpaca,yahoo", cache_dir=str(tmp_path), cache_ttl_seconds=0, max_retries=0)
+def test_fallback_between_supported_providers_defaults_to_service(tmp_path):
+    provider = MarketDataProvider(provider_order="alpaca,schwab", cache_dir=str(tmp_path), cache_ttl_seconds=0, max_retries=0)
     expected = _frame()
     calls: list[str | None] = []
 
@@ -85,14 +85,14 @@ def test_fallback_between_legacy_providers_defaults_to_service(tmp_path):
             raise MarketDataError("legacy primary failed", transient=True)
         return (
             expected,
-            {"source": "yahoo", "status": "ok", "degradedReason": "", "stalenessSeconds": 0.0},
+            {"source": "schwab", "status": "ok", "degradedReason": "", "stalenessSeconds": 0.0},
         )
 
     provider._fetch_service_history = _legacy_service  # type: ignore[method-assign]
     result = provider.get_history("SPY", period="1y")
 
-    assert calls == ["alpaca", "yahoo"]
-    assert result.source == "yahoo"
+    assert calls == ["alpaca", "schwab"]
+    assert result.source == "schwab"
 
 
 def test_quote_happy_path(tmp_path):
@@ -118,7 +118,7 @@ def test_cache_read_handles_mixed_timezone_rows(tmp_path):
   "schema_version": 1,
   "symbol": "SPY",
   "period": "90d",
-  "source": "yahoo",
+  "source": "schwab",
   "generated_at_utc": "2026-03-22T00:00:00+00:00",
   "rows": [
     {"date": "2026-03-07T00:00:00-05:00", "Open": 1, "High": 2, "Low": 0.5, "Close": 1.5, "Volume": 10},
@@ -133,5 +133,5 @@ def test_cache_read_handles_mixed_timezone_rows(tmp_path):
 
     assert cached is not None
     frame, source, _ = cached
-    assert source == "yahoo"
+    assert source == "schwab"
     assert len(frame) == 2

@@ -9,7 +9,7 @@ flowchart LR
     A["Python backtester"] --> B["TS market-data service"]
     B --> C["Schwab streamer"]
     B --> D["Schwab REST"]
-    B --> E["Yahoo fallback"]
+    B --> E["Python/local cache fallback"]
     B --> F["Shared state + ops"]
 ```
 
@@ -74,7 +74,6 @@ Common endpoints:
 - `GET /market-data/snapshot/:symbol`
 - `GET /market-data/fundamentals/:symbol`
 - `GET /market-data/metadata/:symbol`
-- `GET /market-data/news/:symbol`
 - `GET /market-data/universe/base`
 - `POST /market-data/universe/refresh`
 - `GET /market-data/risk/history`
@@ -103,7 +102,7 @@ What the recovery logic is trying to prevent:
 ### Reconnect Jitter and Cooldown
 
 - reconnect backoff now uses jitter at a high level so many instances do not retry in lockstep after an outage
-- repeated Yahoo failures open a short cooldown window instead of letting every request keep timing out
+- repeated Schwab REST failures open a short cooldown window instead of letting every request keep timing out
 - both behaviors reduce thundering-herd retries and keep degraded periods visible but controlled
 
 ## Schwab Token State

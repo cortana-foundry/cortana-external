@@ -61,7 +61,7 @@ pnpm install
 Important notes:
 - Alpaca keys are no longer required for normal backtester runs
 - the Python engine now reads external market data through the local TS service
-- default runtime order is `Schwab -> Yahoo (inside TS) -> Python cache`
+- default runtime order is `Schwab -> Python cache`
 - quote freshness can use `LEVELONE_EQUITIES` and snapshot freshness can use `CHART_EQUITY` inside the Schwab streamer session when credentials and user preferences are available
 - the Schwab streamer is now supervised inside TS with heartbeat tracking, reconnect backoff, delta subscription updates (`SUBS` + `ADD` + `UNSUBS`), and automatic resubscribe for active symbols
 - multi-instance deployment can now use automatic or designated streamer leadership:
@@ -250,12 +250,11 @@ The Python layer is now the engine only. External IO lives behind the TS service
 Provider order:
 - `Schwab`
 - `Schwab streamer` for fresher `LEVELONE_EQUITIES` quote state and `CHART_EQUITY` intraday candle state when available
-- `Yahoo` fallback inside TS
 - Python local cache as the last fallback
 
 Operational notes:
 - streamer health and reconnect state are exposed through the TS service health payload
-- that health payload now includes message rate, stale symbol count, reconnect failure streak, token refresh state, and last successful Schwab/Yahoo fallback timestamps
+- that health payload now includes message rate, stale symbol count, reconnect failure streak, token refresh state, and last successful Schwab refresh timestamps
 - the streamer keeps a bounded subscription registry for active quote/chart symbols and resubscribes them after reconnects
 - streamer mutation commands are now serialized per service and wait for Schwab acks, which reduces `FAILED_COMMAND_SUBS` / `ADD` / `UNSUBS` / `VIEW` races
 - larger subscription mutations are now chunked and the registry prunes older symbols back toward the configured soft cap before budget pressure turns into a hard failure
@@ -267,7 +266,6 @@ Operational notes:
 - `/market-data/ops` and `/market-data/universe/audit` provide a compact operator surface for streamer role, lock ownership, health, source/fallback mix, and universe artifact refresh history
 - `/market-data/ready` now gives a compact readiness answer for scans or wrappers that want to check service state before doing a full run
 - token refresh is single-flight inside TS so concurrent Schwab requests do not stampede the refresh endpoint
-- Yahoo now has a bounded circuit breaker in TS, so repeated Yahoo failures open a short cooldown window instead of letting every request keep stacking timeouts
 - base-universe refresh is no longer just a Python static-seed copy; TS can prefer a configured remote or local JSON universe source and only fall back to the Python seed when needed
 - universe ownership is now more explicit in ops: the service exposes the artifact path, audit path, source ladder, and the expectation that `python_seed` is terminal fallback only
 - recommended production shape is now:
@@ -286,7 +284,6 @@ Backtester-facing service endpoints:
 - `GET /market-data/snapshot/:symbol`
 - `GET /market-data/fundamentals/:symbol`
 - `GET /market-data/metadata/:symbol`
-- `GET /market-data/news/:symbol`
 - `GET /market-data/universe/base`
 - `POST /market-data/universe/refresh`
 - `GET /market-data/risk/history`
@@ -296,7 +293,7 @@ See [Market-data service reference](./docs/market-data-service-reference.md) for
 
 History route notes:
 - `GET /market-data/history/:symbol` now honors `interval=1d|1wk|1mo` instead of silently collapsing everything to daily bars
-- for diagnostics, you can also force the primary history source with `provider=service|schwab|yahoo|alpaca`
+- for diagnostics, you can also force the primary history source with `provider=service|schwab|alpaca`
 - this is separate from `compare_with=<provider>`:
   - `provider=` changes the primary source for that history response
   - `compare_with=` leaves the primary source alone and adds comparison metadata
@@ -307,7 +304,7 @@ Quote route notes:
 - the default Schwab `LEVELONE_EQUITIES` subscription now requests a richer field set, including total volume, 52-week high/low, security status, and net percent change, so fresher quote responses can carry more of the context that used to require extra polling
 
 Optional compare mode:
-- use `compare_with=alpaca` or another provider on the TS endpoints when you want a diagnostic comparison without changing the default runtime chain
+- use `compare_with=alpaca` or another supported provider on the TS endpoints when you want a diagnostic comparison without changing the default runtime chain
 
 Use these depending on what question you are asking:
 
@@ -510,7 +507,7 @@ If `.cache` is missing:
   - the pipeline is usually fine
   - it means the research history exists but there are no settled samples yet
 
-- Yahoo warnings or stale symbol noise during nightly runs
+- stale symbol noise during nightly runs
   - use the current `main`; the nightly path now suppresses common provider noise and removes obvious stale bundled symbols
 
 ## Development

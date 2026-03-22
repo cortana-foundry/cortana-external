@@ -60,7 +60,7 @@ Why no buys: Stay defensive
 
 
 def test_format_quick_check_strips_runtime_noise_and_simplifies_verdict():
-    raw = """/tmp/site-packages/yfinance/scrapers/history.py:173: Pandas4Warning: Timestamp.utcnow is deprecated
+    raw = """/tmp/site-packages/provider/history.py:173: Pandas4Warning: Timestamp.utcnow is deprecated
   dt_now = pd.Timestamp.utcnow()
 Quick check: BTC -> avoid for now
 Path: dip_buyer | Asset: crypto
@@ -121,8 +121,8 @@ def test_format_market_data_ops_surfaces_role_budget_and_universe_state():
                 "streamerRoleActive": "leader",
                 "streamerLockHeld": True,
                 "providerMetrics": {
-                    "fallbackUsage": {"yahoo": 3, "shared_state": 2},
-                    "sourceUsage": {"schwab_streamer": 12, "yahoo": 3},
+                    "fallbackUsage": {"shared_state": 2},
+                    "sourceUsage": {"schwab_streamer": 12, "schwab": 3},
                 },
                 "health": {
                     "providers": {
@@ -165,5 +165,5 @@ def test_format_market_data_ops_surfaces_role_budget_and_universe_state():
     assert "- Streamer role: leader (configured auto) | lock held yes" in text
     assert "- Stream state: healthy | policy none | connected yes" in text
     assert "- Symbol budget: LEVELONE_EQUITIES: 40/250 requested | headroom 210 | CHART_EQUITY: 10/250 requested | headroom 240" in text
-    assert "- Fallbacks: yahoo 3 | shared_state 2 | primary source mix schwab_streamer 12, yahoo 3" in text
+    assert "- Fallbacks: shared_state 2 | primary source mix schwab 3, schwab_streamer 12" in text
     assert "- Universe: remote_json | updated 2026-03-21T20:00:00+00:00" in text
