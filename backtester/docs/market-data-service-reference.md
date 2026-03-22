@@ -69,6 +69,9 @@ Rule of thumb:
 
 Common endpoints:
 
+- `GET /auth/schwab/url`
+- `GET /auth/schwab/callback`
+- `GET /auth/schwab/status`
 - `GET /market-data/history/:symbol`
 - `GET /market-data/quote/:symbol`
 - `GET /market-data/snapshot/:symbol`
@@ -80,6 +83,30 @@ Common endpoints:
 - `GET /market-data/risk/snapshot`
 
 History requests accept the usual provider controls documented by the service and the main study guide.
+
+## Local Schwab OAuth
+
+Use this flow when you need to create or rotate the local Schwab refresh token.
+
+Portal callback to register:
+
+```text
+https://127.0.0.1:8182/auth/schwab/callback
+```
+
+Operator flow:
+
+1. Start the service with local TLS cert/key paths configured.
+2. Call `GET /auth/schwab/url`.
+3. Open the returned Schwab authorize URL in a browser.
+4. Let Schwab redirect back to `https://127.0.0.1:8182/auth/schwab/callback`.
+5. Confirm the saved token state with `GET /auth/schwab/status`.
+
+Notes:
+
+- `127.0.0.1` is the safe local callback host for Schwab.
+- The callback listener is HTTPS because Schwab requires `https://`.
+- The refresh token is persisted to `SCHWAB_TOKEN_PATH`.
 
 ## Streamer Recovery Basics
 

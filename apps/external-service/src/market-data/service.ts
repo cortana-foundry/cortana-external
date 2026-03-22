@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 
@@ -93,8 +94,16 @@ interface JsonRecord {
 }
 
 interface CachedTokenPayload {
-  accessToken: string;
-  expiresAt: number;
+  accessToken?: string;
+  expiresAt?: number;
+  refreshToken?: string;
+  refreshTokenIssuedAt?: string | null;
+  lastAuthorizationCodeAt?: string | null;
+}
+
+interface PendingSchwabAuthState {
+  value: string;
+  createdAt: number;
 }
 
 interface AlpacaKeys {
@@ -164,6 +173,7 @@ export class MarketDataService {
   private sharedStateCache: SharedStreamerState | null = null;
   private sharedStateCacheMtimeMs: number | null = null;
   private runtimeReadyPromise: Promise<void> | null = null;
+  private pendingSchwabAuthState: PendingSchwabAuthState | null = null;
 
   constructor(config: MarketDataServiceConfig = {}) {
     this.logger = config.logger ?? createLogger("market-data");
@@ -181,6 +191,8 @@ export class MarketDataService {
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
+      SCHWAB_AUTH_URL: "https://api.schwabapi.com/v1/oauth/authorize",
+      SCHWAB_REDIRECT_URL: "https://127.0.0.1:8182/auth/schwab/callback",
       SCHWAB_TOKEN_PATH: ".cache/market_data/schwab-token.json",
       SCHWAB_API_BASE_URL: "https://api.schwabapi.com",
       SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
@@ -210,6 +222,9 @@ export class MarketDataService {
       ALPACA_KEYS_PATH: "",
       ALPACA_TARGET_ENVIRONMENT: "live",
       CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",
+      EXTERNAL_SERVICE_TLS_PORT: 8182,
+      EXTERNAL_SERVICE_TLS_CERT_PATH: "",
+      EXTERNAL_SERVICE_TLS_KEY_PATH: "",
     } satisfies AppConfig);
     this.requestTimeoutMs = this.config.MARKET_DATA_REQUEST_TIMEOUT_MS;
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
@@ -305,6 +320,139 @@ export class MarketDataService {
       this.pool = null;
       this.dbReadyPromise = null;
     }
+  }
+
+  async handleSchwabAuthUrl(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    const clientId = this.config.SCHWAB_CLIENT_ID.trim();
+    const clientSecret = this.config.SCHWAB_CLIENT_SECRET.trim();
+    if (!clientId || !clientSecret) {
+      return {
+        status: 503,
+        body: marketDataErrorResponse("schwab oauth is not configured", "degraded", {
+          reason: "SCHWAB_CLIENT_ID and SCHWAB_CLIENT_SECRET are required",
+        }),
+      };
+    }
+
+    const state = crypto.randomUUID();
+    this.pendingSchwabAuthState = {
+      value: state,
+      createdAt: Date.now(),
+    };
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: this.config.SCHWAB_REDIRECT_URL,
+      response_type: "code",
+      state,
+    });
+
+    return {
+      status: 200,
+      body: {
+        source: "service",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        data: {
+          url: `${this.config.SCHWAB_AUTH_URL}?${params.toString()}`,
+          state,
+          callbackUrl: this.config.SCHWAB_REDIRECT_URL,
+          tokenPath: this.schwabTokenPath,
+        },
+      },
+    };
+  }
+
+  async handleSchwabAuthCallback(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    const url = new URL(request.url);
+    const error = url.searchParams.get("error");
+    if (error) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("schwab oauth error", "error", {
+          reason: `${error}${url.searchParams.get("error_description") ? `: ${url.searchParams.get("error_description")}` : ""}`,
+        }),
+      };
+    }
+
+    const code = (url.searchParams.get("code") ?? "").trim();
+    if (!code) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("schwab oauth callback missing code", "error", {
+          reason: "code query parameter is required",
+        }),
+      };
+    }
+
+    const state = (url.searchParams.get("state") ?? "").trim();
+    if (!this.isValidSchwabAuthState(state)) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("schwab oauth state mismatch", "error", {
+          reason: "Start again from /auth/schwab/url and complete the browser flow without restarting the service.",
+        }),
+      };
+    }
+
+    try {
+      const token = await this.exchangeSchwabAuthorizationCode(code);
+      this.pendingSchwabAuthState = null;
+      return {
+        status: 200,
+        body: {
+          source: "service",
+          status: "ok",
+          degradedReason: null,
+          stalenessSeconds: 0,
+          data: {
+            message: "Schwab tokens saved successfully.",
+            tokenPath: this.schwabTokenPath,
+            hasRefreshToken: Boolean(token.refreshToken),
+            expiresAt: token.expiresAt ? new Date(token.expiresAt).toISOString() : null,
+            callbackUrl: this.config.SCHWAB_REDIRECT_URL,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        status: 502,
+        body: marketDataErrorResponse("schwab token exchange failed", "degraded", {
+          reason: summarizeError(error),
+        }),
+      };
+    }
+  }
+
+  async handleSchwabAuthStatus(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    const cached = this.readCachedSchwabToken();
+    const refreshToken = this.getSchwabRefreshToken(cached);
+    return {
+      status: 200,
+      body: {
+        source: "service",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        data: {
+          clientConfigured: this.hasSchwabClientCredentials(),
+          refreshTokenPresent: Boolean(refreshToken),
+          tlsConfigured: Boolean(
+            this.config.EXTERNAL_SERVICE_TLS_CERT_PATH.trim() && this.config.EXTERNAL_SERVICE_TLS_KEY_PATH.trim(),
+          ),
+          tokenPath: this.schwabTokenPath,
+          redirectUrl: this.config.SCHWAB_REDIRECT_URL,
+          authUrl: this.config.SCHWAB_AUTH_URL,
+          accessTokenExpiresAt:
+            cached?.expiresAt && cached.expiresAt > 0 ? new Date(cached.expiresAt).toISOString() : null,
+          refreshTokenIssuedAt: cached?.refreshTokenIssuedAt ?? null,
+          lastAuthorizationCodeAt: cached?.lastAuthorizationCodeAt ?? null,
+          pendingStateIssuedAt:
+            this.pendingSchwabAuthState != null ? new Date(this.pendingSchwabAuthState.createdAt).toISOString() : null,
+        },
+      },
+    };
   }
 
   async handleHistory(request: Request, rawSymbol: string, compareWith?: string): Promise<MarketDataRouteResult<MarketDataHistory>> {
@@ -1068,12 +1216,24 @@ export class MarketDataService {
     }
   }
 
+  private hasSchwabClientCredentials(): boolean {
+    return Boolean(this.config.SCHWAB_CLIENT_ID.trim() && this.config.SCHWAB_CLIENT_SECRET.trim());
+  }
+
   private isSchwabConfigured(): boolean {
-    return Boolean(
-      this.config.SCHWAB_CLIENT_ID.trim() &&
-        this.config.SCHWAB_CLIENT_SECRET.trim() &&
-        this.config.SCHWAB_REFRESH_TOKEN.trim(),
-    );
+    return Boolean(this.hasSchwabClientCredentials() && this.getSchwabRefreshToken(this.readCachedSchwabToken()));
+  }
+
+  private isValidSchwabAuthState(state: string): boolean {
+    if (!state || !this.pendingSchwabAuthState) {
+      return false;
+    }
+    const ageMs = Date.now() - this.pendingSchwabAuthState.createdAt;
+    if (ageMs > 10 * 60 * 1000) {
+      this.pendingSchwabAuthState = null;
+      return false;
+    }
+    return this.pendingSchwabAuthState.value === state;
   }
 
   private async fetchSchwabStreamerPreferences(): Promise<SchwabStreamerPreferences> {
@@ -1392,7 +1552,7 @@ export class MarketDataService {
 
   private async getSchwabAccessToken(): Promise<string> {
     const cached = this.readCachedSchwabToken();
-    if (cached && cached.expiresAt > Date.now() + 60_000) {
+    if (cached?.accessToken && cached.expiresAt && cached.expiresAt > Date.now() + 60_000) {
       return cached.accessToken;
     }
     if (this.tokenRefreshPromise) {
@@ -1401,9 +1561,13 @@ export class MarketDataService {
 
     this.providerMetrics.tokenRefreshInFlight = true;
     this.tokenRefreshPromise = (async () => {
+      const refreshToken = this.getSchwabRefreshToken(cached);
+      if (!refreshToken) {
+        throw new Error("Schwab refresh token is not configured. Complete the OAuth flow first.");
+      }
       const body = new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: this.config.SCHWAB_REFRESH_TOKEN,
+        refresh_token: refreshToken,
       });
       const auth = Buffer.from(`${this.config.SCHWAB_CLIENT_ID}:${this.config.SCHWAB_CLIENT_SECRET}`).toString("base64");
       const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
@@ -1430,12 +1594,16 @@ export class MarketDataService {
       }
       const accessToken = String(payload.access_token ?? "").trim();
       const expiresIn = Number(payload.expires_in ?? 1800);
+      const nextRefreshToken = String(payload.refresh_token ?? refreshToken).trim();
       if (!accessToken) {
         throw new Error("Schwab token refresh returned no access token");
       }
       this.writeCachedSchwabToken({
         accessToken,
         expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
+        refreshToken: nextRefreshToken,
+        refreshTokenIssuedAt: cached?.refreshTokenIssuedAt ?? new Date().toISOString(),
+        lastAuthorizationCodeAt: cached?.lastAuthorizationCodeAt ?? null,
       });
       this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
       this.providerMetrics.schwabTokenStatus = "ready";
@@ -1451,11 +1619,49 @@ export class MarketDataService {
     }
   }
 
+  private async exchangeSchwabAuthorizationCode(code: string): Promise<CachedTokenPayload> {
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: this.config.SCHWAB_REDIRECT_URL,
+    });
+    const auth = Buffer.from(`${this.config.SCHWAB_CLIENT_ID}:${this.config.SCHWAB_CLIENT_SECRET}`).toString("base64");
+    const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body,
+    });
+    const payload = await readJsonResponse<JsonRecord>(response);
+    const accessToken = String(payload.access_token ?? "").trim();
+    const refreshToken = String(payload.refresh_token ?? "").trim();
+    const expiresIn = Number(payload.expires_in ?? 1800);
+    if (!accessToken || !refreshToken) {
+      throw new Error("Schwab authorization code exchange returned incomplete token data");
+    }
+    const token: CachedTokenPayload = {
+      accessToken,
+      expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
+      refreshToken,
+      refreshTokenIssuedAt: new Date().toISOString(),
+      lastAuthorizationCodeAt: new Date().toISOString(),
+    };
+    this.writeCachedSchwabToken(token);
+    this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
+    this.providerMetrics.schwabTokenStatus = "ready";
+    this.providerMetrics.schwabTokenReason = null;
+    this.recordSchwabRestSuccess();
+    return token;
+  }
+
   private readCachedSchwabToken(): CachedTokenPayload | null {
     try {
       const raw = fs.readFileSync(this.schwabTokenPath, "utf8");
       const payload = JSON.parse(raw) as CachedTokenPayload;
-      if (!payload.accessToken || !payload.expiresAt) {
+      if (!payload || (typeof payload !== "object")) {
         return null;
       }
       return payload;
@@ -1471,6 +1677,10 @@ export class MarketDataService {
     } catch (error) {
       this.logger.error("Unable to persist Schwab token cache", error);
     }
+  }
+
+  private getSchwabRefreshToken(cached: CachedTokenPayload | null): string {
+    return String(cached?.refreshToken ?? this.config.SCHWAB_REFRESH_TOKEN ?? "").trim();
   }
 
   private async loadOrRefreshUniverseArtifact(forceRefresh: boolean): Promise<MarketDataUniverse> {

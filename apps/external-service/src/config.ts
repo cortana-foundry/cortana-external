@@ -20,6 +20,8 @@ const ConfigSchema = z.object({
   SCHWAB_CLIENT_ID: z.string().default(""),
   SCHWAB_CLIENT_SECRET: z.string().default(""),
   SCHWAB_REFRESH_TOKEN: z.string().default(""),
+  SCHWAB_AUTH_URL: z.string().default("https://api.schwabapi.com/v1/oauth/authorize"),
+  SCHWAB_REDIRECT_URL: z.string().default("https://127.0.0.1:8182/auth/schwab/callback"),
   SCHWAB_TOKEN_PATH: z.string().default(".cache/market_data/schwab-token.json"),
   SCHWAB_API_BASE_URL: z.string().default("https://api.schwabapi.com"),
   SCHWAB_TOKEN_URL: z.string().default("https://api.schwabapi.com/v1/oauth/token"),
@@ -49,6 +51,9 @@ const ConfigSchema = z.object({
   ALPACA_KEYS_PATH: z.string().default(""),
   ALPACA_TARGET_ENVIRONMENT: z.string().default("live"),
   CORTANA_DATABASE_URL: z.string().default("postgres://localhost:5432/cortana?sslmode=disable"),
+  EXTERNAL_SERVICE_TLS_PORT: z.coerce.number().int().positive().default(8182),
+  EXTERNAL_SERVICE_TLS_CERT_PATH: z.string().default(""),
+  EXTERNAL_SERVICE_TLS_KEY_PATH: z.string().default(""),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

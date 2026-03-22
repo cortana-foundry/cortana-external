@@ -67,6 +67,18 @@ Wrapper note:
   - `REQUIRE_MARKET_DATA_SERVICE=0`
   - or `REQUIRE_SCHWAB_CONFIGURED=0`
 
+Local Schwab OAuth note:
+- the TS service now exposes a Schwab-specific local auth flow
+- register this callback in the Schwab portal:
+  - `https://127.0.0.1:8182/auth/schwab/callback`
+- the service gives you the login URL from:
+  - `GET /auth/schwab/url`
+- the browser redirect lands on:
+  - `GET /auth/schwab/callback`
+- token state is visible from:
+  - `GET /auth/schwab/status`
+- this uses a local HTTPS listener because Schwab requires an `https://` callback
+
 ## Core Trading Flow
 
 ### Phase 1: Find Stocks
@@ -296,6 +308,24 @@ Plain-English meaning:
 
 - `LEVELONE_EQUITIES` gives fresher quote-style updates
 - `CHART_EQUITY` gives fresher intraday candle-style updates
+
+##### 1c. How Local Schwab OAuth Works
+
+```mermaid
+flowchart LR
+    A["You call /auth/schwab/url on 3033"] --> B["TS builds Schwab authorize URL"]
+    B --> C["Browser opens Schwab login/consent"]
+    C --> D["Schwab redirects to https://127.0.0.1:8182/auth/schwab/callback"]
+    D --> E["TS exchanges auth code for access + refresh token"]
+    E --> F["Token saved to SCHWAB_TOKEN_PATH"]
+    F --> G["Normal market-data requests can refresh automatically"]
+```
+
+Plain-English meaning:
+
+- `3033` is still the normal local API port
+- `8182` is the local HTTPS callback listener used only because Schwab requires `https://`
+- once the callback succeeds, the service stores the refresh token and starts behaving like a normal configured Schwab client
 - Python never talks to the websocket directly
 - Python still reads normal HTTP JSON from the TS service
 - the default `LEVELONE_EQUITIES` field set is now a little richer too:

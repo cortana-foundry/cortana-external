@@ -24,6 +24,8 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
+  SCHWAB_AUTH_URL: "https://api.schwabapi.com/v1/oauth/authorize",
+  SCHWAB_REDIRECT_URL: "https://127.0.0.1:8182/auth/schwab/callback",
   SCHWAB_TOKEN_PATH: ".cache/market_data/schwab-token.json",
   SCHWAB_API_BASE_URL: "https://api.schwabapi.com",
   SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
@@ -53,6 +55,9 @@ const TEST_CONFIG: AppConfig = {
   ALPACA_KEYS_PATH: "",
   ALPACA_TARGET_ENVIRONMENT: "live",
   CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",
+  EXTERNAL_SERVICE_TLS_PORT: 8182,
+  EXTERNAL_SERVICE_TLS_CERT_PATH: "",
+  EXTERNAL_SERVICE_TLS_KEY_PATH: "",
 };
 
 class FakeWebSocket implements WebSocketLike {
@@ -605,6 +610,104 @@ describe("market-data routes", () => {
     expect(body.status).toBe("ok");
     expect(body.data.symbol).toBe("AAPL");
     expect(body.data.price).toBe(200.12);
+  });
+
+  it("builds a Schwab auth URL with the configured HTTPS callback", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: TEST_CONFIG,
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/auth/schwab/url");
+    const body = (await response.json()) as { data: { url: string; callbackUrl: string; state: string } };
+    const authUrl = new URL(body.data.url);
+
+    expect(response.status).toBe(200);
+    expect(body.data.callbackUrl).toBe("https://127.0.0.1:8182/auth/schwab/callback");
+    expect(authUrl.origin).toBe("https://api.schwabapi.com");
+    expect(authUrl.pathname).toBe("/v1/oauth/authorize");
+    expect(authUrl.searchParams.get("client_id")).toBe("client");
+    expect(authUrl.searchParams.get("redirect_uri")).toBe("https://127.0.0.1:8182/auth/schwab/callback");
+    expect(authUrl.searchParams.get("response_type")).toBe("code");
+    expect(authUrl.searchParams.get("state")).toBe(body.data.state);
+  });
+
+  it("exchanges a Schwab authorization code and persists the refresh token", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-schwab-auth-"));
+    const tokenPath = path.join(tempDir, "schwab-token.json");
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_REFRESH_TOKEN: "",
+        SCHWAB_TOKEN_PATH: tokenPath,
+      },
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          expect(String(init?.body)).toContain("grant_type=authorization_code");
+          expect(String(init?.body)).toContain("redirect_uri=https%3A%2F%2F127.0.0.1%3A8182%2Fauth%2Fschwab%2Fcallback");
+          return new Response(
+            JSON.stringify({
+              access_token: "oauth-access-token",
+              refresh_token: "oauth-refresh-token",
+              expires_in: 1800,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const authResponse = await app.request("/auth/schwab/url");
+    const authBody = (await authResponse.json()) as { data: { state: string } };
+
+    const callbackResponse = await app.request(
+      `/auth/schwab/callback?code=abc123&state=${encodeURIComponent(authBody.data.state)}`,
+    );
+    const callbackBody = (await callbackResponse.json()) as { data: { hasRefreshToken: boolean; tokenPath: string } };
+    const persisted = JSON.parse(fs.readFileSync(tokenPath, "utf8")) as {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    };
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackBody.data.hasRefreshToken).toBe(true);
+    expect(callbackBody.data.tokenPath).toBe(tokenPath);
+    expect(persisted.accessToken).toBe("oauth-access-token");
+    expect(persisted.refreshToken).toBe("oauth-refresh-token");
+    expect(typeof persisted.expiresAt).toBe("number");
+
+    const statusResponse = await app.request("/auth/schwab/status");
+    const statusBody = (await statusResponse.json()) as { data: { refreshTokenPresent: boolean; tokenPath: string } };
+    expect(statusResponse.status).toBe(200);
+    expect(statusBody.data.refreshTokenPresent).toBe(true);
+    expect(statusBody.data.tokenPath).toBe(tokenPath);
+  });
+
+  it("rejects Schwab auth callbacks when the state does not match", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_REFRESH_TOKEN: "",
+      },
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+    registerMarketDataRoutes(app, service);
+
+    await app.request("/auth/schwab/url");
+    const response = await app.request("/auth/schwab/callback?code=abc123&state=wrong-state");
+    const body = (await response.json()) as { source: string; status: string };
+
+    expect(response.status).toBe(400);
+    expect(body.source).toBe("service");
+    expect(body.status).toBe("error");
   });
 
   it("marks ready=false when Schwab refresh token is rejected", async () => {

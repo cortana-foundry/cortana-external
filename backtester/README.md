@@ -50,6 +50,44 @@ pnpm install
 pnpm start
 ```
 
+Schwab OAuth setup for local use:
+
+```env
+# /Users/hd/Developer/cortana-external/.env
+SCHWAB_CLIENT_ID=...
+SCHWAB_CLIENT_SECRET=...
+SCHWAB_REDIRECT_URL=https://127.0.0.1:8182/auth/schwab/callback
+EXTERNAL_SERVICE_TLS_PORT=8182
+EXTERNAL_SERVICE_TLS_CERT_PATH=/absolute/path/to/127.0.0.1.pem
+EXTERNAL_SERVICE_TLS_KEY_PATH=/absolute/path/to/127.0.0.1-key.pem
+```
+
+Register this callback in the Schwab developer portal:
+
+```text
+https://127.0.0.1:8182/auth/schwab/callback
+```
+
+Then use the local auth routes:
+
+```bash
+# Start the HTTP API on 3033 and the HTTPS callback listener on 8182
+cd /Users/hd/Developer/cortana-external/apps/external-service
+pnpm start
+
+# Get the Schwab login URL
+curl http://127.0.0.1:3033/auth/schwab/url
+
+# Check whether the token was saved successfully
+curl http://127.0.0.1:3033/auth/schwab/status
+```
+
+Notes:
+- Schwab requires an `https://` callback URL
+- `127.0.0.1` works better than `localhost` for Schwab callback registration
+- a self-signed local cert is fine for this flow; your browser may warn before redirecting to the local callback
+- the service persists the exchanged Schwab refresh token at `SCHWAB_TOKEN_PATH`
+
 Optional Polymarket context:
 
 ```bash
@@ -63,6 +101,10 @@ Important notes:
 - the Python engine now reads external market data through the local TS service
 - default runtime order is `Schwab -> Python cache`
 - quote freshness can use `LEVELONE_EQUITIES` and snapshot freshness can use `CHART_EQUITY` inside the Schwab streamer session when credentials and user preferences are available
+- local Schwab OAuth is now exposed through:
+  - `GET /auth/schwab/url`
+  - `GET /auth/schwab/callback`
+  - `GET /auth/schwab/status`
 - the Schwab streamer is now supervised inside TS with heartbeat tracking, reconnect backoff, delta subscription updates (`SUBS` + `ADD` + `UNSUBS`), and automatic resubscribe for active symbols
 - multi-instance deployment can now use automatic or designated streamer leadership:
   - `SCHWAB_STREAMER_ROLE=auto` uses Postgres advisory locks to choose one leader

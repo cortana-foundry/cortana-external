@@ -3,6 +3,21 @@ import type { Hono } from "hono";
 import type { MarketDataService } from "./service.js";
 
 export function registerMarketDataRoutes(app: Hono, service: MarketDataService): void {
+  app.get("/auth/schwab/url", async (c) => {
+    const result = await service.handleSchwabAuthUrl();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/auth/schwab/callback", async (c) => {
+    const result = await service.handleSchwabAuthCallback(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/auth/schwab/status", async (c) => {
+    const result = await service.handleSchwabAuthStatus();
+    return c.json(result.body, result.status as never);
+  });
+
   app.get("/market-data/ready", async (c) => {
     void c;
     const result = await service.handleReady();
