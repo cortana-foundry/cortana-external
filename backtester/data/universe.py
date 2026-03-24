@@ -22,7 +22,7 @@ Then we score each candidate on CANSLIM factors to find the best setups.
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Set
+from typing import Callable, List, Dict, Optional, Set
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -236,6 +236,13 @@ class UniverseScreener:
                 ordered.append(normalized)
         return ordered
 
+    @staticmethod
+    def _is_legacy_or_incomplete_sp500_cache(source: object, symbols: List[str]) -> bool:
+        normalized_source = str(source or "").strip().lower()
+        if normalized_source:
+            return False
+        return len(symbols) < 450
+
     def _load_cached_sp500_constituents(self, *, max_age_hours: float = 24.0) -> Optional[List[str]]:
         path = self._sp500_constituents_cache_path()
         if not path.exists():
@@ -252,14 +259,20 @@ class UniverseScreener:
             symbols = payload.get("symbols", [])
             if not isinstance(symbols, list) or not symbols:
                 return None
-            return self._dedupe_symbols(symbols)
+            deduped = self._dedupe_symbols(symbols)
+            if self._is_legacy_or_incomplete_sp500_cache(payload.get("source"), deduped):
+                return None
+            return deduped
         except Exception:
             return None
 
-    def _write_sp500_constituents_cache(self, symbols: List[str]) -> None:
+    def _write_sp500_constituents_cache(self, symbols: List[str], *, source: str = "service_artifact") -> None:
+        deduped = self._dedupe_symbols(symbols)
         payload = {
             "generated_at": datetime.now(UTC).isoformat(),
-            "symbols": self._dedupe_symbols(symbols),
+            "source": source,
+            "symbol_count": len(deduped),
+            "symbols": deduped,
         }
         self._sp500_constituents_cache_path().write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -351,7 +364,7 @@ class UniverseScreener:
             max_age_hours=max_age_hours,
         )
         if symbols:
-            self._write_sp500_constituents_cache(symbols)
+            self._write_sp500_constituents_cache(symbols, source="service_artifact")
             return symbols
 
         if not refresh:
@@ -477,6 +490,31 @@ class UniverseScreener:
             universe.update(self._dedupe_symbols(GROWTH_WATCHLIST))
         universe.update(self.get_dynamic_tickers(include_growth=include_growth, static_symbols=universe))
         return sorted(list(universe))
+
+    def get_nightly_discovery_breakdown(
+        self,
+        *,
+        include_growth: bool = True,
+        refresh_sp500: bool = False,
+    ) -> Dict[str, int]:
+        base_symbols = self._dedupe_symbols(self._get_base_universe(refresh=refresh_sp500))
+        base_set: Set[str] = set(base_symbols)
+        growth_symbols = self._dedupe_symbols(GROWTH_WATCHLIST) if include_growth else []
+        growth_set: Set[str] = set(growth_symbols)
+        static_with_growth = base_set | growth_set
+        dynamic_only = set(
+            self.get_dynamic_tickers(
+                include_growth=include_growth,
+                static_symbols=static_with_growth,
+            )
+        )
+        total = static_with_growth | dynamic_only
+        return {
+            "base_count": len(base_set),
+            "growth_count": len(growth_set),
+            "dynamic_only_count": len(dynamic_only),
+            "total_count": len(total),
+        }
 
     def get_universe_for_profile(
         self,
@@ -644,6 +682,8 @@ class UniverseScreener:
         symbols: List[str] = None,
         min_technical_score: int = 3,
         verbose: bool = True,
+        progress_callback: Optional[Callable[[str], None]] = None,
+        sleep_seconds: float = 0.2,
     ) -> pd.DataFrame:
         """
         Screen stocks and calculate CANSLIM scores.
@@ -672,6 +712,8 @@ class UniverseScreener:
         failed = 0
         
         for i, symbol in enumerate(symbols):
+            if progress_callback is not None:
+                progress_callback(f"Nightly discovery progress: screening {i + 1}/{len(symbols)} {symbol}")
             if verbose and (i + 1) % 10 == 0:
                 print(f"   Progress: {i + 1}/{len(symbols)} ({passed} passed, {failed} filtered)")
 
@@ -709,7 +751,8 @@ class UniverseScreener:
             passed += 1
             
             # Gentle pacing for local screening loops
-            time.sleep(0.2)
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
         
         if verbose:
             print(f"\n✅ Screening complete!")

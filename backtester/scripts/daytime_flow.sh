@@ -13,6 +13,8 @@ DEEP_DIVE_SYMBOL="${DEEP_DIVE_SYMBOL:-NVDA}"
 QUICK_CHECK_SYMBOL="${QUICK_CHECK_SYMBOL:-BTC}"
 RUN_MARKET_INTEL="${RUN_MARKET_INTEL:-1}"
 MARKET_INTEL_CMD="${MARKET_INTEL_CMD:-./tools/market-intel/run_market_intel.sh}"
+RUN_DYNAMIC_WATCHLIST_REFRESH="${RUN_DYNAMIC_WATCHLIST_REFRESH:-1}"
+DYNAMIC_WATCHLIST_CMD="${DYNAMIC_WATCHLIST_CMD:-./tools/stock-discovery/trend_sweep.sh}"
 RUN_DEEP_DIVE="${RUN_DEEP_DIVE:-0}"
 REVIEW_DETAIL_LIMIT="${REVIEW_DETAIL_LIMIT:-50}"
 LOCAL_OUTPUT_FORMATTER="${LOCAL_OUTPUT_FORMATTER:-${BACKTESTER_DIR}/scripts/local_output_formatter.py}"
@@ -72,6 +74,18 @@ if [[ "${RUN_MARKET_INTEL}" == "1" ]]; then
 else
   echo
   echo "== Skipping market context refresh (RUN_MARKET_INTEL=0) =="
+fi
+
+if [[ "${RUN_DYNAMIC_WATCHLIST_REFRESH}" == "1" ]]; then
+  echo
+  echo "== Refreshing X/Twitter watchlist =="
+  (
+    cd "${REPO_ROOT}"
+    "${DYNAMIC_WATCHLIST_CMD}"
+  )
+else
+  echo
+  echo "== Skipping X/Twitter watchlist refresh (RUN_DYNAMIC_WATCHLIST_REFRESH=0) =="
 fi
 
 if [[ "${RUN_CRYPTO_DAILY_REFRESH}" == "1" ]]; then

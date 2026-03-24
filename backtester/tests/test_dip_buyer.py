@@ -407,6 +407,24 @@ def test_falling_knife_filter_blocks_buy_and_forces_exit_signal():
     assert bool(latest["Falling_Knife"]) is True
 
 
+def test_evaluate_setup_falling_knife_reason_surfaces_5_day_average():
+    idx = pd.date_range("2026-01-02", periods=30, freq="B")
+    closes = [100 + i for i in range(20)] + [118, 116, 114, 112, 110, 108, 107, 106, 105, 104]
+    data = pd.DataFrame({"close": closes}, index=idx)
+    risk_df = _risk_history(idx, hy_spread=430.0)
+    strategy = _build_strategy(MarketRegime.CORRECTION, risk_df)
+
+    with patch("strategies.dip_buyer.rsi", return_value=pd.Series([30.0] * len(idx), index=idx)):
+        setup = strategy.evaluate_setup(data)
+
+    assert setup["falling_knife"] is True
+    assert setup["five_day_average_price"] == pytest.approx(106.0)
+    assert (
+        setup["recommendation"]["reason"]
+        == "The stock is still under pressure. Current price $104.00 is below the 5-day average of $106.00. Wait until it stops falling and closes above $106.00."
+    )
+
+
 def test_evaluate_setup_exposes_shared_confidence_fields(price_data):
     """Advisor-facing Dip Buyer evaluation should expose the shared confidence contract."""
     strategy = _build_strategy(MarketRegime.CORRECTION, _risk_history(price_data.index))

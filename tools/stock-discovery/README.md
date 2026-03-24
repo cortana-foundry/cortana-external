@@ -26,6 +26,23 @@ Output file:
 
 - `/Users/hd/Developer/cortana-external/backtester/data/dynamic_watchlist.json`
 
+Auth behavior:
+
+- the sweep uses `bird`
+- by default it now points at the OpenClaw browser profile:
+  - `~/.openclaw/browser/openclaw/user-data/Default`
+- if `bird` auth is unavailable, the script now preserves the existing watchlist instead of overwriting it with `0` tickers
+- if the saved auth file is stale, `trend_sweep.sh` reruns `sync_bird_auth.sh` automatically and retries once before giving up
+- it will automatically source a private env file if present:
+  - `~/.config/cortana/x-twitter-bird.env`
+- `sync_bird_auth.sh` now prefers the live OpenClaw browser profile, starts OpenClaw if it is closed, validates the cookies with `bird check`, and cleans up stale lock state
+- you can still run an explicit repair with:
+
+```bash
+cd /Users/hd/Developer/cortana-external
+./tools/stock-discovery/sync_bird_auth.sh
+```
+
 ## Suggested schedule (market hours ET)
 
 Run twice daily:

@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
+import sys
 import warnings
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 
 DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
     Path(__file__).resolve().parent / ".cache" / "experimental_alpha" / "calibration" / "buy-decision-calibration-latest.json"
@@ -29,26 +32,70 @@ def _with_runtime_warning_filters(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
 
+def _nightly_progress_enabled() -> bool:
+    setting = os.getenv("NIGHTLY_PROGRESS", "auto").strip().lower()
+    if setting in {"1", "true", "yes", "on"}:
+        return True
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    return sys.stdout.isatty()
+
+
+def _emit_progress(message: str) -> None:
+    if not _nightly_progress_enabled():
+        return
+    stream = getattr(sys, "__stdout__", sys.stdout)
+    print(message, file=stream, flush=True)
+
+
+def _run_stage(label: str, fn, *args, **kwargs):
+    started_at = perf_counter()
+    result = fn(*args, **kwargs)
+    elapsed = perf_counter() - started_at
+    _emit_progress(f"Nightly discovery timing: {label} {elapsed:.1f}s")
+    return result
+
+
 def build_report(
     limit: int = 20,
     min_technical_score: int = 3,
     refresh_sp500: bool = False,
     refresh_live_prefilter: bool = True,
+    force_live_prefilter_refresh: bool = False,
 ) -> dict:
     advisor = TradingAdvisor()
-    _refresh_experimental_alpha_snapshot(advisor=advisor)
-    market = _with_runtime_warning_filters(advisor.get_market_status, refresh=True)
+    _emit_progress("Nightly discovery progress: refreshing experimental alpha snapshot")
+    _run_stage("experimental alpha snapshot", _refresh_experimental_alpha_snapshot, advisor=advisor)
+    _emit_progress("Nightly discovery progress: refreshing market regime")
+    market = _run_stage("market regime refresh", _with_runtime_warning_filters, advisor.get_market_status, refresh=True)
     generated_at = datetime.now(UTC).isoformat()
+    _emit_progress("Nightly discovery progress: loading nightly universe")
+    universe_breakdown = _run_stage(
+        "nightly universe load",
+        advisor.screener.get_nightly_discovery_breakdown,
+        refresh_sp500=refresh_sp500,
+    )
     symbols = advisor.screener.get_universe_for_profile(
         UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
         refresh_sp500=refresh_sp500,
     )
-    discoveries = _with_runtime_warning_filters(
+    _emit_progress(
+        "Nightly discovery progress: running nightly discovery on "
+        f"{len(symbols)} symbols "
+        f"(deduped total; "
+        f"base {int(universe_breakdown.get('base_count', 0) or 0)} S&P | "
+        f"growth {int(universe_breakdown.get('growth_count', 0) or 0)} watchlist | "
+        f"dynamic-only {int(universe_breakdown.get('dynamic_only_count', 0) or 0)})"
+    )
+    discoveries = _run_stage(
+        "nightly discovery core",
+        _with_runtime_warning_filters,
         advisor.run_nightly_discovery,
         limit=limit,
         min_technical_score=min_technical_score,
         refresh_sp500=refresh_sp500,
         symbols=symbols,
+        progress_callback=_emit_progress,
     )
 
     leaders = []
@@ -70,25 +117,50 @@ def build_report(
     live_prefilter = None
     liquidity_overlay = None
     feature_snapshot = None
-    buy_decision_calibration = _refresh_buy_decision_calibration_summary()
-    leader_baskets = _refresh_leader_baskets_summary(
+    _emit_progress("Nightly discovery progress: refreshing buy decision calibration summary")
+    buy_decision_calibration = _run_stage("buy decision calibration refresh", _refresh_buy_decision_calibration_summary)
+    _emit_progress("Nightly discovery progress: refreshing leader baskets")
+    leader_baskets = _run_stage(
+        "leader basket refresh",
+        _refresh_leader_baskets_summary,
         leaders=leaders,
         generated_at=generated_at,
         market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
         universe_size=len(symbols),
     )
     if refresh_live_prefilter:
-        standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
-        payload = _with_runtime_warning_filters(
-            selector.refresh_cache,
-            base_symbols=standard_symbols,
-            market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
-        )
+        payload = selector.load_fresh_cache_payload()
+        refreshed_live_prefilter = False
+        standard_symbols = advisor.screener.get_universe()
+        if force_live_prefilter_refresh or payload is None:
+            reason = "forced refresh" if force_live_prefilter_refresh else "cache stale or missing"
+            _emit_progress(
+                "Nightly discovery progress: refreshing live prefilter cache over "
+                f"{len(standard_symbols)} symbols ({reason})"
+            )
+            payload = _run_stage(
+                "live prefilter refresh",
+                _with_runtime_warning_filters,
+                selector.refresh_cache,
+                base_symbols=standard_symbols,
+                market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
+            )
+            refreshed_live_prefilter = True
+        else:
+            generated = payload.get("generated_at")
+            age_hours = selector._age_hours(generated)
+            age_display = f"{age_hours:.1f}h" if age_hours is not None else "unknown age"
+            _emit_progress(
+                "Nightly discovery progress: reusing fresh live prefilter cache over "
+                f"{len(standard_symbols)} symbols ({age_display})"
+            )
+            _emit_progress("Nightly discovery timing: live prefilter refresh 0.0s (cache reused)")
         live_prefilter = {
             "path": str(selector.cache_path),
             "generated_at": payload.get("generated_at"),
             "symbol_count": len(payload.get("symbols", [])),
+            "source": "live_refresh" if refreshed_live_prefilter else "cache_reuse",
         }
         liquidity = payload.get("liquidity_overlay")
         if isinstance(liquidity, dict):
@@ -107,6 +179,7 @@ def build_report(
                 "symbol_count": int(snapshot.get("symbol_count", 0) or 0),
                 "source": str(snapshot.get("source", "")),
             }
+    _emit_progress("Nightly discovery progress: report build complete")
 
     return {
         "generated_at": generated_at,
@@ -114,6 +187,7 @@ def build_report(
         "market_regime": getattr(getattr(market, "regime", None), "value", "unknown"),
         "position_sizing": float(getattr(market, "position_sizing", 0.0) or 0.0),
         "universe_size": len(symbols),
+        "universe_breakdown": universe_breakdown,
         "leaders": leaders,
         "live_prefilter": live_prefilter,
         "liquidity_overlay": liquidity_overlay,
@@ -130,6 +204,19 @@ def format_report(report: dict) -> str:
         f"Market regime: {report['market_regime']} | Position sizing {report['position_sizing']:.0%}",
         f"Universe size: {report['universe_size']}",
     ]
+    breakdown = report.get("universe_breakdown")
+    if breakdown:
+        lines.append(
+            "Universe breakdown: "
+            f"base {int(breakdown.get('base_count', 0) or 0)} | "
+            f"growth {int(breakdown.get('growth_count', 0) or 0)} | "
+            f"dynamic-only {int(breakdown.get('dynamic_only_count', 0) or 0)} | "
+            f"total {int(breakdown.get('total_count', 0) or 0)}"
+        )
+        lines.append(
+            "Universe layers: growth = always-include leaders | "
+            "dynamic-only = Polymarket/X additions not already in base or growth"
+        )
     leaders = report.get("leaders", [])
     prefilter = report.get("live_prefilter")
     if prefilter:
@@ -201,6 +288,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not refresh the live scan prefilter cache after the nightly run",
     )
+    parser.add_argument(
+        "--force-live-prefilter-refresh",
+        action="store_true",
+        help="Force a rebuild of the live scan prefilter cache even when the cache is still fresh",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     return parser.parse_args()
 
@@ -212,6 +304,7 @@ def main() -> None:
         min_technical_score=args.min_technical_score,
         refresh_sp500=args.refresh_sp500,
         refresh_live_prefilter=not args.skip_live_prefilter_refresh,
+        force_live_prefilter_refresh=args.force_live_prefilter_refresh,
     )
     if args.json:
         print(json.dumps(report, indent=2))

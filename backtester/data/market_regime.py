@@ -537,6 +537,22 @@ class MarketRegimeDetector:
         days = self.count_distribution_days(lookback)
         return pd.DataFrame({"Date": pd.to_datetime(days).date})
 
+    def get_distribution_calendar_note(self, lookback: int = 25) -> str | None:
+        if self._data is None:
+            self.fetch_data()
+        if self._data is None or self._data.empty:
+            return None
+
+        distribution_days = {pd.Timestamp(value).date() for value in self.count_distribution_days(lookback)}
+        latest_available = pd.Timestamp(self._data.index[-1]).date()
+        today_et = datetime.now(ZoneInfo("America/New_York")).date()
+
+        if latest_available in distribution_days:
+            return None
+        if latest_available == today_et:
+            return "Today is not listed because it did not qualify as a distribution day."
+        return f"{latest_available.isoformat()} is not listed because it did not qualify as a distribution day."
+
 
 
 def get_market_status() -> MarketStatus:

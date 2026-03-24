@@ -41,7 +41,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Callable, Dict, List, Optional
 import pandas as pd
 from data.confidence import (
     build_confidence_assessment,
@@ -1514,32 +1514,55 @@ class TradingAdvisor:
         min_technical_score: int = 3,
         refresh_sp500: bool = False,
         symbols: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> pd.DataFrame:
         """Run a broader nightly discovery pass without the live market gate."""
+        emit_progress = progress_callback or (lambda _message: None)
         if symbols is None:
             symbols = self.screener.get_universe_for_profile(
                 UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
                 refresh_sp500=refresh_sp500,
             )
-        results = self.screener.screen(symbols, min_technical_score=min_technical_score, verbose=False)
+        emit_progress(f"Nightly discovery progress: initial screen over {len(symbols)} symbols")
+        results = self.screener.screen(
+            symbols,
+            min_technical_score=min_technical_score,
+            verbose=False,
+            progress_callback=emit_progress,
+            sleep_seconds=0.0,
+        )
         if results.empty:
+            emit_progress("Nightly discovery progress: initial screen returned no candidates")
             return results
+        emit_progress(
+            f"Nightly discovery progress: {len(results)} candidates passed the initial screen"
+        )
 
         market = self.get_market_status(refresh=True)
         enriched = []
         previous_context = dict(self._candidate_context_by_symbol)
+        top_results = results.head(limit).copy()
         self._candidate_context_by_symbol = {
             row['symbol']: row.to_dict()
-            for _, row in results.head(limit).iterrows()
+            for _, row in top_results.iterrows()
         }
+        emit_progress(
+            f"Nightly discovery progress: enriching top {len(top_results)} candidates"
+        )
 
         try:
-            for _, row in results.head(limit).iterrows():
+            for idx, (_, row) in enumerate(top_results.iterrows(), start=1):
                 symbol = row['symbol']
+                emit_progress(
+                    f"Nightly discovery progress: enriching {idx}/{len(top_results)} {symbol}"
+                )
                 try:
                     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                         analysis = self.analyze_stock(symbol, quiet=True)
                     if 'error' in analysis:
+                        emit_progress(
+                            f"Nightly discovery progress: skipped {symbol} because analysis returned an error payload"
+                        )
                         continue
 
                     rec = analysis.get('recommendation', {})
@@ -1557,11 +1580,18 @@ class TradingAdvisor:
                     enriched.append(row_dict)
                 except Exception as exc:
                     LOGGER.debug("Skipping %s during nightly enrichment: %s", symbol, exc)
+                    emit_progress(
+                        f"Nightly discovery progress: skipped {symbol} due to {type(exc).__name__}"
+                    )
         finally:
             self._candidate_context_by_symbol = previous_context
 
         if not enriched:
+            emit_progress("Nightly discovery progress: enrichment finished with no survivors")
             return pd.DataFrame()
+        emit_progress(
+            f"Nightly discovery progress: enrichment complete with {len(enriched)} leaders"
+        )
 
         return pd.DataFrame(enriched).sort_values(
             ['rank_score', 'technical_score', 'confidence', 'symbol'],
@@ -1724,7 +1754,10 @@ def main():
         if not calendar.empty:
             print("📉 Distribution Days:")
             print(calendar.to_string(index=False))
-        
+            note = advisor.market_detector.get_distribution_calendar_note()
+            if note:
+                print(f"ℹ️  {note}")
+
         return
     
     if args.symbol:

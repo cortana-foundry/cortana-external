@@ -18,10 +18,9 @@ const TEST_CONFIG: AppConfig = {
   PORT: 3033,
   MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "cache"),
   MARKET_DATA_REQUEST_TIMEOUT_MS: 30_000,
-  MARKET_DATA_UNIVERSE_SEED_PATH: "backtester/data/universe.py",
-  MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
+  MARKET_DATA_UNIVERSE_SOURCE_LADDER: "local_json",
   MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
-  MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+  MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "config/universe/sp500-constituents.json",
   MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
   MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
   COINMARKETCAP_API_KEY: "cmc-key",
@@ -1242,13 +1241,13 @@ describe("market-data routes", () => {
     expect(body.data.payload.market_cap).toBe(3_100_000_000_000);
   });
 
-  it("refreshes universe artifact from python static seed", async () => {
-    const service = new MarketDataService();
+  it("refreshes universe artifact from the bundled local S&P source", async () => {
+    const service = new MarketDataService({ config: TEST_CONFIG });
     const result = await service.handleUniverseRefresh();
 
     expect(result.status).toBe(200);
-    expect(result.body.data.source).toBe("static_python_seed");
-    expect(result.body.data.symbols.length).toBeGreaterThan(300);
+    expect(result.body.data.source).toBe("local_json");
+    expect(result.body.data.symbols.length).toBeGreaterThan(500);
   });
 
   it("prefers a configured remote universe JSON source", async () => {
@@ -1258,7 +1257,7 @@ describe("market-data routes", () => {
         SCHWAB_CLIENT_ID: "",
         SCHWAB_CLIENT_SECRET: "",
         SCHWAB_REFRESH_TOKEN: "",
-        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,python_seed",
+        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,local_json",
         MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "https://example.test/universe.json",
       },
       fetchImpl: async (input) => {
@@ -1288,7 +1287,7 @@ describe("market-data routes", () => {
         SCHWAB_CLIENT_ID: "",
         SCHWAB_CLIENT_SECRET: "",
         SCHWAB_REFRESH_TOKEN: "",
-        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,local_json,python_seed",
+        MARKET_DATA_UNIVERSE_SOURCE_LADDER: "remote_json,local_json",
         MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "https://example.test/universe.json",
         MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: universePath,
       },
@@ -1328,12 +1327,12 @@ describe("market-data routes", () => {
 
     expect(opsResponse.status).toBe(200);
     expect(opsBody.data.providerMetrics.lastSuccessfulUniverseRefreshAt).toBeTruthy();
-    expect(opsBody.data.universe.latest?.source).toBe("static_python_seed");
-    expect(opsBody.data.universe.audit[0]?.symbolCount).toBeGreaterThan(300);
+    expect(opsBody.data.universe.latest?.source).toBe("local_json");
+    expect(opsBody.data.universe.audit[0]?.symbolCount).toBeGreaterThan(500);
 
     expect(auditResponse.status).toBe(200);
     expect(auditBody.data.entries).toHaveLength(1);
-    expect(auditBody.data.entries[0]?.source).toBe("static_python_seed");
+    expect(auditBody.data.entries[0]?.source).toBe("local_json");
   });
 
   it("demotes the streamer leader after CLOSE_CONNECTION max-connection policy", async () => {

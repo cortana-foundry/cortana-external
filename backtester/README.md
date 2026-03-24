@@ -131,7 +131,10 @@ Important notes:
   - `SCHWAB_STREAMER_SHARED_STATE_BACKEND=file` is dev-only
   - file path: `SCHWAB_STREAMER_SHARED_STATE_PATH`
 - FRED, CBOE, and the base-universe artifact are also owned by the TS service
-- the base-universe artifact now supports a source ladder in TS: `remote_json -> local_json -> python_seed`
+- the base-universe artifact now supports a source ladder in TS: `remote_json -> local_json`
+- the default local base-universe source is now the bundled full-S&P artifact at `config/universe/sp500-constituents.json` (`502` symbols in the current snapshot)
+- the bundled `local_json` S&P artifact is the default base-universe source
+- if the service was already running on the older seed-backed cache, restart `apps/external-service` or call `POST /market-data/universe/refresh` after updating so the new base-universe artifact is rebuilt
 - Alpaca is no longer part of the default runtime chain; use it only for explicit compare/diagnostic checks
 - Polymarket integration is read-only
 - if you skip Polymarket refresh, the Python backtester still runs
@@ -198,6 +201,9 @@ SYMBOL=AAPL YEARS=2 COMPARE=1 ./scripts/backtest_flow.sh
 # Skip the Polymarket/context refresh during daytime flow
 RUN_MARKET_INTEL=0 ./scripts/daytime_flow.sh
 
+# Skip the X/Twitter dynamic watchlist refresh during daytime flow
+RUN_DYNAMIC_WATCHLIST_REFRESH=0 ./scripts/daytime_flow.sh
+
 # Skip the market-data ops summary in the local wrappers
 RUN_MARKET_DATA_OPS=0 ./scripts/daytime_flow.sh
 
@@ -228,6 +234,137 @@ REQUIRE_SCHWAB_CONFIGURED=0 ./scripts/daytime_flow.sh
 # Pick which leader-bucket window feeds soft priority
 TRADING_LEADER_BASKET_PRIORITY_WINDOW=weekly ./scripts/daytime_flow.sh
 ```
+
+## Streaming: How To Use It
+
+For your normal operator workflow:
+
+- keep Schwab streaming enabled by default
+- run the wrappers normally
+- do not treat `connected no` in the ops block as a failure
+
+Why:
+
+- `daytime_flow.sh` and `nighttime_flow.sh` are mainly analysis workflows
+- they lean heavily on:
+  - history
+  - regime
+  - risk
+  - screening
+  - Polymarket context
+- those do not require a constantly active websocket session
+
+When streaming helps most:
+
+- freshest intraday quotes
+- freshest intraday snapshots
+- a small intraday watchlist where you care about the latest tape
+
+When streaming matters less:
+
+- nightly discovery
+- regime calculations
+- broad daytime scans
+- history-heavy analysis
+- most of the normal wrapper output
+
+Recommended operating model:
+
+- default
+  - keep streaming on
+- debug
+  - turn streaming off only when you are troubleshooting streamer behavior
+- optional live-watch helper
+  - separate from the wrappers
+  - useful only if you want a tighter intraday read on SPY / QQQ / a short watchlist
+
+Useful aliases:
+
+```bash
+alias cday='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/daytime_flow.sh'
+alias cnight='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/nighttime_flow.sh'
+alias cday_nostream='cd /Users/hd/Developer/cortana-external/backtester && SCHWAB_STREAMER_ENABLED=0 ./scripts/daytime_flow.sh'
+alias clive='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/live_watch.sh'
+alias clive4='cd /Users/hd/Developer/cortana-external/backtester && WATCH_SYMBOLS=SPY,QQQ,DIA,NVDA FOCUS_SYMBOL=SPY ./scripts/live_watch.sh'
+alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery/sync_bird_auth.sh'
+alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
+alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
+alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+```
+
+How to think about them:
+
+- `cday`
+  - normal daytime operator run
+  - refreshes market-intel and the X/Twitter dynamic watchlist by default before the main analysis
+- `cnight`
+  - normal nighttime discovery run
+- `cday_nostream`
+  - debug-only comparison mode
+- `clive`
+  - quick live quote/snapshot glance for the default watch list
+- `clive4`
+  - quick live quote/snapshot glance for `SPY,QQQ,DIA,NVDA`
+- `cxauth`
+  - validate or persist private X/Twitter auth for the stock-discovery sweep
+- `crefresh_watchlists`
+  - force-refresh both watchlist sources before checking them live
+- `cwatch`
+  - quick live watchlist pulse using the latest Polymarket + dynamic watchlists
+- `cwatch20`
+  - same as `cwatch`, but shows a larger top-20 slice
+
+X/Twitter auth note:
+
+- `trend_sweep.sh` now preserves the existing dynamic watchlist when `bird` auth is unavailable
+- it no longer wipes `dynamic_watchlist.json` down to `0` tickers on auth failure
+- by default the X/Twitter sweep now targets the OpenClaw browser profile rather than your personal Chrome profile
+- `cxauth` now uses the OpenClaw browser profile first, not your personal browser session
+- if OpenClaw is closed, the sync script starts it automatically before reading cookies
+- if the saved private auth file is stale, `trend_sweep.sh` now re-runs the sync automatically and retries once before falling back
+- successful syncs are stored privately at:
+  - `~/.config/cortana/x-twitter-bird.env`
+- future `cday` / `crefresh_watchlists` runs source that file automatically
+- failed or interrupted syncs now clean up their lock state automatically, so one bad run should not wedge later refreshes
+
+What the optional live-watch idea means:
+
+- this is not a replacement for `daytime_flow.sh`
+- it would just be a tiny helper that asks the TS service for a few fresh quote/snapshot calls like:
+  - `/market-data/quote/SPY`
+  - `/market-data/snapshot/SPY`
+  - `/market-data/quote/batch`
+- that kind of helper is useful when you want a faster intraday feel for a few names
+- it is not necessary for the core daytime/nighttime workflow
+- this repo now includes that helper as:
+  - `./scripts/live_watch.sh`
+
+What the watchlist pulse helper means:
+
+- this is the missing middle ground between `clive` and `cday`
+- it does not rescan the market
+- it reads the latest watchlist artifacts, grabs fresh quotes for those names, and shows:
+  - what is new since the last check
+  - what dropped off
+  - how the current watchlist names are moving right now
+- use it when you want:
+  - "what changed in my watchlist since the last check?"
+  - "are my current names actually moving?"
+- the repo now includes that helper as:
+  - `./scripts/watchlist_watch.sh`
+
+If you are SSHed into the Mac mini:
+
+- put the aliases in the remote `~/.zshrc` on the Mac mini
+- open a new SSH session or run `source ~/.zshrc`
+- then use:
+  - `cday`
+  - `cnight`
+  - `cday_nostream`
+  - `clive`
+  - `clive4`
+  - `cwatch`
+  - `cwatch20`
 
 ## When To Run Each Script
 
@@ -346,7 +483,7 @@ Operational notes:
 - `/market-data/ready` now gives a compact readiness answer for scans or wrappers that want to check service state before doing a full run
 - token refresh is single-flight inside TS so concurrent Schwab requests do not stampede the refresh endpoint
 - base-universe refresh is no longer just a Python static-seed copy; TS can prefer a configured remote or local JSON universe source and only fall back to the Python seed when needed
-- universe ownership is now more explicit in ops: the service exposes the artifact path, audit path, source ladder, and the expectation that `python_seed` is terminal fallback only
+- universe ownership is now more explicit in ops: the service exposes the artifact path, audit path, source ladder, and the expectation that the bundled S&P artifact is the default base-universe source
 - recommended production shape is now:
   - `SCHWAB_STREAMER_ROLE=auto`
   - `SCHWAB_STREAMER_SHARED_STATE_BACKEND=postgres`
@@ -459,7 +596,11 @@ Universe tiers:
 - `standard`
   - curated broad universe plus dynamic additions
 - `nightly_discovery`
-  - broader nightly universe using live S&P 500 constituents when available
+  - broader nightly universe using the TS-owned S&P 500 base-universe artifact, then layering growth and dynamic watchlist additions
+  - the nightly report now prints `Universe breakdown: base | growth | dynamic-only | total`
+  - `growth` = the always-include leadership / growth overlay
+  - `dynamic-only` = Polymarket / X-Twitter additions not already in the base or growth lists
+  - the final nightly universe is deduped before scanning, so overlap between those layers is not scanned twice
 
 Live 120-name basket:
 - explicit priority symbols are still pinned first

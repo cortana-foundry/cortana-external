@@ -17,7 +17,6 @@ interface UniverseManagerOptions {
   sourceLadder: string[];
   remoteJsonUrl: string;
   localJsonPath: string | null;
-  seedPath: string;
   logger: AppLogger;
   fetchJson: <T>(url: string, init?: RequestInit) => Promise<T>;
 }
@@ -35,7 +34,12 @@ export class UniverseArtifactManager {
     if (!forceRefresh) {
       const cached = readJsonFile<MarketDataUniverse>(artifactPath);
       const cachedAgeSeconds = cached?.updatedAt ? secondsSince(cached.updatedAt) : null;
-      if (cached?.updatedAt && cachedAgeSeconds != null && cachedAgeSeconds < 24 * 3600) {
+      if (
+        cached?.updatedAt &&
+        cachedAgeSeconds != null &&
+        cachedAgeSeconds < 24 * 3600 &&
+        !this.shouldRefreshCachedArtifact(cached)
+      ) {
         return cached;
       }
     }
@@ -81,6 +85,17 @@ export class UniverseArtifactManager {
     }
   }
 
+  private shouldRefreshCachedArtifact(cached: MarketDataUniverse | null | undefined): boolean {
+    if (!cached?.source) {
+      return false;
+    }
+    const prefersLocalJson = this.options.sourceLadder.includes("local_json") && Boolean(this.options.localJsonPath);
+    if (prefersLocalJson && cached.source === "static_python_seed") {
+      return true;
+    }
+    return false;
+  }
+
   private async resolveUniverseSeed(): Promise<UniverseSeedResult> {
     const errors: string[] = [];
     for (const source of this.options.sourceLadder) {
@@ -91,9 +106,6 @@ export class UniverseArtifactManager {
         if (source === "local_json") {
           return { symbols: await this.seedUniverseFromLocalJson(), source: "local_json" };
         }
-        if (source === "python_seed") {
-          return { symbols: await this.seedUniverseFromPython(), source: "static_python_seed" };
-        }
       } catch (error) {
         const summary = error instanceof Error ? error.message : String(error);
         this.options.logger.error(`Universe seed source ${source} failed`, error);
@@ -101,18 +113,6 @@ export class UniverseArtifactManager {
       }
     }
     throw new Error(`Unable to resolve universe seed (${errors.join("; ")})`);
-  }
-
-  private async seedUniverseFromPython(): Promise<string[]> {
-    const raw = await fs.promises.readFile(this.options.seedPath, "utf8");
-    const start = raw.indexOf("SP500_TICKERS = [");
-    if (start < 0) {
-      throw new Error(`Unable to locate SP500_TICKERS in ${this.options.seedPath}`);
-    }
-    const end = raw.indexOf("]\n\n# Growth", start);
-    const block = raw.slice(start, end > start ? end : undefined);
-    const matches = [...block.matchAll(/"([A-Z0-9.\-^]+)"/g)].map((match) => match[1].replaceAll(".", "-"));
-    return [...new Set(matches)];
   }
 
   private async seedUniverseFromRemoteJson(): Promise<string[]> {

@@ -31,7 +31,7 @@ REASON_MESSAGES = {
     "catalyst_event_imminent": "A catalyst event is too close to trust sizing.",
     "signal_conflict": "Signal layers are materially conflicted.",
     "credit_veto": "Credit veto is active.",
-    "falling_knife": "Falling-knife filter is active.",
+    "falling_knife": "The stock is still under pressure and has not confirmed a bounce yet.",
     "risk_data_incomplete": "Risk inputs are incomplete.",
     "adverse_regime_stress": "Adverse market-stress ensemble is elevated.",
 }

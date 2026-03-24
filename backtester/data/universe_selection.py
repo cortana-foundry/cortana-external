@@ -263,6 +263,10 @@ class RankedUniverseSelector:
         self._write_payload(payload)
         return payload
 
+    def load_fresh_cache_payload(self) -> Optional[dict]:
+        """Return the current prefilter cache payload when it is still fresh."""
+        return self._load_cache_payload()
+
     def _fetch_histories(self, symbols: Iterable[str]) -> Dict[str, pd.DataFrame]:
         requested = self._dedupe([*symbols, "SPY"])
         out: Dict[str, pd.DataFrame] = {}

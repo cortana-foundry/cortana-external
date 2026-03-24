@@ -61,7 +61,29 @@ def test_sp500_constituents_cache_round_trip_and_normalization(tmp_path, monkeyp
     assert symbols == ["BRK-B", "MSFT", "AAPL"]
     payload = json.loads((tmp_path / "sp500_constituents.json").read_text(encoding="utf-8"))
     assert payload["symbols"] == ["BRK-B", "MSFT", "AAPL"]
+    assert payload["source"] == "service_artifact"
     assert screener.load_sp500_constituents(refresh=False) == ["BRK-B", "MSFT", "AAPL"]
+
+
+def test_sp500_constituents_ignores_undersized_legacy_cache_and_refreshes_service(tmp_path, monkeypatch):
+    screener = UniverseScreener(cache_dir=str(tmp_path))
+    legacy_cache = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "symbols": ["AAPL", "MSFT", "NVDA"],
+    }
+    (tmp_path / "sp500_constituents.json").write_text(json.dumps(legacy_cache), encoding="utf-8")
+    monkeypatch.setattr(
+        screener,
+        "_service_request",
+        lambda path, method="GET", **kwargs: (
+            {"status": "ok", "data": {"symbols": ["BRK.B", "MSFT", "AAPL", "AAPL"], "updatedAt": datetime.now(UTC).isoformat()}},
+            200,
+        ),
+    )
+
+    symbols = screener.load_sp500_constituents(refresh=False)
+
+    assert symbols == ["BRK-B", "MSFT", "AAPL"]
 
 
 def test_sp500_constituents_fall_back_to_static_list_when_service_and_cache_fail(tmp_path, monkeypatch):
@@ -106,6 +128,20 @@ def test_nightly_discovery_profile_merges_live_constituents_growth_and_dynamic(t
     assert len(symbols) == len(set(symbols))
 
 
+def test_nightly_discovery_breakdown_reports_base_growth_and_dynamic(tmp_path, monkeypatch):
+    screener = UniverseScreener(cache_dir=str(tmp_path))
+    monkeypatch.setattr(screener, "load_sp500_constituents", lambda refresh=False, max_age_hours=24.0: ["AAPL", "MSFT"])
+    monkeypatch.setattr(screener, "_load_dynamic_watchlist", lambda: [{"symbol": "IBM"}, {"symbol": "AAPL"}])
+    monkeypatch.setattr(screener, "_load_polymarket_watchlist", lambda: [{"symbol": "ORCL"}])
+
+    breakdown = screener.get_nightly_discovery_breakdown()
+
+    assert breakdown["base_count"] == 2
+    assert breakdown["growth_count"] == len(set(GROWTH_WATCHLIST))
+    assert breakdown["dynamic_only_count"] == 2
+    assert breakdown["total_count"] == len(set(["AAPL", "MSFT", *GROWTH_WATCHLIST, "IBM", "ORCL"]))
+
+
 def test_get_stock_info_suppresses_provider_noise(tmp_path, monkeypatch, capsys):
     screener = UniverseScreener(cache_dir=str(tmp_path))
     monkeypatch.setattr(screener, "_fetch_price_history", lambda symbol, period="1y": _history_frame())
@@ -131,6 +167,38 @@ def test_load_sp500_constituents_prefers_service_artifact(tmp_path, monkeypatch)
     )
 
     assert screener.load_sp500_constituents(refresh=True) == ["MSFT", "NVDA"]
+
+
+def test_screen_emits_per_symbol_progress_callback(tmp_path, monkeypatch):
+    screener = UniverseScreener(cache_dir=str(tmp_path))
+    messages = []
+    history = _history_frame()
+    monkeypatch.setattr(screener, "_fetch_price_history", lambda symbol, period="1y": history)
+    monkeypatch.setattr(
+        screener,
+        "_fetch_stock_metadata",
+        lambda symbol: {
+            "name": symbol,
+            "market_cap": 5_000_000_000,
+            "float_shares": 1_000_000,
+            "beta": 1.0,
+            "sector": "Tech",
+            "industry": "Software",
+        },
+    )
+    monkeypatch.setattr("data.universe.time.sleep", lambda _seconds: None)
+
+    screener.screen(
+        symbols=["AAA", "BBB"],
+        min_technical_score=0,
+        verbose=False,
+        progress_callback=messages.append,
+    )
+
+    assert messages == [
+        "Nightly discovery progress: screening 1/2 AAA",
+        "Nightly discovery progress: screening 2/2 BBB",
+    ]
 
 
 def test_calculate_technical_score_uses_market_data_provider_history(tmp_path, monkeypatch):
