@@ -681,6 +681,49 @@ What these are for:
 - `buy_decision_calibration.py`
   - summarize whether recent research buckets have been useful
 
+Accuracy loop:
+- alert strategies also log prediction snapshots automatically
+- `prediction_accuracy_report.py`
+  - settles those snapshots against later price history
+  - shows how much data has matured at `1d`, `5d`, and `20d`
+  - reports results by:
+    - `strategy + action`
+    - `strategy + market regime + action`
+    - `strategy + confidence bucket + action`
+
+How to read the accuracy output:
+- `Snapshots settled`
+  - how many saved prediction snapshots have been processed into the settled store
+- `Records logged`
+  - how many individual symbol-level calls are available across those snapshots
+- `Settlement coverage`
+  - `matured`
+    - enough time has passed and the system found a later bar for that horizon
+  - `pending`
+    - the horizon has not elapsed yet
+  - `incomplete`
+    - the horizon elapsed, but the system could not build a complete settlement sample
+- `By strategy/action`
+  - the top-level view of how each strategy decision aged
+- `By regime`
+  - whether the same strategy behaves differently in `confirmed_uptrend`, `under_pressure`, or `correction`
+- `By confidence bucket`
+  - whether higher-confidence calls are actually performing better than lower-confidence calls
+
+Action-aware success labels:
+- `buy_success_rate`
+  - percent of settled `BUY` calls that were positive over that horizon
+- `watch_success_rate`
+  - percent of settled `WATCH` calls that ended up being directionally correct over that horizon
+- `avoidance_rate`
+  - percent of settled `NO_BUY` calls where avoiding the stock was the right choice because the forward return was flat/down
+
+Risk columns:
+- `avg drawdown`
+  - average worst move against the signal before the horizon settled
+- `avg runup`
+  - average best move in favor of the signal before the horizon settled
+
 Important boundary:
 - research artifacts can inform future tuning
 - they do not directly own the live watchlist or live trade authority
@@ -726,6 +769,11 @@ If `.cache` is missing:
 - calibration says `no_settled_records`
   - the pipeline is usually fine
   - it means the research history exists but there are no settled samples yet
+
+- prediction accuracy says `No settled prediction samples yet.`
+  - snapshot logging is working
+  - but the settled accuracy buckets still do not have enough matured records to report something useful yet
+  - give it time to accumulate `1d`, then `5d`, then `20d` outcomes
 
 - stale symbol noise during nightly runs
   - use the current `main`; the nightly path now suppresses common provider noise and removes obvious stale bundled symbols

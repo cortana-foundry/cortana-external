@@ -257,11 +257,55 @@ The wrappers print a compact operator summary. The goal is:
 
 `Prediction accuracy`
 
-- `Snapshots settled: 198`
-  - `198` stored prediction snapshots have been closed out and evaluated
-- `No settled prediction samples yet`
-  - there are still no usable labeled samples in the active accuracy buckets the report expects for scoring feedback
-  - bluntly: the learning loop is wired, but it is not informative yet
+- this is the self-measurement loop for the alert system
+- the system logs what it said at decision time, then later checks what the stock actually did
+- it measures itself at `1d`, `5d`, and `20d` horizons
+- `Snapshots settled`
+  - how many saved prediction snapshots have been processed into settled evaluation files
+- `Records logged`
+  - how many symbol-level calls exist across those settled snapshots
+- `Settlement coverage`
+  - `matured`
+    - enough time has passed and there is a usable later bar for that horizon
+  - `pending`
+    - not enough time has passed yet
+  - `incomplete`
+    - enough time passed, but the system could not build a complete settled sample for that horizon
+- `By strategy/action`
+  - top-level performance by strategy and decision type
+  - this answers questions like:
+    - “How are Dip Buyer `BUY` calls doing after 5 days?”
+    - “How often are `NO_BUY` calls actually saving us from weak names?”
+- `By regime`
+  - same idea, but split by market regime
+  - this is how you learn whether a strategy is behaving differently in `correction` vs `confirmed_uptrend`
+- `By confidence bucket`
+  - same idea, but split by the model’s own confidence bucket
+  - this is how you check whether high-confidence calls are actually better than low-confidence calls
+
+Action-aware success labels:
+
+- `buy_success_rate`
+  - percent of settled `BUY` calls that were positive over that horizon
+- `watch_success_rate`
+  - percent of settled `WATCH` calls that ended up being directionally correct over that horizon
+- `avoidance_rate`
+  - percent of settled `NO_BUY` calls where avoiding the stock was the right choice because the forward return was flat/down
+
+Risk columns:
+
+- `avg drawdown`
+  - average worst move against the call before that horizon settled
+- `avg runup`
+  - average best move in favor of the call before that horizon settled
+
+If you still see `No settled prediction samples yet`:
+
+- the logging pipeline is usually fine
+- it means the system has not accumulated enough matured settled samples in the active buckets yet
+- `1d` becomes useful first
+- `5d` starts getting more informative after about two weeks
+- `20d` is the one to take seriously after roughly a month of normal operation
 
 #### Daytime Flow Sections
 
