@@ -57,6 +57,278 @@ Default routine:
 ./scripts/daytime_flow.sh
 ```
 
+### Streaming: When To Care
+
+For your normal operator routine:
+
+- keep Schwab streaming enabled by default
+- run `daytime_flow.sh` and `nighttime_flow.sh` normally
+- do not assume `connected no` means something is broken
+
+Why:
+
+- the wrappers are mainly analysis workflows
+- they rely heavily on:
+  - history
+  - regime
+  - risk
+  - screening
+  - Polymarket context
+- those do not require a constantly active websocket
+
+Streaming helps most when you care about:
+
+- freshest intraday quotes
+- freshest intraday snapshots
+- a small set of names you want to watch closely during the session
+
+Streaming matters less for:
+
+- nightly discovery
+- broad daytime scans
+- market regime
+- feature snapshots
+- most of the normal wrapper output
+
+Simple operating rule:
+
+- default
+  - keep streaming on
+- debug
+  - turn streaming off only when you are troubleshooting streamer behavior
+- optional live-watch helper
+  - separate from the wrappers
+  - useful only if you want a tighter intraday read on SPY / QQQ / a short watchlist
+
+Recommended aliases:
+
+```bash
+alias cday='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/daytime_flow.sh'
+alias cnight='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/nighttime_flow.sh'
+alias cday_nostream='cd /Users/hd/Developer/cortana-external/backtester && SCHWAB_STREAMER_ENABLED=0 ./scripts/daytime_flow.sh'
+alias clive='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/live_watch.sh'
+alias clive4='cd /Users/hd/Developer/cortana-external/backtester && WATCH_SYMBOLS=SPY,QQQ,DIA,NVDA FOCUS_SYMBOL=SPY ./scripts/live_watch.sh'
+alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery/sync_bird_auth.sh'
+alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
+alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
+alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+```
+
+How to think about them:
+
+- `cday`
+  - normal daytime use
+  - refreshes market-intel and the X/Twitter dynamic watchlist by default before the main analysis
+- `cnight`
+  - normal nighttime use
+- `cday_nostream`
+  - debug-only comparison mode
+- `clive`
+  - quick live quote/snapshot glance for the default list
+- `clive4`
+  - quick live quote/snapshot glance for `SPY,QQQ,DIA,NVDA`
+- `cxauth`
+  - validate or persist private X/Twitter auth for the stock-discovery sweep
+- `crefresh_watchlists`
+  - force-refresh both watchlist sources before checking them live
+- `cwatch`
+  - quick live watchlist pulse using the latest watchlist artifacts
+- `cwatch20`
+  - same as `cwatch`, but with a larger top-20 list
+
+X/Twitter auth note:
+
+- `trend_sweep.sh` now preserves the existing dynamic watchlist when `bird` auth is unavailable
+- it no longer wipes `dynamic_watchlist.json` to `0` tickers on auth failure
+- by default the X/Twitter sweep now targets the OpenClaw browser profile rather than your personal Chrome profile
+- `cxauth` now uses the OpenClaw browser profile first, not your personal browser session
+- if OpenClaw is closed, the sync script starts it automatically before reading cookies
+- if the saved private auth file is stale, `trend_sweep.sh` now reruns the sync automatically and retries once before falling back
+- successful syncs are stored at:
+  - `~/.config/cortana/x-twitter-bird.env`
+- future `cday` / `crefresh_watchlists` runs source that file automatically
+- failed or interrupted syncs now clean up their lock state automatically, so one bad run should not block later refreshes
+
+What the optional live-watch helper means:
+
+- it would be a tiny script or alias that directly hits the TS service for a few fresh quote/snapshot calls
+- examples:
+  - `/market-data/quote/SPY`
+  - `/market-data/snapshot/SPY`
+  - `/market-data/quote/batch`
+- this is optional intraday tooling
+- it is not a second main workflow and not required for the wrappers
+- the repo now includes this helper as:
+  - `./scripts/live_watch.sh`
+
+What the watchlist pulse helper means:
+
+- it is the small helper between `clive` and `cday`
+- it does not rerun discovery or scan the full market
+- it reads the current watchlist files, asks the TS service for fresh quotes, and tells you:
+  - what is new since the last check
+  - what dropped off
+  - what the current watchlist names are doing right now
+- use it when you want a quick answer to:
+  - "what changed in my watchlist?"
+  - "are my active names moving?"
+- the repo now includes this helper as:
+  - `./scripts/watchlist_watch.sh`
+
+If you are SSHed into the Mac mini:
+
+- put the aliases in the remote `~/.zshrc`
+- reload your shell with `source ~/.zshrc`
+- then use the aliases normally from the SSH session
+
+### How To Read The Wrapper Output
+
+The wrappers print a compact operator summary. The goal is:
+
+- first show whether the data plumbing is healthy
+- then show the market backdrop
+- then show what the stock-selection engine decided
+
+#### Nighttime Flow Sections
+
+`Nightly Discovery`
+
+- `Profile`
+  - which nightly workflow profile ran
+- `Market regime`
+  - the current equity regime snapshot used by the discovery pass
+- `Universe size`
+  - how many symbols made it into the working nightly universe
+- `Universe breakdown`
+  - `base`
+    - the TS-owned base S&P universe
+  - `growth`
+    - the always-include growth overlay
+  - `dynamic-only`
+    - symbols added only by Polymarket / X-Twitter watchlist refreshes
+    - these are names not already present in the base or growth layers
+  - `total`
+    - the deduped nightly working set after those layers are merged
+  - the nightly scan does not intentionally check the same symbol twice
+  - overlap between base, growth, and dynamic inputs is removed before the actual scan runs
+- `Live prefilter cache`
+  - how many symbols survived the fast first-pass cache build
+  - this is the early ranked-universe cache, not the final watchlist
+- `Feature snapshot`
+  - the cached feature set used for ranking and downstream selection
+- `Liquidity overlay cache`
+  - the liquidity/slippage layer used to keep the scans realistic
+  - `median slip 182.1bps` means the median modeled execution slippage is about `1.821%`
+  - `high quality 293` means `293` symbols passed the better-liquidity threshold
+- `Buy decision calibration`
+  - whether the system has settled prediction snapshots it can learn from
+  - `no_settled_records` means the scoring-learning loop does not have closed outcomes yet
+- `Leader baskets`
+  - counts of symbols in the daily / weekly / monthly leadership buckets
+- `Leaders`
+  - a quick text summary of the current best leadership names if any qualified
+
+`Market data ops`
+
+- this is the TS service health summary
+- `Live Schwab feed owner`
+  - which service instance is allowed to own the live Schwab websocket if needed
+- `Live feed status`
+  - the Schwab websocket/live-feed layer for fresh quote/chart data
+  - `connected no` does not mean the service is broken
+  - it means the service is currently serving through the non-streaming path and no live stream is active right now
+- `lock held no`
+  - the Postgres leader lock is not currently held
+  - that is okay when the service is healthy and not actively maintaining a live stream
+- `Service health: healthy`
+  - the market-data service itself is ready to answer requests
+- `Live feed subscription budget`
+  - how many live-stream symbols are currently subscribed vs the soft cap
+  - `0/250 requested` means there is plenty of headroom
+- `Provider usage this run`
+  - `shared_state 0` means no follower-instance shared-state reads were needed
+  - `primary source mix coinmarketcap 13, schwab 5562` means how often each provider served as the primary source during the run
+- `Base universe source`
+  - `local_json` is the normal bundled full-S&P artifact path
+  - `remote_json` means you intentionally overrode the bundled artifact with a remote TS-owned universe source
+  - if you still see an old cached source right after upgrading, restart the TS service so it can rebuild the artifact
+- `Refresh policy`
+  - reminder that TS owns the artifact refresh path and Python is only the terminal fallback
+
+`Prediction accuracy`
+
+- `Snapshots settled: 198`
+  - `198` stored prediction snapshots have been closed out and evaluated
+- `No settled prediction samples yet`
+  - there are still no usable labeled samples in the active accuracy buckets the report expects for scoring feedback
+  - bluntly: the learning loop is wired, but it is not informative yet
+
+#### Daytime Flow Sections
+
+`Registry audit`
+
+- this comes from the `market-intel` Polymarket registry
+- it checks whether each configured macro theme still has working market selectors
+- `healthy`
+  - exact selector matches are working
+- `fallback-only`
+  - the exact selector failed, but fallback search still found something usable
+- `broken`
+  - neither exact nor fallback matching found a usable market
+- `required` vs `optional`
+  - required themes are core to the operator view
+  - optional themes are nice to have, but not required for the workflow to run
+- `exact 1 | fallback 1`
+  - the registry found `1` exact match and `1` possible fallback match for that topic
+
+`Checking market regime`
+
+- `Distribution Days (25d): 7`
+  - this is not supposed to list every recent date
+  - it lists only the dates in the last `25` trading sessions that qualified as distribution days
+- if today, March 24, 2026, is missing:
+  - that simply means March 24 did not qualify as a distribution day by the model rules
+
+`Leader buckets`
+
+- `daily`
+  - very recent leaders
+- `weekly`
+  - names repeatedly showing up over the weekly window
+- `monthly`
+  - broader persistent leaders
+- `(2x)`
+  - that symbol appeared in that bucket twice across the stored history
+- `+0.0%`
+  - the current stored return for that bucket window
+  - if many names are `+0.0%`, that usually means the current artifact is still shallow or freshly rebuilt
+
+`CANSLIM` and `Dip Buyer`
+
+- `Takeaway`
+  - fast operator summary of market, macro, risk, and scan-input conditions
+- `Decision`
+  - what the strategy actually wants to do with those conditions
+- `WATCH only — correction regime blocks new dip buys`
+  - the symbol(s) may be technically interesting, but the market regime is vetoing new entries
+
+#### BTC Quick Check
+
+Current direct-crypto setup:
+
+- direct crypto `quote` / `snapshot` / `metadata` / `fundamentals` come from CoinMarketCap
+- direct crypto `history` comes from the daily cache artifact first
+- the quick-check path needs at least `30` history rows
+
+That means:
+
+- one refresh day = one BTC daily row
+- with only a few refreshes, the system correctly says `Insufficient price data`
+- with the current daily-cache-only setup, you need roughly `30` refresh days before BTC quick-check becomes meaningfully usable
+- if you want that sooner, you need:
+  - a CoinMarketCap plan with historical OHLCV
+  - or another crypto-history provider
+
 Wrapper note:
 - `daytime_flow.sh` and `nighttime_flow.sh` now do a market-data preflight before the expensive work starts
 - they check the local TS service readiness surface first

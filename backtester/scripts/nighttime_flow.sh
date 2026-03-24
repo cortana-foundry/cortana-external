@@ -8,6 +8,7 @@ RUN_STAMP="${RUN_STAMP:-$(date -u +%Y%m%d-%H%M%S)}"
 
 NIGHTLY_LIMIT="${NIGHTLY_LIMIT:-20}"
 SKIP_LIVE_PREFILTER_REFRESH="${SKIP_LIVE_PREFILTER_REFRESH:-0}"
+FORCE_LIVE_PREFILTER_REFRESH="${FORCE_LIVE_PREFILTER_REFRESH:-0}"
 REFRESH_SP500="${REFRESH_SP500:-0}"
 JSON_OUTPUT="${JSON_OUTPUT:-0}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
@@ -18,6 +19,7 @@ CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
 AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
+NIGHTLY_PROGRESS="${NIGHTLY_PROGRESS:-1}"
 
 source "${SCRIPT_DIR}/market_data_preflight.sh"
 
@@ -25,6 +27,10 @@ ARGS=(--limit "${NIGHTLY_LIMIT}")
 
 if [[ "${SKIP_LIVE_PREFILTER_REFRESH}" == "1" ]]; then
   ARGS+=(--skip-live-prefilter-refresh)
+fi
+
+if [[ "${FORCE_LIVE_PREFILTER_REFRESH}" == "1" ]]; then
+  ARGS+=(--force-live-prefilter-refresh)
 fi
 
 if [[ "${REFRESH_SP500}" == "1" ]]; then
@@ -74,7 +80,7 @@ fi
 
 (
   cd "${BACKTESTER_DIR}"
-  uv run python nightly_discovery.py "${ARGS[@]}"
+  NIGHTLY_PROGRESS="${NIGHTLY_PROGRESS}" uv run python -u nightly_discovery.py "${ARGS[@]}"
 )
 
 if [[ "${RUN_MARKET_DATA_OPS}" == "1" ]]; then

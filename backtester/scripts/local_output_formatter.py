@@ -168,6 +168,21 @@ def _summarize_risk(lines: list[str]) -> list[str]:
     return out
 
 
+def _format_review_block(label: str, value: str) -> str:
+    items = [item.strip() for item in value.split(";") if item.strip()]
+    if not items:
+        return f"{label}: none"
+
+    rendered: list[str] = [f"{label}:"]
+    for item in items:
+        symbol, _, remainder = item.partition(" ")
+        if remainder:
+            rendered.append(f"  {symbol}: {remainder.strip()}")
+        else:
+            rendered.append(f"  {symbol}")
+    return "\n".join(rendered)
+
+
 def format_alert(text: str, *, leader_bucket_path: str | None = None) -> str:
     cleaned = strip_runtime_noise(text)
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
@@ -222,6 +237,8 @@ def format_alert(text: str, *, leader_bucket_path: str | None = None) -> str:
             decision.append(f"Watchlist: {value}")
         elif prefix == "BUY names:":
             decision.append(f"Buy list: {value}")
+        elif prefix in ("Abstains:", "Vetoes:"):
+            decision.append(_format_review_block(prefix.rstrip(":"), value))
         else:
             decision.append(f"{prefix.rstrip(':')}: {value}")
 
@@ -294,10 +311,36 @@ def format_leader_baskets(text: str) -> str:
                 continue
             appearances = int(item.get("appearances", 0) or 0)
             change = item.get("window_return_pct")
+            latest_rank = item.get("latest_rank_score")
+            actions = item.get("actions") if isinstance(item.get("actions"), list) else []
+            extras: list[str] = []
+            if latest_rank is not None:
+                try:
+                    extras.append(f"strength {float(latest_rank):.1f}")
+                except (TypeError, ValueError):
+                    pass
+            cleaned_actions = [str(action).strip().upper() for action in actions if str(action).strip()]
+            if cleaned_actions:
+                extras.append(f"latest {'/'.join(cleaned_actions[:2])}")
             if change is None:
-                rendered.append(f"{symbol} n/a ({appearances}x)")
+                detail = f"seen {appearances} time{'s' if appearances != 1 else ''}"
+                if extras:
+                    detail += " | " + " | ".join(extras)
+                rendered.append(f"{symbol} no window return yet ({detail})")
                 continue
-            rendered.append(f"{symbol} {float(change):+.1f}% ({appearances}x)")
+            try:
+                change_value = float(change)
+            except (TypeError, ValueError):
+                detail = f"seen {appearances} time{'s' if appearances != 1 else ''}"
+                if extras:
+                    detail += " | " + " | ".join(extras)
+                rendered.append(f"{symbol} no window return yet ({detail})")
+                continue
+            move_label = "flat" if abs(change_value) < 0.05 else f"{change_value:+.1f}%"
+            detail = f"seen {appearances} time{'s' if appearances != 1 else ''}"
+            if extras:
+                detail += " | " + " | ".join(extras)
+            rendered.append(f"{symbol} {move_label} ({detail})")
         return ", ".join(rendered) if rendered else "none yet"
 
     daily = _format_bucket(buckets.get("daily"))
@@ -316,7 +359,7 @@ def format_leader_baskets(text: str) -> str:
         + (", ".join(combined) if combined else "none yet")
     )
     out.extend(["", "Buckets"])
-    out.append("- Format: % move over that bucket window | (x) = number of appearances in that bucket")
+    out.append("- Format: window move | flat = near-zero move | seen N times = how often the name appeared in recent leader snapshots | strength = internal leader score (higher is stronger) | latest = most recent nightly call")
     out.append(f"- Daily: {daily}")
     out.append(f"- Weekly: {weekly}")
     out.append(f"- Monthly: {monthly}")
@@ -361,48 +404,52 @@ def format_market_data_ops(text: str) -> str:
 
     out = ["Market data ops", "", "Takeaway"]
     out.append(
-        "- Streamer role: "
+        "- Live Schwab feed owner: "
         f"{data.get('streamerRoleActive', 'unknown')} (configured {data.get('streamerRoleConfigured', 'unknown')})"
         f" | lock held {'yes' if data.get('streamerLockHeld') else 'no'}"
     )
     service_state = data.get("serviceOperatorState")
     service_action = data.get("serviceOperatorAction")
     if service_state:
-        out.append(f"- Service state: {service_state}")
+        out.append(f"- Service health: {service_state}")
     if service_action and service_action != "No operator action required.":
-        out.append(f"- Service action: {service_action}")
-    out.append(
-        "- Stream state: "
+        out.append(f"- Operator action: {service_action}")
+    stream_connected = "yes" if streamer.get("connected") else "no"
+    stream_line = (
+        "- Live feed status: "
         f"{streamer.get('operatorState', 'unknown')}"
         f" | policy {streamer.get('failurePolicy') or 'none'}"
-        f" | connected {'yes' if streamer.get('connected') else 'no'}"
+        f" | connected {stream_connected}"
     )
+    if stream_connected == "no":
+        stream_line += " (REST fallback is still okay)"
+    out.append(stream_line)
     if streamer.get("operatorAction") and streamer.get("operatorAction") != "No operator action required.":
-        out.append(f"- Operator action: {streamer.get('operatorAction')}")
+        out.append(f"- Live feed action: {streamer.get('operatorAction')}")
     budget_lines = [line for line in (_budget_line("LEVELONE_EQUITIES"), _budget_line("CHART_EQUITY")) if line]
     if budget_lines:
-        out.append("- Symbol budget: " + " | ".join(budget_lines))
+        out.append("- Live feed subscription budget: " + " | ".join(budget_lines))
     recent_activity = streamer.get("recentAccountActivityEvents")
     if isinstance(recent_activity, list) and recent_activity:
         latest = recent_activity[0] if isinstance(recent_activity[0], dict) else {}
         out.append(
-            "- Account activity: "
+            "- Recent account activity: "
             f"{len(recent_activity)} recent | latest {latest.get('eventType', 'event')}"
             f" {latest.get('symbol') or ''}".rstrip()
         )
     out.append(
-        "- Fallbacks: "
+        "- Provider usage this run: "
         f"shared_state {fallback_usage.get('shared_state', 0)}"
         f" | primary source mix {', '.join(f'{k} {v}' for k, v in sorted(source_usage.items())) or 'none yet'}"
     )
     if latest_universe:
         out.append(
-            "- Universe: "
+            "- Base universe source: "
             f"{latest_universe.get('source', 'unknown')}"
             f" | updated {latest_universe.get('updatedAt', 'unknown')}"
         )
     if ownership:
-        out.append(f"- Universe ownership: {ownership.get('refreshPolicy', 'n/a')}")
+        out.append(f"- Refresh policy: {ownership.get('refreshPolicy', 'n/a')}")
     return "\n".join(out)
 
 

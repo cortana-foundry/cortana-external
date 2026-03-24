@@ -1,4 +1,6 @@
 from data.market_regime import MarketRegime, MarketStatus
+from data.market_regime import MarketRegimeDetector
+import pandas as pd
 
 
 def test_market_status_box_expands_for_long_lines():
@@ -44,3 +46,18 @@ def test_market_status_renders_premarket_futures_summary():
     )
 
     assert "Premarket futures: supportive | /ES +0.42% | /NQ +0.51%" in str(status)
+
+
+def test_distribution_calendar_note_explains_missing_latest_day():
+    detector = MarketRegimeDetector()
+    detector._data = pd.DataFrame(
+        {
+            "Close": [100.0, 99.0, 99.4],
+            "Volume": [1000, 1200, 1100],
+        },
+        index=pd.to_datetime(["2026-03-20", "2026-03-23", "2026-03-24"]),
+    )
+
+    note = detector.get_distribution_calendar_note(lookback=25)
+
+    assert note == "Today is not listed because it did not qualify as a distribution day."

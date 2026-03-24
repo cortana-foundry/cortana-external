@@ -5,8 +5,8 @@ export function parseUniverseSourceLadder(raw: string): string[] {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
-    .filter((value) => ["remote_json", "local_json", "python_seed"].includes(value));
-  return parsed.length ? parsed : ["python_seed"];
+    .filter((value) => ["remote_json", "local_json"].includes(value));
+  return parsed.length ? parsed : ["local_json"];
 }
 
 export function extractUniverseSymbols(payload: unknown): string[] {

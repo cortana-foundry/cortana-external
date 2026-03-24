@@ -1,306 +1,726 @@
 {
-  "updated_at": "2026-02-25T15:47:09-05:00",
+  "updated_at": "2026-03-24T14:24:31-04:00",
   "source": "x_twitter_sweep",
   "tickers": [
     {
       "symbol": "NVDA",
-      "mentions": 18,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
-    },
-    {
-      "symbol": "MELI",
-      "mentions": 4,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "mentions": 38,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "TSLA",
-      "mentions": 4,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "mentions": 34,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "AMD",
-      "mentions": 3,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "IBRX",
+      "mentions": 14,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "NFLX",
-      "mentions": 3,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "PLTR",
+      "mentions": 14,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AI",
+      "mentions": 13,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MSFT",
+      "mentions": 11,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ONDS",
+      "mentions": 10,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "SMCI",
+      "mentions": 10,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SPY",
+      "mentions": 10,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AMZN",
+      "mentions": 9,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "GOOGL",
+      "mentions": 9,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AMD",
+      "mentions": 8,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "VG",
+      "mentions": 8,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AAPL",
+      "mentions": 7,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ANNA",
+      "mentions": 7,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "TRON",
+      "mentions": 7,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AAOI",
+      "mentions": 6,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AVGO",
+      "mentions": 6,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MU",
+      "mentions": 6,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "NBIS",
+      "mentions": 6,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ACHV",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "IREN",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "KPTI",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "NTGR",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SATL",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SOFI",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "UGRO",
+      "mentions": 5,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ALM",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ASML",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "BTU",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "FEED",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MCD",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "NRED",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "QS",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ROKU",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "T",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "VIAV",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "WRD",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "WSO",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "XOM",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ZM",
+      "mentions": 4,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "BABA",
       "mentions": 3,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "CRWD",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "CRWV",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "FTNT",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "INTC",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MP",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MTCH",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "OSS",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "PANW",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "RBNE",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SYNA",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "TE",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "WSM",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ZETA",
+      "mentions": 3,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ALLI",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "BITF",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "BYND",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "CAL",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "COIN",
       "mentions": 2,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "IWM",
+      "symbol": "CRPC",
       "mentions": 2,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "ACHR",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "GME",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "ADVB",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "GRAB",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "ALUR",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "HIMS",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "AVGO",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "symbol": "HOLO",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "BMNR",
+      "symbol": "HOOD",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "META",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "MVST",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "NTR",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "NXXT",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "OPEN",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "OROCF",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "PAVS",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "RKLB",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SEDG",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "SLB",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "TQQQ",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "TSLL",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "WMT",
+      "mentions": 2,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "AIRE",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ALMU",
+      "mentions": 1,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "APPL",
+      "mentions": 1,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ARM",
+      "mentions": 1,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ARMP",
+      "mentions": 1,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
+    },
+    {
+      "symbol": "ASUR",
+      "mentions": 1,
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "BTC",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "BTQ",
+      "symbol": "CIFR",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "BYND",
+      "symbol": "COHR",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "CAMT",
+      "symbol": "CRM",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "CRCL",
+      "symbol": "CVV",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "DASH",
+      "symbol": "CVX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "FTAI",
+      "symbol": "DOU",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "GANX",
+      "symbol": "FCFS",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "GM",
+      "symbol": "FGL",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "GOSS",
+      "symbol": "FIX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "HCWC",
+      "symbol": "GOOG",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "IBRX",
+      "symbol": "GSIT",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "LASR",
+      "symbol": "GTLB",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "LRCX",
+      "symbol": "HCAT",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "MARA",
+      "symbol": "LCID",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "MB",
+      "symbol": "LITE",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "META",
+      "symbol": "MNTS",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
-    },
-    {
-      "symbol": "MNKD",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "MSTR",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "NBIS",
+      "symbol": "NAKA",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "NIO",
+      "symbol": "NTDOY",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "NOC",
+      "symbol": "ORBS",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "POAS",
+      "symbol": "ORCL",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "PSLV",
+      "symbol": "PSIX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "PULM",
+      "symbol": "RANI",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "RIOT",
+      "symbol": "RDW",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "RR",
+      "symbol": "SAP",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "SGN",
+      "symbol": "SBUX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "SOC",
+      "symbol": "SHOP",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "SPY",
+      "symbol": "SMX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
       "symbol": "TSM",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "TZA",
+      "symbol": "TTD",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "VICR",
+      "symbol": "USAR",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "VIR",
+      "symbol": "VCX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "VRT",
+      "symbol": "VIX",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     },
     {
-      "symbol": "XBI",
+      "symbol": "YYAI",
       "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
-    },
-    {
-      "symbol": "XTKG",
-      "mentions": 1,
-      "first_seen": "2026-02-25",
-      "last_seen": "2026-02-25"
+      "first_seen": "2026-03-24",
+      "last_seen": "2026-03-24"
     }
   ]
 }

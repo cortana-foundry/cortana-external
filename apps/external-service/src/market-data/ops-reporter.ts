@@ -11,7 +11,6 @@ interface HealthReportArgs {
   fredConfigured: boolean;
   streamerRuntime: SchwabStreamerRuntime;
   providerMetrics: ProviderMetrics;
-  universeSeedPath: string;
   universeSourceLadder: string[];
   universeRemoteJsonUrl: string;
   universeLocalJsonPath: string | null;
@@ -48,7 +47,6 @@ export async function buildHealthReport(args: HealthReportArgs): Promise<Record<
       schwabTokenStatus: args.providerMetrics.schwabTokenStatus,
       schwabTokenReason: args.providerMetrics.schwabTokenReason,
       fred: args.fredConfigured ? "configured" : "unauthenticated",
-      universeSeedPath: args.universeSeedPath,
       universeSourceLadder: args.universeSourceLadder,
       universeRemoteJsonUrl: args.universeRemoteJsonUrl || null,
       universeLocalJsonPath: args.universeLocalJsonPath,
@@ -83,7 +81,7 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
         artifactPath: path.join(args.cacheDir, "base-universe.json"),
         auditPath: path.join(args.cacheDir, "base-universe-audit.jsonl"),
         sourceLadder: args.universeSourceLadder,
-        refreshPolicy: "TS owns the artifact refresh path; python_seed is a terminal fallback only.",
+        refreshPolicy: "TS owns the artifact refresh path; the bundled S&P artifact is the default base-universe source.",
       },
     },
   };

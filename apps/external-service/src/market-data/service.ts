@@ -54,7 +54,6 @@ export class MarketDataService {
   private readonly config: AppConfig;
   private readonly requestTimeoutMs: number;
   private readonly cacheDir: string;
-  private readonly universeSeedPath: string;
   private readonly universeSourceLadder: string[];
   private readonly universeRemoteJsonUrl: string;
   private readonly universeLocalJsonPath: string | null;
@@ -92,10 +91,9 @@ export class MarketDataService {
       PORT: 3033,
       MARKET_DATA_CACHE_DIR: ".cache/market_data",
       MARKET_DATA_REQUEST_TIMEOUT_MS: 30_000,
-      MARKET_DATA_UNIVERSE_SEED_PATH: "backtester/data/universe.py",
-      MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
+      MARKET_DATA_UNIVERSE_SOURCE_LADDER: "local_json",
       MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
-      MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+      MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "config/universe/sp500-constituents.json",
       MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
       MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
       COINMARKETCAP_API_KEY: "",
@@ -140,7 +138,6 @@ export class MarketDataService {
     } satisfies AppConfig);
     this.requestTimeoutMs = this.config.MARKET_DATA_REQUEST_TIMEOUT_MS;
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
-    this.universeSeedPath = resolveRepoPath(this.config.MARKET_DATA_UNIVERSE_SEED_PATH);
     this.universeSourceLadder = parseUniverseSourceLadder(this.config.MARKET_DATA_UNIVERSE_SOURCE_LADDER);
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
     this.universeLocalJsonPath = resolveOptionalRepoPath(this.config.MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH);
@@ -151,7 +148,6 @@ export class MarketDataService {
       sourceLadder: this.universeSourceLadder,
       remoteJsonUrl: this.universeRemoteJsonUrl,
       localJsonPath: this.universeLocalJsonPath,
-      seedPath: this.universeSeedPath,
       logger: this.logger,
       fetchJson: this.fetchJson.bind(this),
     });
@@ -240,7 +236,6 @@ export class MarketDataService {
       fredConfigured: Boolean(this.config.FRED_API_KEY),
       streamerRuntime: this.streamerRuntime,
       providerMetrics: this.providerMetrics,
-      universeSeedPath: this.universeSeedPath,
       universeSourceLadder: this.universeSourceLadder,
       universeRemoteJsonUrl: this.universeRemoteJsonUrl,
       universeLocalJsonPath: this.universeLocalJsonPath,

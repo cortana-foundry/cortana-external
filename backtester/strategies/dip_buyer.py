@@ -331,6 +331,7 @@ class DipBuyerStrategy(Strategy):
                 "Pullback_Pct": pullback_pct.fillna(0.0),
                 "Rebound_Pct": rebound_pct.fillna(0.0),
                 "FiveDay_Return": five_day_return.fillna(0.0),
+                "Short_MA": short_ma,
                 "Recovery_Ready": recovery_ready.fillna(False),
                 "Falling_Knife": falling_knife.fillna(False),
             },
@@ -434,6 +435,7 @@ class DipBuyerStrategy(Strategy):
                         'Pullback_Pct': recovery['Pullback_Pct'],
                         'Rebound_Pct': recovery['Rebound_Pct'],
                         'FiveDay_Return': recovery['FiveDay_Return'],
+                        'Short_MA': recovery['Short_MA'],
                         'Recovery_Ready': recovery['Recovery_Ready'],
                         'Falling_Knife': recovery['Falling_Knife'],
                     },
@@ -466,6 +468,8 @@ class DipBuyerStrategy(Strategy):
 
         market = market or self.market_detector.get_status()
         price = float(data['close'].iloc[-1])
+        short_ma = latest['Short_MA']
+        short_ma_price = float(short_ma) if pd.notna(short_ma) else None
         total_score = int(latest['Total'])
         buy_threshold = int(latest['Buy_Threshold'])
         watch_threshold = int(latest['Watch_Threshold'])
@@ -550,9 +554,20 @@ class DipBuyerStrategy(Strategy):
                 **recommendation_base,
             }
         elif falling_knife:
+            if short_ma_price is not None:
+                reason = (
+                    f"The stock is still under pressure. Current price ${price:.2f} is below the "
+                    f"5-day average of ${short_ma_price:.2f}. Wait until it stops falling and closes above "
+                    f"${short_ma_price:.2f}."
+                )
+            else:
+                reason = (
+                    "The stock is still under pressure. Wait until it stops falling and closes "
+                    "back above its 5-day average."
+                )
             recommendation = {
                 'action': 'NO_BUY',
-                'reason': 'Falling-knife filter active: wait for bounce confirmation above the short-term trend.',
+                'reason': reason,
                 **recommendation_base,
             }
         elif not market_active:
@@ -625,6 +640,7 @@ class DipBuyerStrategy(Strategy):
             'pullback_pct': float(latest['Pullback_Pct']),
             'rebound_pct': float(latest['Rebound_Pct']),
             'five_day_return_pct': float(latest['FiveDay_Return']) * 100,
+            'five_day_average_price': short_ma_price,
             'profile': profile_name,
             'buy_threshold': buy_threshold,
             'watch_threshold': watch_threshold,
