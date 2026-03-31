@@ -57,6 +57,40 @@ Default routine:
 ./scripts/daytime_flow.sh
 ```
 
+### Stock Market Brief Snapshot
+
+There is now a small export specifically for the main `cortana` repo's daily market brief:
+
+```bash
+uv run python market_brief_snapshot.py --pretty
+```
+
+Why this exists:
+
+- `daytime_flow.sh` is a full operator workflow
+- the Telegram market brief only needs a compact market read
+- so the cron now consumes a small JSON snapshot instead of trying to summarize the whole wrapper output
+
+What is in the snapshot:
+
+- market regime
+- position sizing
+- Schwab-backed tape read for:
+  - `SPY`
+  - `QQQ`
+  - `IWM`
+  - `DIA`
+  - `GLD`
+  - `TLT`
+- Polymarket macro posture
+- a short focus list from leader baskets plus Polymarket watch tickers
+
+What is intentionally not in it:
+
+- portfolio / holdings
+- broad alert text
+- Telegram formatting
+
 ### Streaming: When To Care
 
 For your normal operator routine:

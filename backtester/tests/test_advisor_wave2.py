@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from datetime import datetime, timedelta, UTC
 
 import pandas as pd
 
@@ -25,6 +26,7 @@ def _market(regime: MarketRegime = MarketRegime.CONFIRMED_UPTREND):
 
 def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
     advisor = TradingAdvisor()
+    recent_earnings_date = (datetime.now(UTC) - timedelta(days=2)).date().isoformat()
     closes = [100 + i * 0.5 for i in range(50)] + [126, 127, 128, 129, 130, 131, 132, 133, 134, 135]
     volumes = [1_000_000.0] * 50 + [1_500_000.0] * 10
     history = _history(closes, volumes)
@@ -41,7 +43,7 @@ def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
             "eps_growth": 30,
             "revenue_growth": 25,
             "sector": "Technology",
-            "earnings_event_window": [{"date": "2026-03-10"}],
+            "earnings_event_window": [{"date": recent_earnings_date}],
         }
     )
     advisor.fundamentals.score_canslim_fundamentals = MagicMock(return_value={"C": 2, "A": 2, "I": 1, "S": 1})

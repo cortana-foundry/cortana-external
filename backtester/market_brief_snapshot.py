@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""Build a compact market-brief snapshot for external cron consumers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import requests
+
+from advisor import TradingAdvisor
+from data.leader_baskets import load_leader_priority_symbols
+from data.market_regime import MarketRegime, MarketStatus
+from data.polymarket_context import load_structured_context
+
+TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
+SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
+EXCLUDED_FOCUS_SYMBOLS = set(TAPE_SYMBOLS) | {"ARKK", "XLU", "XLV", "XLE", "JETS"}
+REGIME_CACHE_PATH = Path(os.getenv("MARKET_REGIME_CACHE_PATH", ".cache/market_regime_snapshot_SPY.json")).expanduser()
+
+
+def classify_posture(status: MarketStatus) -> dict[str, str]:
+    if status.regime == MarketRegime.CORRECTION:
+        return {
+            "action": "NO_BUY",
+            "reason": status.notes or "Market is defensive. Stand aside on fresh buys.",
+        }
+    if status.regime in {MarketRegime.UPTREND_UNDER_PRESSURE, MarketRegime.RALLY_ATTEMPT}:
+        return {
+            "action": "WATCH",
+            "reason": status.notes or "Market is not broken, but follow-through is not strong enough for aggression.",
+        }
+    if status.position_sizing >= 0.75:
+        return {
+            "action": "BUY",
+            "reason": status.notes or "Trend is supportive enough to buy selective strength.",
+        }
+    return {
+        "action": "WATCH",
+        "reason": status.notes or "Trend is improving, but stay selective until strength broadens.",
+    }
+
+
+def summarize_macro(report: dict[str, Any] | None) -> dict[str, Any]:
+    if not report:
+        return {
+            "state": "unknown",
+            "summary_line": "Macro overlay unavailable; lean on the tape and market regime first.",
+            "theme_titles": [],
+            "focus_tickers": [],
+            "generated_at": None,
+            "freshness_hours": None,
+        }
+
+    summary = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
+    divergence = summary.get("divergence", {}) if isinstance(summary.get("divergence"), dict) else {}
+    highlights = summary.get("themeHighlights", []) if isinstance(summary.get("themeHighlights"), list) else []
+    titles: list[str] = []
+    focus: list[str] = []
+    for item in highlights[:3]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        if title:
+            titles.append(title)
+        for ticker in item.get("watchTickers", []) if isinstance(item.get("watchTickers"), list) else []:
+            symbol = str(ticker).strip().upper()
+            if symbol and symbol not in focus:
+                focus.append(symbol)
+
+    generated_at = str(report.get("metadata", {}).get("generatedAt", "")).strip()
+    freshness_hours = None
+    if generated_at:
+        try:
+            dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+            freshness_hours = round(max((datetime.now(UTC) - dt).total_seconds(), 0.0) / 3600.0, 2)
+        except Exception:
+            freshness_hours = None
+
+    conviction = str(summary.get("conviction", "")).strip() or "unknown"
+    divergence_summary = str(divergence.get("summary", "")).strip() or "No divergence read available."
+    if titles:
+        summary_line = f"Polymarket {conviction}; {divergence_summary} Top themes: {', '.join(titles[:3])}."
+    else:
+        summary_line = f"Polymarket {conviction}; {divergence_summary}"
+    return {
+        "state": str(divergence.get("state", "")).strip() or "unknown",
+        "conviction": conviction,
+        "summary_line": summary_line,
+        "theme_titles": titles,
+        "focus_tickers": focus,
+        "generated_at": generated_at or None,
+        "freshness_hours": freshness_hours,
+    }
+
+
+def fetch_tape_quotes(service_base_url: str = SERVICE_BASE_URL, symbols: tuple[str, ...] = TAPE_SYMBOLS) -> dict[str, Any]:
+    url = f"{service_base_url}/market-data/quote/batch"
+    try:
+        response = requests.get(url, params={"symbols": ",".join(symbols)}, timeout=12)
+        response.raise_for_status()
+        payload = response.json() or {}
+    except Exception as exc:
+        return {
+            "status": "error",
+            "summary_line": f"Tape unavailable from TS market-data service: {exc}",
+            "risk_tone": "unknown",
+            "primary_source": "unavailable",
+            "symbols": [],
+            "warnings": [f"tape_fetch_failed: {exc}"],
+        }
+
+    items = payload.get("data", {}).get("items", []) if isinstance(payload.get("data"), dict) else []
+    normalized: list[dict[str, Any]] = []
+    sources: list[str] = []
+    warnings: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        data = item.get("data", {}) if isinstance(item.get("data"), dict) else {}
+        symbol = str(item.get("symbol", data.get("symbol", ""))).strip().upper()
+        source = str(item.get("source", "service")).strip() or "service"
+        status = str(item.get("status", "ok")).strip() or "ok"
+        degraded_reason = str(item.get("degradedReason", "") or "").strip()
+        change_pct = data.get("changePercent")
+        if isinstance(change_pct, str):
+            try:
+                change_pct = float(change_pct)
+            except Exception:
+                change_pct = None
+        normalized.append(
+            {
+                "symbol": symbol,
+                "source": source,
+                "status": status,
+                "price": data.get("price"),
+                "change_percent": change_pct,
+                "timestamp": data.get("timestamp"),
+                "degraded_reason": degraded_reason or None,
+            }
+        )
+        sources.append(source)
+        if status != "ok" and degraded_reason:
+            warnings.append(f"{symbol}: {degraded_reason}")
+    return {
+        "status": "degraded" if warnings else "ok",
+        "summary_line": build_tape_summary(normalized),
+        "risk_tone": classify_tape_risk(normalized),
+        "primary_source": primary_source(sources),
+        "symbols": normalized,
+        "warnings": warnings,
+    }
+
+
+def classify_tape_risk(quotes: list[dict[str, Any]]) -> str:
+    lookup = {str(item.get("symbol", "")).upper(): item for item in quotes}
+    equity_changes = [lookup.get(symbol, {}).get("change_percent") for symbol in ("SPY", "QQQ", "IWM", "DIA")]
+    equity_changes = [value for value in equity_changes if isinstance(value, (int, float))]
+    hedge_changes = [lookup.get(symbol, {}).get("change_percent") for symbol in ("GLD", "TLT")]
+    hedge_changes = [value for value in hedge_changes if isinstance(value, (int, float))]
+    eq_avg = sum(equity_changes) / len(equity_changes) if equity_changes else 0.0
+    hedge_avg = sum(hedge_changes) / len(hedge_changes) if hedge_changes else 0.0
+    if eq_avg >= 0.4 and hedge_avg <= 0.0:
+        return "risk_on"
+    if eq_avg <= -0.4 and hedge_avg >= 0.0:
+        return "defensive"
+    if eq_avg <= 0.0 and hedge_avg > 0.0:
+        return "cautious"
+    return "mixed"
+
+
+def build_tape_summary(quotes: list[dict[str, Any]]) -> str:
+    lookup = {str(item.get("symbol", "")).upper(): item for item in quotes}
+
+    def describe(symbol: str) -> str:
+        quote = lookup.get(symbol)
+        if not quote:
+            return f"{symbol} unavailable"
+        change_pct = quote.get("change_percent")
+        if isinstance(change_pct, (int, float)):
+            if change_pct >= 0.15:
+                tone = "firm"
+            elif change_pct <= -0.15:
+                tone = "weak"
+            else:
+                tone = "flat"
+            return f"{symbol} {tone} ({change_pct:+.2f}%)"
+        return f"{symbol} stale"
+
+    tone = classify_tape_risk(quotes).replace("_", " ")
+    return f"{describe('SPY')}; {describe('QQQ')}; {describe('IWM')}; {describe('GLD')}. Risk tone {tone}."
+
+
+def primary_source(sources: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for source in sources:
+        counts[source] = counts.get(source, 0) + 1
+    if not counts:
+        return "unknown"
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def build_focus_names(leader_symbols: list[str], macro_focus: list[str], limit: int = 3) -> dict[str, Any]:
+    names: list[str] = []
+    sources: list[str] = []
+    for symbol in leader_symbols:
+        if symbol and symbol not in EXCLUDED_FOCUS_SYMBOLS and symbol not in names:
+            names.append(symbol)
+            sources.append("leader_priority")
+        if len(names) >= limit:
+            break
+    if len(names) < limit:
+        for symbol in macro_focus:
+            if symbol and symbol not in EXCLUDED_FOCUS_SYMBOLS and symbol not in names:
+                names.append(symbol)
+                sources.append("polymarket")
+            if len(names) >= limit:
+                break
+    return {"symbols": names, "sources": sources}
+
+
+def normalize_regime(status: MarketStatus) -> dict[str, Any]:
+    return {
+        "label": status.regime.value,
+        "display": status.regime.value.replace("_", " ").upper(),
+        "position_sizing_pct": round(status.position_sizing * 100, 1),
+        "distribution_days": status.distribution_days,
+        "regime_score": status.regime_score,
+        "notes": status.notes,
+        "status": status.status,
+        "data_source": status.data_source,
+        "degraded_reason": status.degraded_reason or None,
+        "snapshot_age_seconds": status.snapshot_age_seconds,
+    }
+
+
+def load_last_known_regime_status(cache_path: Path = REGIME_CACHE_PATH) -> MarketStatus | None:
+    if not cache_path.exists():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        market_status = payload.get("market_status", {})
+        generated_at = datetime.fromisoformat(str(payload.get("generated_at_utc", "")).replace("Z", "+00:00"))
+        age_seconds = max((datetime.now(UTC) - generated_at).total_seconds(), 0.0)
+        regime = MarketRegime(str(market_status.get("regime", MarketRegime.CORRECTION.value)))
+        stale_hours = age_seconds / 3600.0
+        return MarketStatus(
+            regime=regime,
+            distribution_days=int(market_status.get("distribution_days", 0)),
+            last_ftd=str(market_status.get("last_ftd") or ""),
+            trend_direction=str(market_status.get("trend_direction", "unknown")),
+            position_sizing=float(market_status.get("position_sizing", 0.0)),
+            notes=f"{market_status.get('notes', '')} [LAST KNOWN SNAPSHOT {stale_hours:.1f}h old]".strip(),
+            data_source=str(market_status.get("data_source", "cache")),
+            status="degraded",
+            degraded_reason=f"Using last known market snapshot from {generated_at.isoformat()} because live regime refresh failed.",
+            snapshot_age_seconds=age_seconds,
+            next_action="Retry live market regime refresh after provider recovery.",
+            regime_score=int(market_status.get("regime_score", 0)),
+            drawdown_pct=float(market_status.get("drawdown_pct", 0.0)),
+            recent_return_pct=float(market_status.get("recent_return_pct", 0.0)),
+            price_vs_21d_pct=float(market_status.get("price_vs_21d_pct", 0.0)),
+            price_vs_50d_pct=float(market_status.get("price_vs_50d_pct", 0.0)),
+            follow_through_active=bool(market_status.get("follow_through_active", False)),
+        )
+    except Exception:
+        return None
+
+
+def build_snapshot(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
+    warnings: list[str] = []
+    generated_at = datetime.now(UTC).isoformat()
+
+    regime_error = None
+    try:
+        status = TradingAdvisor().get_market_status(refresh=True)
+    except Exception as exc:  # pragma: no cover - exercised in tests via monkeypatch
+        regime_error = str(exc)
+        fallback_status = load_last_known_regime_status()
+        if fallback_status is not None:
+            warnings.append(f"market_regime_stale_cache: {exc}")
+            status = fallback_status
+        else:
+            warnings.append(f"market_regime_unavailable: {exc}")
+            status = MarketStatus(
+                regime=MarketRegime.CORRECTION,
+                distribution_days=0,
+                last_ftd="",
+                trend_direction="unknown",
+                position_sizing=0.0,
+                notes="Market regime unavailable; defaulting to a conservative no-buy posture.",
+                data_source="unavailable",
+                status="degraded",
+                degraded_reason=str(exc),
+                next_action="Retry market regime refresh after the provider recovers.",
+            )
+
+    posture = classify_posture(status)
+    macro_report = load_structured_context(max_age_hours=30.0)
+    macro = summarize_macro(macro_report)
+    if macro["state"] == "unknown":
+        warnings.append("polymarket_context_unavailable")
+
+    tape = fetch_tape_quotes(service_base_url=service_base_url)
+    warnings.extend(tape.pop("warnings", []))
+
+    leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
+    focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
+
+    return {
+        "generated_at": generated_at,
+        "status": "degraded" if warnings or regime_error or tape["status"] != "ok" or status.status != "ok" else "ok",
+        "warnings": warnings,
+        "regime": normalize_regime(status),
+        "posture": posture,
+        "macro": macro,
+        "tape": tape,
+        "focus": focus,
+        "freshness": {
+            "regime_snapshot_age_seconds": status.snapshot_age_seconds,
+            "polymarket_age_hours": macro.get("freshness_hours"),
+            "tape_primary_source": tape.get("primary_source"),
+        },
+    }
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build a compact market-brief snapshot.")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON.")
+    parser.add_argument("--output", type=Path, help="Optional output path for the artifact.")
+    parser.add_argument("--service-base-url", default=SERVICE_BASE_URL, help="TS market-data service base URL.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    payload = build_snapshot(service_base_url=args.service_base_url)
+    text = json.dumps(payload, indent=2 if args.pretty else None, sort_keys=True)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text + "\n", encoding="utf-8")
+    print(text)
+
+
+if __name__ == "__main__":
+    main()
