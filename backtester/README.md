@@ -166,7 +166,22 @@ uv run python dipbuyer_alert.py --limit 8 --min-score 6
 
 # Broader overnight discovery
 uv run python nightly_discovery.py --limit 20
+
+# Compact snapshot for the main Cortana stock-market cron
+uv run python market_brief_snapshot.py --pretty
 ```
+
+`market_brief_snapshot.py` is the lightweight export used by the main `cortana` repo's daily stock-market brief.
+It is deliberately smaller than `daytime_flow.sh`:
+- market regime + position sizing
+- Schwab-backed tape read for `SPY`, `QQQ`, `IWM`, `DIA`, `GLD`, `TLT`
+- Polymarket macro posture
+- focus names from leader baskets + Polymarket watch tickers
+
+It does not include:
+- portfolio / holdings
+- full CANSLIM or Dip Buyer scans
+- Telegram delivery logic
 
 ## Workflow Wrappers
 
