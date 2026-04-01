@@ -24,6 +24,10 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
     monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
 
 
 class _FakeCanSlimAdvisor:

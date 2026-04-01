@@ -17,6 +17,19 @@ def test_describe_alert_posture_marks_empty_correction_scans_as_stand_aside():
     )
 
 
+def test_describe_alert_posture_allows_bounded_selective_buys_when_intraday_override_is_active():
+    line = describe_alert_posture(
+        market_regime="correction",
+        buy_count=2,
+        watch_count=1,
+        intraday_override_state="selective-buy",
+    )
+    assert line == (
+        "Alert posture: selective buys allowed — intraday breadth is unusually strong, "
+        "but the daily regime is still correction-mode. Keep size tight."
+    )
+
+
 def test_describe_alert_posture_stays_quiet_outside_correction():
     assert describe_alert_posture(market_regime="confirmed_uptrend", buy_count=2, watch_count=1) == ""
 

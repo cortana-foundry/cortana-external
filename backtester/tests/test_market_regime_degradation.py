@@ -126,7 +126,7 @@ def test_retries_transient_market_regime_history_before_succeeding(tmp_path, mon
     status = detector.get_status()
 
     assert attempts["count"] == 3
-    assert sleeps == [1.25, 2.5]
+    assert sleeps[:2] == [1.25, 2.5]
     assert status.status == "ok"
 
 

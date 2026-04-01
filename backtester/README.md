@@ -176,8 +176,20 @@ uv run python market_brief_snapshot.py --pretty
 It is deliberately smaller than `daytime_flow.sh`:
 - market regime + position sizing
 - Schwab-backed tape read for `SPY`, `QQQ`, `IWM`, `DIA`, `GLD`, `TLT`
+- intraday breadth state:
+  - `inactive`
+  - `selective-buy`
+  - `unavailable`
 - Polymarket macro posture
 - focus names from leader baskets + Polymarket watch tickers
+
+The new intraday breadth block is there to catch broad rally days inside a still-defensive daily regime.
+When it flips to `selective-buy`, Dip Buyer can keep a very small number of top-ranked `BUY` setups instead of downgrading every one of them to `WATCH`.
+That override is intentionally bounded:
+- Dip Buyer only
+- regular session only
+- broad participation required
+- tight cap on how many correction-mode `BUY` names can survive
 
 It does not include:
 - portfolio / holdings

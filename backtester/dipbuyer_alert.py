@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from advisor import TradingAdvisor
 from data.adverse_regime import build_adverse_regime_indicator
+from data.intraday_breadth import build_intraday_breadth_snapshot, render_intraday_breadth_lines
 from data.leader_baskets import load_leader_priority_symbols
 from data.polymarket_context import build_alert_context_lines
 from data.universe import GROWTH_WATCHLIST
@@ -45,9 +46,10 @@ def _trade_quality_sort_key(record: dict) -> tuple:
     )
 
 
-def _display_action(record: dict, *, regime_value: str) -> str:
+def _display_action(record: dict, *, regime_value: str, allowed_buy_symbols: set[str] | None = None) -> str:
     action = str(record.get("action", "NO_BUY") or "NO_BUY").strip().upper()
-    if regime_value == "correction" and action == "BUY":
+    symbol = str(record.get("symbol", "") or "").strip().upper()
+    if regime_value == "correction" and action == "BUY" and symbol not in (allowed_buy_symbols or set()):
         return "WATCH"
     return action
 
@@ -138,15 +140,49 @@ def _persist_predictions(*, market: object, records: list[dict]) -> None:
         return
 
 
-def _with_display_actions(records: list[dict], *, regime_value: str) -> list[dict]:
+def _with_display_actions(
+    records: list[dict],
+    *,
+    regime_value: str,
+    breadth_snapshot: dict[str, Any] | None = None,
+) -> tuple[list[dict], dict[str, Any]]:
+    raw_buy_count = sum(1 for record in records if str(record.get("action", "")).upper() == "BUY")
+    meta = {
+        "override_state": str((breadth_snapshot or {}).get("override_state", "inactive") or "inactive"),
+        "raw_buy_count": raw_buy_count,
+        "allowed_buy_count": 0,
+        "downgraded_buy_count": raw_buy_count,
+        "active": False,
+    }
     if regime_value != "correction":
-        return records
+        return records, meta
+
+    allowed_buy_symbols: set[str] = set()
+    if meta["override_state"] == "selective-buy":
+        max_buys = max(int(os.getenv("TRADING_INTRADAY_BREADTH_MAX_BUYS", "2")), 0)
+        min_score = int(os.getenv("TRADING_INTRADAY_BREADTH_MIN_SCORE", "7"))
+        for record in records:
+            action = str(record.get("action", "")).strip().upper()
+            symbol = str(record.get("symbol", "")).strip().upper()
+            score = int(record.get("score", 0) or 0)
+            if action == "BUY" and symbol and score >= min_score:
+                allowed_buy_symbols.add(symbol)
+            if len(allowed_buy_symbols) >= max_buys:
+                break
+    meta["allowed_buy_count"] = len(allowed_buy_symbols)
+    meta["downgraded_buy_count"] = max(raw_buy_count - len(allowed_buy_symbols), 0)
+    meta["active"] = bool(allowed_buy_symbols)
+
     remapped = []
     for record in records:
         copied = dict(record)
-        copied["action"] = _display_action(record, regime_value=regime_value)
+        copied["action"] = _display_action(
+            record,
+            regime_value=regime_value,
+            allowed_buy_symbols=allowed_buy_symbols,
+        )
         remapped.append(copied)
-    return remapped
+    return remapped, meta
 
 
 def _dedupe_reason(reason: str) -> str:
@@ -483,6 +519,7 @@ def format_alert(
         selected_symbols=symbols,
     )
     calibration_note = describe_calibration_note(load_buy_decision_calibration_summary())
+    breadth_snapshot = build_intraday_breadth_snapshot()
 
     lines = [
         "Dip Buyer Scan",
@@ -491,6 +528,7 @@ def format_alert(
     degraded_warning = _market_degraded_warning_line(market)
     if degraded_warning:
         lines.append(degraded_warning)
+    lines.extend(render_intraday_breadth_lines(breadth_snapshot))
     lines.extend(_run_quiet(build_alert_context_lines, GROWTH_WATCHLIST))
     risk_line = _risk_budget_line(risk_overlay)
     if risk_line:
@@ -584,7 +622,12 @@ def format_alert(
     if not passed:
         blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
         _persist_predictions(market=market, records=blocked)
-        posture_line = describe_alert_posture(market_regime=regime_value, buy_count=0, watch_count=0)
+        posture_line = describe_alert_posture(
+            market_regime=regime_value,
+            buy_count=0,
+            watch_count=0,
+            intraday_override_state=str(breadth_snapshot.get("override_state", "inactive")),
+        )
         if posture_line:
             lines.append(posture_line)
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
@@ -594,19 +637,38 @@ def format_alert(
 
     ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
-    display_candidates = _with_display_actions(candidates, regime_value=regime_value)
+    display_candidates, breadth_meta = _with_display_actions(
+        candidates,
+        regime_value=regime_value,
+        breadth_snapshot=breadth_snapshot,
+    )
     _persist_predictions(market=market, records=display_candidates)
     buy_candidates = [c for c in display_candidates if c["action"] == "BUY"]
     watch_candidates = [c for c in display_candidates if c["action"] == "WATCH"]
     buy_count = len(buy_candidates)
     watch_count = len(watch_candidates)
-    blocked_buy_count = sum(1 for c in candidates if c["action"] == "BUY") if regime_value == "correction" else 0
+    blocked_buy_count = breadth_meta["downgraded_buy_count"] if regime_value == "correction" else 0
 
-    posture_line = describe_alert_posture(market_regime=regime_value, buy_count=buy_count, watch_count=watch_count)
+    posture_line = describe_alert_posture(
+        market_regime=regime_value,
+        buy_count=buy_count,
+        watch_count=watch_count,
+        intraday_override_state=str(breadth_meta.get("override_state", "inactive")),
+    )
     if posture_line:
         lines.append(posture_line)
     lines.append(f"Qualified setups: {len(passed)} of {len(symbols)} scanned | BUY {buy_count} | WATCH {watch_count}")
-    if regime_value == "correction" and watch_count > 0:
+    if regime_value == "correction" and breadth_meta.get("active") and buy_count > 0:
+        lines.append(f"BUY names: {_all_names(buy_candidates, 10)}")
+        if watch_count > 0:
+            lines.append(f"Watch names (remaining correction-blocked buys): {_all_names(watch_candidates, 10)}")
+        lines.append(
+            "Correction gate: "
+            f"{breadth_meta['raw_buy_count']} dip setups surfaced | "
+            f"intraday breadth override kept {breadth_meta['allowed_buy_count']} as BUY and "
+            f"downgraded {breadth_meta['downgraded_buy_count']} to WATCH"
+        )
+    elif regime_value == "correction" and watch_count > 0:
         lines.append(f"Watch names (regime-blocked buys): {_all_names(watch_candidates, 10)}")
         lines.append(f"Correction gate: {blocked_buy_count} dip setups surfaced but are downgraded to WATCH while the market stays defensive")
     elif buy_count > 0:
@@ -630,7 +692,11 @@ def format_alert(
     if sentiment_checked > 0 and not review_has_restraint_or_veto:
         lines.append("Leaders: " + leaders_line)
 
-    if regime_value == "correction" and watch_count > 0:
+    if regime_value == "correction" and breadth_meta.get("active") and buy_count > 0:
+        lines.append(
+            "Final action: BUY listed names only — intraday breadth override is active despite the daily correction regime"
+        )
+    elif regime_value == "correction" and watch_count > 0:
         veto_reason = _dedupe_reason(market.notes or 'market correction gate')
         lines.append(f"Final action: WATCH only — correction regime blocks new dip buys ({veto_reason})")
     elif buy_count == 0:

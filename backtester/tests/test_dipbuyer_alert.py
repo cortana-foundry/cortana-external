@@ -21,6 +21,10 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
     monkeypatch.setenv("BUY_DECISION_CALIBRATION_PATH", str(tmp_path / "missing-calibration.json"))
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
 
 
 class _FakeAdvisor:
@@ -217,6 +221,43 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
     assert "Final action: WATCH only — correction regime blocks new dip buys (Cached market fallback active)" in text
     assert "Warning: degraded market regime input — Providers unavailable. Using cached market snapshot (12m old) (snapshot age 12m)" in text
     assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
+
+
+def test_format_alert_allows_bounded_selective_buys_when_intraday_breadth_is_strong(monkeypatch):
+    fake = _FakeAdvisor()
+    fake._analysis = {
+        "MSFT": {"total_score": 10, "data_source": "schwab", "recommendation": {"action": "BUY", "reason": "Strong setup"}},
+        "NVDA": {"total_score": 9, "data_source": "schwab", "recommendation": {"action": "BUY", "reason": "Strong setup"}},
+        "AMD": {"total_score": 8, "data_source": "schwab", "recommendation": {"action": "BUY", "reason": "Strong setup"}},
+    }
+    fake.screener = SimpleNamespace(get_universe=lambda: ["MSFT", "NVDA", "AMD"])
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INTRADAY_BREADTH_MAX_BUYS", "2")
+    monkeypatch.setenv("TRADING_INTRADAY_BREADTH_MIN_SCORE", "7")
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {
+            "status": "ok",
+            "override_state": "selective-buy",
+            "override_reason": "broad intraday rally with strong participation despite the defensive daily regime",
+            "warnings": [],
+            "tape": {"SPY": 1.7, "QQQ": 2.3},
+            "s_and_p": {"pct_up": 0.78, "up": 392, "total": 502},
+            "growth": {"pct_up": 0.71, "up": 68, "total": 96},
+        },
+    )
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=fake):
+        text = format_alert(limit=5, min_score=6, universe_size=3)
+
+    assert "Intraday override: selective-buy active — broad intraday rally with strong participation despite the defensive daily regime" in text
+    assert "Alert posture: selective buys allowed" in text
+    assert "Qualified setups: 3 of 3 scanned | BUY 2 | WATCH 1" in text
+    assert "BUY names: MSFT, NVDA" in text
+    assert "Watch names (remaining correction-blocked buys): AMD" in text
+    assert "intraday breadth override kept 2 as BUY and downgraded 1 to WATCH" in text
+    assert "Final action: BUY listed names only — intraday breadth override is active despite the daily correction regime" in text
 
 
 def test_format_alert_includes_decision_review_for_top_leaders():

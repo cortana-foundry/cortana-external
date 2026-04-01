@@ -31,6 +31,13 @@ def test_classify_posture_respects_regime():
     correction = module.classify_posture(make_status(regime=MarketRegime.CORRECTION))
     assert correction["action"] == "NO_BUY"
 
+    selective = module.classify_posture(
+        make_status(regime=MarketRegime.CORRECTION),
+        breadth_snapshot={"override_state": "selective-buy"},
+    )
+    assert selective["action"] == "BUY"
+    assert "tightly selective buys" in selective["reason"]
+
     watch = module.classify_posture(make_status(regime=MarketRegime.UPTREND_UNDER_PRESSURE, position_sizing=0.5))
     assert watch["action"] == "WATCH"
 
@@ -62,6 +69,16 @@ def test_build_focus_names_prefers_leaders_then_macro():
 
 def test_build_snapshot_collects_expected_sections(monkeypatch):
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: make_status())
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "ok",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+        },
+    )
     monkeypatch.setattr(
         module,
         "load_structured_context",
@@ -106,10 +123,21 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["tape"]["primary_source"] == "schwab"
     assert snapshot["focus"]["symbols"] == ["OXY", "FANG", "NVDA"]
     assert snapshot["regime"]["display"] == "CORRECTION"
+    assert snapshot["intraday_breadth"]["override_state"] == "inactive"
 
 
 def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch):
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("cooldown")))
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+        },
+    )
     monkeypatch.setattr(module, "load_last_known_regime_status", lambda cache_path=module.REGIME_CACHE_PATH: None)
     monkeypatch.setattr(module, "load_structured_context", lambda max_age_hours=12.0: None)
     monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: [])
@@ -131,6 +159,16 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
 
 def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(monkeypatch):
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("cooldown")))
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "degraded",
+            "override_state": "unavailable",
+            "override_reason": "live breadth inputs are stale or incomplete",
+            "warnings": ["s_and_p_coverage_too_low"],
+        },
+    )
     monkeypatch.setattr(
         module,
         "load_last_known_regime_status",
@@ -159,3 +197,4 @@ def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(mo
     assert snapshot["regime"]["distribution_days"] == 9
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert "market_regime_stale_cache" in snapshot["warnings"][0]
+    assert "intraday_breadth_s_and_p_coverage_too_low" in snapshot["warnings"]

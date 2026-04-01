@@ -83,6 +83,10 @@ What is in the snapshot:
   - `DIA`
   - `GLD`
   - `TLT`
+- intraday breadth state:
+  - `inactive`
+  - `selective-buy`
+  - `unavailable`
 - Polymarket macro posture
 - a short focus list from leader baskets plus Polymarket watch tickers
 
@@ -90,6 +94,13 @@ What is intentionally not in it:
 
 - portfolio / holdings
 - broad alert text
+
+Why the intraday breadth state matters:
+
+- the daily regime can still say `CORRECTION`
+- but a broad same-day rally can be strong enough to justify a tiny bounded exception
+- when that happens, Dip Buyer is allowed to keep only a small number of top `BUY` names instead of downgrading all of them to `WATCH`
+- this is not a full risk-on flip; it is a narrow intraday exception with strict limits
 - Telegram formatting
 
 ### Streaming: When To Care
