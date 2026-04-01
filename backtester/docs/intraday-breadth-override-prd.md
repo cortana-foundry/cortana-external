@@ -207,6 +207,35 @@ Use existing:
 The override should not invent new names.
 It should only reinterpret the best existing names under rare conditions.
 
+## Reference Models / Factual Anchors
+
+This feature should be grounded in established breadth concepts, not invented terminology.
+
+Useful external references:
+
+- Advance/Decline breadth
+  - StockCharts ChartSchool explains the advance/decline line and why breadth matters:
+  - [Advance-Decline Line](https://chartschool.stockcharts.com/table-of-contents/market-indicators/advance-decline-line)
+
+- Breadth thrust concept
+  - StockCharts also documents breadth-thrust style indicators derived from advancing vs declining participation:
+  - [Advance-Decline Ratio Indicators / Breadth Thrust context](https://stockcharts.com/articles/dancing/2015/01/advance-decline-ratio-indicators-chapter-5--cgmbi.html)
+
+- Broad vs narrow participation
+  - Nasdaq’s Bob Farrell rules article is a good plain-English reminder that broad participation is healthier than narrow leadership:
+  - [Visualizing Bob Farrell's 10 Rules](https://www.nasdaq.com/articles/visualizing-bob-farrells-10-rules-2013-02-19)
+
+- Strong 80% breadth days
+  - Nasdaq market recaps often use “80% of stocks up” style framing to mark unusually broad rallies:
+  - [Nasdaq breadth recap example](https://www.nasdaq.com/articles/wednesday-recap%3A-minty-fresh-breadth)
+
+How these should influence phase 1:
+
+- use simple, explainable breadth percentages first
+- distinguish broad rallies from narrow index moves
+- do not start with a full Zweig-style thrust implementation
+- reserve full thrust indicators for phase 2 or later if the simpler breadth layer proves useful
+
 ## New Concepts
 
 ### Intraday Breadth Snapshot
@@ -266,6 +295,17 @@ The override should require all of these:
 - do not activate if:
   - large-cap indexes are up but breadth is weak
   - or rally is driven by too few names
+
+Candidate phase-1 metrics:
+- `s_and_p_pct_up`
+- `growth_pct_up`
+- `advance_decline_ratio`
+- `strong_up_day_flag`
+  - for example, breadth at or above roughly `80%` of names up
+- `narrow_rally_flag`
+  - indexes strong, but breadth does not confirm
+- optional `breadth_thrust_candidate`
+  - measurement-only in phase 1, not trade authority
 
 5. live freshness is acceptable
 - if tape or breadth inputs are stale, do not upgrade to `selective-buy`
