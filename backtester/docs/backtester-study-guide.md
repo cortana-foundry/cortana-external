@@ -101,6 +101,12 @@ Why the intraday breadth state matters:
 - but a broad same-day rally can be strong enough to justify a tiny bounded exception
 - when that happens, Dip Buyer is allowed to keep only a small number of top `BUY` names instead of downgrading all of them to `WATCH`
 - this is not a full risk-on flip; it is a narrow intraday exception with strict limits
+
+Premarket / after-hours note:
+
+- the market brief now prefers the last completed-session regime snapshot outside regular hours
+- so the cron does not need a live `SPY 90d` refresh at `7:55 AM ET` just to restate yesterday's daily regime
+- if live tape is temporarily unavailable, the brief can fall back to previous-session cached tape instead of sending a raw 503-style tape error
 - Telegram formatting
 
 ### Streaming: When To Care

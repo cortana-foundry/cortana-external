@@ -191,6 +191,9 @@ That override is intentionally bounded:
 - broad participation required
 - tight cap on how many correction-mode `BUY` names can survive
 
+Outside regular market hours, the brief now prefers the last completed-session regime snapshot instead of forcing a live refresh.
+If live tape is unavailable during premarket / after-hours, it falls back to previous-session cached tape where possible instead of emitting a hard 503-style tape failure.
+
 It does not include:
 - portfolio / holdings
 - full CANSLIM or Dip Buyer scans

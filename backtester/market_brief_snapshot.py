@@ -9,6 +9,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -16,12 +17,13 @@ from advisor import TradingAdvisor
 from data.intraday_breadth import build_intraday_breadth_snapshot
 from data.leader_baskets import load_leader_priority_symbols
 from data.market_regime import MarketRegime, MarketStatus
-from data.polymarket_context import load_structured_context
+from data.polymarket_context import latest_report_json_path, load_structured_context
 
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
 EXCLUDED_FOCUS_SYMBOLS = set(TAPE_SYMBOLS) | {"ARKK", "XLU", "XLV", "XLE", "JETS"}
 REGIME_CACHE_PATH = Path(os.getenv("MARKET_REGIME_CACHE_PATH", ".cache/market_regime_snapshot_SPY.json")).expanduser()
+MARKET_DATA_CACHE_DIR = Path(os.getenv("MARKET_DATA_CACHE_DIR", ".cache/market_data")).expanduser()
 
 
 def classify_posture(status: MarketStatus, breadth_snapshot: dict[str, Any] | None = None) -> dict[str, str]:
@@ -214,6 +216,79 @@ def primary_source(sources: list[str]) -> str:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
+def get_market_session_phase(now: datetime | None = None) -> str:
+    current = now or datetime.now(ZoneInfo("America/New_York"))
+    if current.weekday() >= 5:
+        return "CLOSED"
+    minutes = current.hour * 60 + current.minute
+    if minutes < 9 * 60 + 30:
+        return "PREMARKET"
+    if minutes < 16 * 60:
+        return "OPEN"
+    if minutes < 20 * 60:
+        return "AFTER_HOURS"
+    return "CLOSED"
+
+
+def _read_cached_tape_symbol(symbol: str) -> dict[str, Any] | None:
+    for period in ("6mo", "1y"):
+        safe_symbol = "".join(c if c.isalnum() else "_" for c in symbol.upper())
+        safe_period = "".join(c if c.isalnum() else "_" for c in period)
+        path = MARKET_DATA_CACHE_DIR / f"{safe_symbol}_{safe_period}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            generated = datetime.fromisoformat(str(payload.get("generated_at_utc", "")).replace("Z", "+00:00"))
+            age_seconds = max((datetime.now(UTC) - generated).total_seconds(), 0.0)
+            max_age_hours = float(os.getenv("MARKET_BRIEF_TAPE_FALLBACK_MAX_AGE_HOURS", "72.0"))
+            if age_seconds > max_age_hours * 3600.0:
+                continue
+            rows = payload.get("rows") or []
+            if len(rows) < 2:
+                continue
+        except Exception:
+            continue
+        previous_close = float(rows[-2]["Close"])
+        latest_close = float(rows[-1]["Close"])
+        change_percent = ((latest_close / previous_close) - 1.0) * 100.0 if previous_close > 0 else 0.0
+        timestamp = rows[-1]["date"]
+        return {
+            "symbol": symbol,
+            "source": "cache",
+            "status": "degraded",
+            "price": latest_close,
+            "change_percent": change_percent,
+            "timestamp": str(timestamp),
+            "degraded_reason": (
+                f"Using previous completed-session close from cached {period} history "
+                f"({age_seconds / 3600.0:.1f}h old, original_source={payload.get('source', 'unknown')})."
+            ),
+        }
+    return None
+
+
+def load_cached_tape_quotes(symbols: tuple[str, ...] = TAPE_SYMBOLS) -> dict[str, Any]:
+    normalized = [item for item in (_read_cached_tape_symbol(symbol) for symbol in symbols) if item]
+    if not normalized:
+        return {
+            "status": "error",
+            "summary_line": "Previous-session tape fallback unavailable.",
+            "risk_tone": "unknown",
+            "primary_source": "unavailable",
+            "symbols": [],
+            "warnings": ["tape_cached_fallback_unavailable"],
+        }
+    return {
+        "status": "degraded",
+        "summary_line": build_tape_summary(normalized) + " Previous session fallback.",
+        "risk_tone": classify_tape_risk(normalized),
+        "primary_source": "cache",
+        "symbols": normalized,
+        "warnings": ["tape_previous_session_fallback"],
+    }
+
+
 def build_focus_names(leader_symbols: list[str], macro_focus: list[str], limit: int = 3) -> dict[str, Any]:
     names: list[str] = []
     sources: list[str] = []
@@ -248,7 +323,12 @@ def normalize_regime(status: MarketStatus) -> dict[str, Any]:
     }
 
 
-def load_last_known_regime_status(cache_path: Path = REGIME_CACHE_PATH) -> MarketStatus | None:
+def load_last_known_regime_status(
+    cache_path: Path = REGIME_CACHE_PATH,
+    *,
+    max_age_hours: float | None = None,
+    session_baseline: bool = False,
+) -> MarketStatus | None:
     if not cache_path.exists():
         return None
     try:
@@ -256,6 +336,8 @@ def load_last_known_regime_status(cache_path: Path = REGIME_CACHE_PATH) -> Marke
         market_status = payload.get("market_status", {})
         generated_at = datetime.fromisoformat(str(payload.get("generated_at_utc", "")).replace("Z", "+00:00"))
         age_seconds = max((datetime.now(UTC) - generated_at).total_seconds(), 0.0)
+        if max_age_hours is not None and age_seconds > max_age_hours * 3600.0:
+            return None
         regime = MarketRegime(str(market_status.get("regime", MarketRegime.CORRECTION.value)))
         stale_hours = age_seconds / 3600.0
         return MarketStatus(
@@ -264,12 +346,20 @@ def load_last_known_regime_status(cache_path: Path = REGIME_CACHE_PATH) -> Marke
             last_ftd=str(market_status.get("last_ftd") or ""),
             trend_direction=str(market_status.get("trend_direction", "unknown")),
             position_sizing=float(market_status.get("position_sizing", 0.0)),
-            notes=f"{market_status.get('notes', '')} [LAST KNOWN SNAPSHOT {stale_hours:.1f}h old]".strip(),
+            notes=(
+                str(market_status.get("notes", "")).strip()
+                if session_baseline
+                else f"{market_status.get('notes', '')} [LAST KNOWN SNAPSHOT {stale_hours:.1f}h old]".strip()
+            ),
             data_source=str(market_status.get("data_source", "cache")),
-            status="degraded",
-            degraded_reason=f"Using last known market snapshot from {generated_at.isoformat()} because live regime refresh failed.",
+            status="ok" if session_baseline else "degraded",
+            degraded_reason=(
+                ""
+                if session_baseline
+                else f"Using last known market snapshot from {generated_at.isoformat()} because live regime refresh failed."
+            ),
             snapshot_age_seconds=age_seconds,
-            next_action="Retry live market regime refresh after provider recovery.",
+            next_action="" if session_baseline else "Retry live market regime refresh after provider recovery.",
             regime_score=int(market_status.get("regime_score", 0)),
             drawdown_pct=float(market_status.get("drawdown_pct", 0.0)),
             recent_return_pct=float(market_status.get("recent_return_pct", 0.0)),
@@ -281,43 +371,94 @@ def load_last_known_regime_status(cache_path: Path = REGIME_CACHE_PATH) -> Marke
         return None
 
 
-def build_snapshot(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
+def load_last_known_macro_report(max_age_hours: float = 72.0) -> dict[str, Any] | None:
+    path = latest_report_json_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    generated_at = str(payload.get("metadata", {}).get("generatedAt", "")).strip()
+    if not generated_at:
+        return None
+    try:
+        generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    age_hours = max((datetime.now(UTC) - generated).total_seconds(), 0.0) / 3600.0
+    if age_hours > max_age_hours:
+        return None
+    payload["_stale_age_hours"] = round(age_hours, 1)
+    return payload
+
+
+def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     generated_at = datetime.now(UTC).isoformat()
+    session_phase = get_market_session_phase(now)
 
     regime_error = None
-    try:
-        status = TradingAdvisor().get_market_status(refresh=True)
-    except Exception as exc:  # pragma: no cover - exercised in tests via monkeypatch
-        regime_error = str(exc)
-        fallback_status = load_last_known_regime_status()
-        if fallback_status is not None:
-            warnings.append(f"market_regime_stale_cache: {exc}")
-            status = fallback_status
-        else:
-            warnings.append(f"market_regime_unavailable: {exc}")
-            status = MarketStatus(
-                regime=MarketRegime.CORRECTION,
-                distribution_days=0,
-                last_ftd="",
-                trend_direction="unknown",
-                position_sizing=0.0,
-                notes="Market regime unavailable; defaulting to a conservative no-buy posture.",
-                data_source="unavailable",
-                status="degraded",
-                degraded_reason=str(exc),
-                next_action="Retry market regime refresh after the provider recovers.",
-            )
+    status = None
+    if session_phase != "OPEN":
+        status = load_last_known_regime_status(
+            max_age_hours=float(os.getenv("MARKET_BRIEF_SESSION_REGIME_MAX_AGE_HOURS", "48.0")),
+            session_baseline=True,
+        )
+        if status is not None:
+            warnings.append(f"market_regime_session_baseline:{session_phase.lower()}")
+
+    if status is None:
+        try:
+            status = TradingAdvisor().get_market_status(refresh=True)
+        except Exception as exc:  # pragma: no cover - exercised in tests via monkeypatch
+            regime_error = str(exc)
+            fallback_status = load_last_known_regime_status()
+            if fallback_status is not None:
+                warnings.append(f"market_regime_stale_cache: {exc}")
+                status = fallback_status
+            else:
+                warnings.append(f"market_regime_unavailable: {exc}")
+                status = MarketStatus(
+                    regime=MarketRegime.CORRECTION,
+                    distribution_days=0,
+                    last_ftd="",
+                    trend_direction="unknown",
+                    position_sizing=0.0,
+                    notes="Market regime unavailable; defaulting to a conservative no-buy posture.",
+                    data_source="unavailable",
+                    status="degraded",
+                    degraded_reason=str(exc),
+                    next_action="Retry market regime refresh after the provider recovers.",
+                )
 
     breadth = build_intraday_breadth_snapshot(service_base_url=service_base_url)
     posture = classify_posture(status, breadth_snapshot=breadth)
     macro_report = load_structured_context(max_age_hours=30.0)
+    if macro_report is None and session_phase != "OPEN":
+        macro_report = load_last_known_macro_report(
+            max_age_hours=float(os.getenv("MARKET_BRIEF_STALE_MACRO_MAX_AGE_HOURS", "72.0"))
+        )
     macro = summarize_macro(macro_report)
     if macro["state"] == "unknown":
         warnings.append("polymarket_context_unavailable")
+    elif macro_report and macro_report.get("_stale_age_hours") is not None:
+        macro["summary_line"] += f" [stale {float(macro_report['_stale_age_hours']):.1f}h]"
+        warnings.append(f"polymarket_context_stale:{float(macro_report['_stale_age_hours']):.1f}h")
 
     tape = fetch_tape_quotes(service_base_url=service_base_url)
-    warnings.extend(tape.pop("warnings", []))
+    tape_warnings = list(tape.pop("warnings", []))
+    if tape["status"] == "error" and session_phase != "OPEN":
+        cached_tape = load_cached_tape_quotes()
+        warnings.extend(tape_warnings)
+        if cached_tape["status"] != "error":
+            tape = cached_tape
+        else:
+            warnings.extend(cached_tape.pop("warnings", []))
+    else:
+        warnings.extend(tape_warnings)
     warnings.extend([f"intraday_breadth_{warning}" for warning in breadth.get("warnings", [])])
 
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
