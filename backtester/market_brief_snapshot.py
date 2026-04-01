@@ -350,7 +350,6 @@ def build_operator_summary(
     tape_source = str(tape.get("primary_source") or "unknown")
     breadth_state = str(breadth.get("override_state") or "unknown")
     macro_age = _format_age_hours(macro.get("freshness_hours"))
-    regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
     focus_names = focus.get("symbols") or []
     if focus_names:
         focus_line = f"{', '.join(focus_names)}. {focus.get('reason', '')}".strip()
@@ -373,13 +372,27 @@ def build_operator_summary(
     else:
         breadth_read = f"Intraday breadth state: {breadth_state}."
 
+    regime_status = str(regime.get("status") or "unknown")
+    regime_source = str(regime.get("data_source") or "unknown")
+    if regime_status == "degraded" and regime_source == "unknown":
+        regime_read = (
+            f"Market regime is {regime['display']}. Fresh live regime is unavailable; "
+            "using conservative emergency fallback."
+        )
+    elif regime_status == "degraded" and regime_source == "cache":
+        regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
+        regime_read = f"Market regime is {regime['display']} using cached snapshot ({regime_age})."
+    else:
+        regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
+        regime_read = f"Market regime is {regime['display']} ({regime_age})."
+
     headline = f"{session_phase}: {posture['action']} | {regime['display']} | size {regime['position_sizing_pct']:.0f}%"
     return {
         "headline": headline,
         "what_this_means": posture["reason"],
         "read_this_as": {
             "session": f"This is an {session_phase.lower().replace('_', ' ')} snapshot.",
-            "regime": f"Market regime is {regime['display']} ({regime_age}).",
+            "regime": regime_read,
             "tape": tape_read,
             "macro": f"Macro overlay is {macro.get('state', 'unknown')} ({macro_age}).",
             "breadth": breadth_read,

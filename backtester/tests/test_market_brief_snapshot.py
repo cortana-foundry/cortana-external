@@ -178,6 +178,28 @@ def test_format_operator_text_renders_human_summary():
     assert "Warnings: one, two, three" in text
 
 
+def test_build_operator_summary_uses_emergency_fallback_regime_wording():
+    summary = module.build_operator_summary(
+        session_phase="AFTER_HOURS",
+        posture={"action": "NO_BUY", "reason": "Market inputs unavailable. Defaulting to defensive posture until fresh data is restored."},
+        regime={
+            "display": "CORRECTION",
+            "position_sizing_pct": 0.0,
+            "status": "degraded",
+            "data_source": "unknown",
+            "snapshot_age_seconds": 0.0,
+        },
+        tape={"primary_source": "cache"},
+        macro={"state": "watch", "freshness_hours": 52.8},
+        breadth={"override_state": "inactive", "override_reason": "outside regular market session"},
+        focus={"symbols": ["OXY"], "reason": "Focus names came from the leader-priority list."},
+    )
+
+    regime_line = summary["read_this_as"]["regime"]
+    assert "Fresh live regime is unavailable; using conservative emergency fallback." in regime_line
+    assert "(0m old)" not in regime_line
+
+
 def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
     baseline = make_status(
         regime=MarketRegime.CORRECTION,
