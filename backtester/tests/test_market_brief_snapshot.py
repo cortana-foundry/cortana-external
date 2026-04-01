@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import market_brief_snapshot as module
@@ -67,6 +68,28 @@ def test_build_focus_names_prefers_leaders_then_macro():
     assert focus["sources"] == ["leader_priority", "leader_priority", "polymarket"]
 
 
+def test_load_cached_tape_quotes_uses_previous_session_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(module, "MARKET_DATA_CACHE_DIR", tmp_path)
+    monkeypatch.setenv("MARKET_BRIEF_TAPE_FALLBACK_MAX_AGE_HOURS", "72")
+    payload = {
+        "generated_at_utc": "2026-03-31T20:00:00+00:00",
+        "source": "schwab",
+        "rows": [
+            {"date": "2026-03-30T20:00:00+00:00", "Open": 0, "High": 0, "Low": 0, "Close": 100.0, "Volume": 1},
+            {"date": "2026-03-31T20:00:00+00:00", "Open": 0, "High": 0, "Low": 0, "Close": 102.0, "Volume": 1},
+        ],
+    }
+    for symbol in ("SPY", "QQQ"):
+        (tmp_path / f"{symbol}_1y.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = module.load_cached_tape_quotes(symbols=("SPY", "QQQ"))
+
+    assert snapshot["status"] == "degraded"
+    assert snapshot["primary_source"] == "cache"
+    assert "Previous session fallback" in snapshot["summary_line"]
+    assert snapshot["symbols"][0]["symbol"] == "SPY"
+
+
 def test_build_snapshot_collects_expected_sections(monkeypatch):
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: make_status())
     monkeypatch.setattr(
@@ -124,6 +147,116 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["focus"]["symbols"] == ["OXY", "FANG", "NVDA"]
     assert snapshot["regime"]["display"] == "CORRECTION"
     assert snapshot["intraday_breadth"]["override_state"] == "inactive"
+
+
+def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
+    baseline = make_status(
+        regime=MarketRegime.CORRECTION,
+        notes="Stay defensive.",
+        status="ok",
+        data_source="cache",
+        snapshot_age_seconds=14 * 3600,
+    )
+    monkeypatch.setattr(
+        module,
+        "load_last_known_regime_status",
+        lambda cache_path=module.REGIME_CACHE_PATH, max_age_hours=None, session_baseline=False: baseline if session_baseline else baseline,
+    )
+    monkeypatch.setattr(
+        module.TradingAdvisor,
+        "get_market_status",
+        lambda self, refresh=True: (_ for _ in ()).throw(AssertionError("live refresh should not run premarket")),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_structured_context", lambda max_age_hours=30.0: None)
+    monkeypatch.setattr(module, "load_last_known_macro_report", lambda max_age_hours=72.0: None)
+    monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: ["OXY"])
+    monkeypatch.setattr(
+        module,
+        "fetch_tape_quotes",
+        lambda service_base_url="http://service", symbols=module.TAPE_SYMBOLS: {
+            "status": "error",
+            "summary_line": "Tape unavailable",
+            "risk_tone": "unknown",
+            "primary_source": "unavailable",
+            "symbols": [],
+            "warnings": ["tape_fetch_failed: service unavailable"],
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "load_cached_tape_quotes",
+        lambda symbols=module.TAPE_SYMBOLS: {
+            "status": "degraded",
+            "summary_line": "SPY weak (-1.00%); QQQ weak (-1.50%); IWM unavailable; GLD unavailable. Risk tone defensive. Previous session fallback.",
+            "risk_tone": "defensive",
+            "primary_source": "cache",
+            "symbols": [{"symbol": "SPY", "change_percent": -1.0}],
+            "warnings": ["tape_previous_session_fallback"],
+        },
+    )
+
+    snapshot = module.build_snapshot("http://service", now=module.datetime(2026, 4, 1, 8, 0, tzinfo=module.ZoneInfo("America/New_York")))
+
+    assert snapshot["regime"]["status"] == "ok"
+    assert snapshot["regime"]["notes"] == "Stay defensive."
+    assert snapshot["posture"]["action"] == "NO_BUY"
+    assert snapshot["tape"]["primary_source"] == "cache"
+    assert "Previous session fallback" in snapshot["tape"]["summary_line"]
+    assert "market_regime_session_baseline:premarket" in snapshot["warnings"]
+
+
+def test_build_snapshot_uses_stale_macro_report_outside_open_session(monkeypatch):
+    monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: make_status())
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_structured_context", lambda max_age_hours=30.0: None)
+    monkeypatch.setattr(
+        module,
+        "load_last_known_macro_report",
+        lambda max_age_hours=72.0: {
+            "summary": {
+                "conviction": "neutral",
+                "divergence": {"state": "watch", "summary": "Mixed theme watch"},
+                "themeHighlights": [{"title": "Fed easing odds", "watchTickers": ["NVDA"]}],
+            },
+            "metadata": {"generatedAt": "2026-03-31T12:00:00Z"},
+            "_stale_age_hours": 43.2,
+        },
+    )
+    monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: ["OXY"])
+    monkeypatch.setattr(
+        module,
+        "requests",
+        SimpleNamespace(
+            get=lambda *args, **kwargs: SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"data": {"items": []}},
+            )
+        ),
+    )
+
+    snapshot = module.build_snapshot("http://service", now=module.datetime(2026, 4, 1, 8, 0, tzinfo=module.ZoneInfo("America/New_York")))
+
+    assert "[stale 43.2h]" in snapshot["macro"]["summary_line"]
+    assert "polymarket_context_stale:43.2h" in snapshot["warnings"]
 
 
 def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch):
