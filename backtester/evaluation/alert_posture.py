@@ -62,9 +62,15 @@ def describe_alert_posture(
     market_regime: str,
     buy_count: int,
     watch_count: int,
+    intraday_override_state: str = "inactive",
 ) -> str:
     regime = (market_regime or "").strip().lower()
     if regime == "correction":
+        if (intraday_override_state or "").strip().lower() == "selective-buy" and buy_count > 0:
+            return (
+                "Alert posture: selective buys allowed — intraday breadth is unusually strong, "
+                "but the daily regime is still correction-mode. Keep size tight."
+            )
         if watch_count > 0:
             return (
                 "Alert posture: review only — correction regime. "

@@ -13,6 +13,7 @@ from typing import Any
 import requests
 
 from advisor import TradingAdvisor
+from data.intraday_breadth import build_intraday_breadth_snapshot
 from data.leader_baskets import load_leader_priority_symbols
 from data.market_regime import MarketRegime, MarketStatus
 from data.polymarket_context import load_structured_context
@@ -23,8 +24,17 @@ EXCLUDED_FOCUS_SYMBOLS = set(TAPE_SYMBOLS) | {"ARKK", "XLU", "XLV", "XLE", "JETS
 REGIME_CACHE_PATH = Path(os.getenv("MARKET_REGIME_CACHE_PATH", ".cache/market_regime_snapshot_SPY.json")).expanduser()
 
 
-def classify_posture(status: MarketStatus) -> dict[str, str]:
+def classify_posture(status: MarketStatus, breadth_snapshot: dict[str, Any] | None = None) -> dict[str, str]:
+    override_state = str((breadth_snapshot or {}).get("override_state", "") or "").strip().lower()
     if status.regime == MarketRegime.CORRECTION:
+        if override_state == "selective-buy":
+            return {
+                "action": "BUY",
+                "reason": (
+                    "Daily regime is still defensive, but intraday breadth is broad enough "
+                    "to allow only tightly selective buys."
+                ),
+            }
         return {
             "action": "NO_BUY",
             "reason": status.notes or "Market is defensive. Stand aside on fresh buys.",
@@ -299,7 +309,8 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
                 next_action="Retry market regime refresh after the provider recovers.",
             )
 
-    posture = classify_posture(status)
+    breadth = build_intraday_breadth_snapshot(service_base_url=service_base_url)
+    posture = classify_posture(status, breadth_snapshot=breadth)
     macro_report = load_structured_context(max_age_hours=30.0)
     macro = summarize_macro(macro_report)
     if macro["state"] == "unknown":
@@ -307,6 +318,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
 
     tape = fetch_tape_quotes(service_base_url=service_base_url)
     warnings.extend(tape.pop("warnings", []))
+    warnings.extend([f"intraday_breadth_{warning}" for warning in breadth.get("warnings", [])])
 
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
@@ -319,6 +331,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
         "posture": posture,
         "macro": macro,
         "tape": tape,
+        "intraday_breadth": breadth,
         "focus": focus,
         "freshness": {
             "regime_snapshot_age_seconds": status.snapshot_age_seconds,
