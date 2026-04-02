@@ -128,6 +128,55 @@ if [[ "$scenario" == "cooldown" ]]; then
   fi
 fi
 
+if [[ "$scenario" == "cooldown_then_healthy" ]]; then
+  if [[ "$count" -le 2 ]]; then
+    if [[ "$url" == *"/market-data/ready" ]]; then
+      printf '%s\n' '{"data":{"ready":true,"operatorState":"provider_cooldown","operatorAction":"Wait until cooldown expires."}}' >"$out"
+      printf '200'
+      exit 0
+    fi
+    if [[ "$url" == *"/market-data/ops" ]]; then
+      printf '%s\n' '{"data":{"serviceOperatorState":"provider_cooldown","serviceOperatorAction":"Wait until cooldown expires."}}' >"$out"
+      printf '200'
+      exit 0
+    fi
+  else
+    if [[ "$url" == *"/market-data/ready" ]]; then
+      printf '%s\n' '{"data":{"ready":true,"operatorState":"healthy","operatorAction":"No operator action required."}}' >"$out"
+      printf '200'
+      exit 0
+    fi
+    if [[ "$url" == *"/market-data/ops" ]]; then
+      printf '%s\n' '{"data":{"serviceOperatorState":"healthy","serviceOperatorAction":"No operator action required."}}' >"$out"
+      printf '200'
+      exit 0
+    fi
+    if [[ "$url" == *"/market-data/quote/batch"* ]]; then
+      printf '%s\n' '{"data":{"symbols":[]}}' >"$out"
+      printf '200'
+      exit 0
+    fi
+  fi
+fi
+
+if [[ "$scenario" == "quote_flap" ]]; then
+  if [[ "$url" == *"/market-data/ready" ]]; then
+    printf '%s\n' '{"data":{"ready":true,"operatorState":"healthy","operatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/ops" ]]; then
+    printf '%s\n' '{"data":{"serviceOperatorState":"healthy","serviceOperatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/quote/batch"* ]]; then
+    printf '%s\n' '{"error":"quote_unavailable"}' >"$out"
+    printf '503'
+    exit 0
+  fi
+fi
+
 printf '000'
 EOF
 chmod +x "$BIN_DIR/curl"
@@ -142,6 +191,7 @@ run_scenario() {
   WATCHDOG_MARKET_DATA_TEST_SCENARIO="$scenario" \
   MARKET_DATA_BASE_URL="http://localhost:3033" \
   MARKET_DATA_RESTART_WAIT_SECONDS=0 \
+  MARKET_DATA_ADVISORY_THRESHOLD_SECONDS=0 \
   bash -c "source '$ROOT_DIR/watchdog.sh'; PATH='$BIN_DIR':\"\$PATH\"; ALERTS=''; LOGS=''; check_market_data_health; printf '%s' \"\$ALERTS\" >'$scenario_dir/output.txt'"
 }
 
@@ -150,7 +200,20 @@ assert_file_contains "restart/unreachable triggers watchdog restart" "kickstart 
 assert_file_contains "restart/success emits restart alert" "Market-data service was unreachable and watchdog restarted it successfully" "$TMP_DIR/restart/output.txt"
 
 run_scenario cooldown
-assert_file_empty "cooldown does not restart service" "$TMP_DIR/cooldown/launchctl.log"
+assert_file_empty "cooldown first occurrence stays silent" "$TMP_DIR/cooldown/output.txt"
+run_scenario cooldown
 assert_file_contains "cooldown warns without restart" "Schwab market data is in a brief cooldown" "$TMP_DIR/cooldown/output.txt"
+assert_file_empty "cooldown does not restart service" "$TMP_DIR/cooldown/launchctl.log"
+
+run_scenario cooldown_then_healthy
+assert_file_empty "brief cooldown first occurrence stays silent" "$TMP_DIR/cooldown_then_healthy/output.txt"
+run_scenario cooldown_then_healthy
+assert_file_empty "brief cooldown recovery stays silent" "$TMP_DIR/cooldown_then_healthy/output.txt"
+
+run_scenario quote_flap
+assert_file_empty "quote smoke first failure stays silent" "$TMP_DIR/quote_flap/output.txt"
+run_scenario quote_flap
+assert_file_contains "quote smoke sustained failure alerts after restart attempt" "Market-data quote smoke test still failing after automatic restart" "$TMP_DIR/quote_flap/output.txt"
+assert_file_contains "quote smoke sustained failure triggers restart attempt" "kickstart -k gui/" "$TMP_DIR/quote_flap/launchctl.log"
 
 echo "All market-data watchdog tests passed."
