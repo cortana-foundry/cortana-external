@@ -69,6 +69,9 @@ def test_humanize_market_issue_prefers_plain_english():
     assert module.humanize_market_issue("HTTP 503 Service Unavailable") == (
         "the live market-data service is temporarily unavailable"
     )
+    assert module.humanize_market_issue("connection refused. Automatic restart did not restore the local market-data service.") == (
+        "the local market-data service is unreachable"
+    )
 
 
 def test_build_focus_names_prefers_leaders_then_macro():
@@ -323,6 +326,7 @@ def test_build_snapshot_uses_stale_macro_report_outside_open_session(monkeypatch
 
 
 def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch):
+    monkeypatch.setattr(module, "maybe_self_heal_market_data_service", lambda service_base_url="http://service": {"attempted": False, "recovered": False, "reason": None})
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("cooldown")))
     monkeypatch.setattr(
         module,
@@ -366,9 +370,14 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert "market_regime_unavailable" in snapshot["warnings"][0]
     assert snapshot["tape"]["risk_tone"] == "unknown"
+    assert snapshot["posture"]["reason"] == (
+        "Fresh live market data is unavailable (Schwab market data is in a brief cooldown). "
+        "Defaulting to defensive posture until live data returns."
+    )
 
 
 def test_build_snapshot_softens_posture_when_tape_cache_survives_regime_emergency_fallback(monkeypatch):
+    monkeypatch.setattr(module, "maybe_self_heal_market_data_service", lambda service_base_url="http://service": {"attempted": False, "recovered": False, "reason": None})
     monkeypatch.setattr(
         module.TradingAdvisor,
         "get_market_status",
@@ -425,6 +434,31 @@ def test_build_snapshot_softens_posture_when_tape_cache_survives_regime_emergenc
         "Using previous-session market context and "
         "staying defensive until live data returns."
     )
+
+
+def test_maybe_self_heal_market_data_service_restarts_local_service_once(monkeypatch):
+    probes = iter(
+        [
+            {"reachable": False, "status_code": None, "reason": "connection refused"},
+            {"reachable": True, "status_code": 200, "reason": None},
+        ]
+    )
+    launch_calls: list[list[str]] = []
+
+    monkeypatch.setattr(module, "probe_market_data_service", lambda service_base_url="http://localhost:3033": next(probes))
+    monkeypatch.setattr(module, "is_local_service_base_url", lambda service_base_url: True)
+    monkeypatch.setattr(module.time, "sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_run(cmd, capture_output, text, timeout, check):
+        launch_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    result = module.maybe_self_heal_market_data_service("http://127.0.0.1:3033")
+
+    assert result == {"attempted": True, "recovered": True, "reason": None}
+    assert launch_calls == [["launchctl", "kickstart", "-k", f"gui/{module.os.getuid()}/{module.MARKET_DATA_LAUNCHD_LABEL}"]]
 
 
 def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(monkeypatch):
