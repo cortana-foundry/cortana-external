@@ -3,6 +3,8 @@
 ensure_market_data_runtime_ready() {
   local service_url="$1"
   local require_schwab="${2:-1}"
+  local self_heal="${MARKET_DATA_SELF_HEAL:-1}"
+  local launchd_label="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
   local ready_path
   local ops_path
 
@@ -10,20 +12,40 @@ ensure_market_data_runtime_ready() {
   ops_path="$(mktemp)"
   trap 'rm -f "${ready_path}" "${ops_path}"' RETURN
 
+  attempt_market_data_restart() {
+    if [[ "${self_heal}" != "1" ]]; then
+      return 1
+    fi
+    local target="gui/$(id -u)/${launchd_label}"
+    if ! launchctl kickstart -k "${target}" >/dev/null 2>&1; then
+      return 1
+    fi
+    sleep "${MARKET_DATA_SELF_HEAL_WAIT_SECONDS:-6}"
+    return 0
+  }
+
   if ! curl -fsS "${service_url}/market-data/ready" >"${ready_path}" 2>/dev/null; then
+    if attempt_market_data_restart && curl -fsS "${service_url}/market-data/ready" >"${ready_path}" 2>/dev/null; then
+      echo "- Auto-restarted ${launchd_label} after ${service_url}/market-data/ready was unreachable."
+    else
     echo "Market data preflight"
     echo
     echo "- Unable to reach ${service_url}/market-data/ready"
     echo "- Start apps/external-service and try again."
     return 1
+    fi
   fi
 
   if ! curl -fsS "${service_url}/market-data/ops" >"${ops_path}" 2>/dev/null; then
+    if attempt_market_data_restart && curl -fsS "${service_url}/market-data/ops" >"${ops_path}" 2>/dev/null; then
+      echo "- Auto-restarted ${launchd_label} after ${service_url}/market-data/ops was unreachable."
+    else
     echo "Market data preflight"
     echo
     echo "- Unable to reach ${service_url}/market-data/ops"
     echo "- Start apps/external-service and try again."
     return 1
+    fi
   fi
 
   local preflight_status

@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -24,6 +27,7 @@ SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033")
 EXCLUDED_FOCUS_SYMBOLS = set(TAPE_SYMBOLS) | {"ARKK", "XLU", "XLV", "XLE", "JETS"}
 REGIME_CACHE_PATH = Path(os.getenv("MARKET_REGIME_CACHE_PATH", ".cache/market_regime_snapshot_SPY.json")).expanduser()
 MARKET_DATA_CACHE_DIR = Path(os.getenv("MARKET_DATA_CACHE_DIR", ".cache/market_data")).expanduser()
+MARKET_DATA_LAUNCHD_LABEL = os.getenv("MARKET_DATA_LAUNCHD_LABEL", "com.cortana.fitness-service")
 
 
 def classify_posture(status: MarketStatus, breadth_snapshot: dict[str, Any] | None = None) -> dict[str, str]:
@@ -337,6 +341,82 @@ def _format_age_hours(value: float | None) -> str:
     return f"{value:.1f}h old"
 
 
+def is_local_service_base_url(service_base_url: str) -> bool:
+    host = (urlparse(service_base_url).hostname or "").strip().lower()
+    return host in {"127.0.0.1", "localhost"}
+
+
+def probe_market_data_service(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
+    url = f"{service_base_url.rstrip('/')}/market-data/ready"
+    try:
+        response = requests.get(url, timeout=4)
+        return {
+            "reachable": True,
+            "status_code": response.status_code,
+            "reason": None if response.status_code < 500 else f"service returned HTTP {response.status_code} from /market-data/ready",
+        }
+    except Exception as exc:
+        return {"reachable": False, "status_code": None, "reason": str(exc)}
+
+
+def maybe_self_heal_market_data_service(service_base_url: str = SERVICE_BASE_URL) -> dict[str, Any]:
+    if os.getenv("MARKET_DATA_SELF_HEAL", "1") != "1":
+        return {"attempted": False, "recovered": False, "reason": None}
+    if not is_local_service_base_url(service_base_url):
+        return {"attempted": False, "recovered": False, "reason": None}
+
+    initial = probe_market_data_service(service_base_url)
+    if initial["reachable"] and int(initial.get("status_code") or 0) < 500:
+        return {"attempted": False, "recovered": False, "reason": None}
+
+    launchd_target = f"gui/{os.getuid()}/{MARKET_DATA_LAUNCHD_LABEL}"
+    try:
+        restart = subprocess.run(
+            ["launchctl", "kickstart", "-k", launchd_target],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception as exc:
+        reason = initial["reason"] or "fresh live market data is temporarily unavailable"
+        return {
+            "attempted": True,
+            "recovered": False,
+            "reason": f"{reason}. Automatic restart attempt failed: {exc}",
+        }
+
+    if restart.returncode != 0:
+        reason = initial["reason"] or "fresh live market data is temporarily unavailable"
+        stderr = (restart.stderr or "").strip() or (restart.stdout or "").strip()
+        if stderr:
+            return {
+                "attempted": True,
+                "recovered": False,
+                "reason": f"{reason}. Automatic restart attempt failed: {stderr}",
+            }
+        return {
+            "attempted": True,
+            "recovered": False,
+            "reason": f"{reason}. Automatic restart attempt failed.",
+        }
+
+    retries = max(1, int(os.getenv("MARKET_DATA_SELF_HEAL_PROBE_RETRIES", "4")))
+    wait_seconds = max(1.0, float(os.getenv("MARKET_DATA_SELF_HEAL_WAIT_SECONDS", "2.0")))
+    for _ in range(retries):
+        time.sleep(wait_seconds)
+        probe = probe_market_data_service(service_base_url)
+        if probe["reachable"] and int(probe.get("status_code") or 0) < 500:
+            return {"attempted": True, "recovered": True, "reason": None}
+
+    reason = initial["reason"] or "fresh live market data is temporarily unavailable"
+    return {
+        "attempted": True,
+        "recovered": False,
+        "reason": f"{reason}. Automatic restart did not restore the local market-data service.",
+    }
+
+
 def humanize_market_issue(reason: str | None) -> str | None:
     text = str(reason or "").strip()
     if not text:
@@ -350,6 +430,10 @@ def humanize_market_issue(reason: str | None) -> str | None:
         return "Schwab authentication needs attention"
     if "failed to establish a new connection" in lowered or "connection refused" in lowered:
         return "the local market-data service is unreachable"
+    if "automatic restart did not restore the local market-data service" in lowered:
+        return "the local market-data service did not recover after an automatic restart attempt"
+    if "automatic restart attempt failed" in lowered:
+        return "the local market-data service could not be restarted automatically"
     if "timed out" in lowered or "timeout" in lowered:
         return "the live market-data request timed out"
     if "service unavailable" in lowered or "503" in lowered:
@@ -512,6 +596,9 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
     warnings: list[str] = []
     generated_at = datetime.now(UTC).isoformat()
     session_phase = get_market_session_phase(now)
+    service_recovery = maybe_self_heal_market_data_service(service_base_url)
+    if service_recovery["attempted"] and not service_recovery["recovered"] and service_recovery["reason"]:
+        warnings.append(f"market_data_service_self_heal_failed: {service_recovery['reason']}")
 
     regime_error = None
     status = None
@@ -574,20 +661,25 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         warnings.extend(tape_warnings)
     warnings.extend([f"intraday_breadth_{warning}" for warning in breadth.get("warnings", [])])
 
-    if (
-        status.status == "degraded"
-        and str(status.data_source or "").strip().lower() in {"unknown", "unavailable"}
-        and str(tape.get("primary_source") or "").strip().lower() == "cache"
-    ):
-        issue = humanize_market_issue(getattr(status, "degraded_reason", None))
+    if status.status == "degraded" and str(status.data_source or "").strip().lower() in {"unknown", "unavailable"}:
+        issue = humanize_market_issue(service_recovery.get("reason") or getattr(status, "degraded_reason", None))
         issue_clause = f" ({issue})" if issue else ""
-        posture = {
-            **posture,
-            "reason": (
-                f"Fresh live market regime is unavailable{issue_clause}. Using previous-session market context and "
-                "staying defensive until live data returns."
-            ),
-        }
+        if str(tape.get("primary_source") or "").strip().lower() == "cache":
+            posture = {
+                **posture,
+                "reason": (
+                    f"Fresh live market regime is unavailable{issue_clause}. Using previous-session market context and "
+                    "staying defensive until live data returns."
+                ),
+            }
+        else:
+            posture = {
+                **posture,
+                "reason": (
+                    f"Fresh live market data is unavailable{issue_clause}. "
+                    "Defaulting to defensive posture until live data returns."
+                ),
+            }
 
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))

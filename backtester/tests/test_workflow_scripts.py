@@ -34,6 +34,7 @@ def test_daytime_flow_fails_fast_when_market_data_preflight_is_unreachable(tmp_p
 
     env = _shell_env(bin_dir)
     env["LOCAL_RUNS_ROOT"] = str(tmp_path / "runs")
+    env["MARKET_DATA_SELF_HEAL"] = "0"
 
     result = subprocess.run(
         ["bash", str(DAYTIME_FLOW)],
@@ -48,6 +49,73 @@ def test_daytime_flow_fails_fast_when_market_data_preflight_is_unreachable(tmp_p
     assert "Market data preflight" in result.stdout
     assert "- Unable to reach http://localhost:3033/market-data/ready" in result.stdout
     assert "- Start apps/external-service and try again." in result.stdout
+
+
+def test_market_data_preflight_auto_restarts_service_once_when_ready_is_unreachable(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    state_file = tmp_path / "curl-state.txt"
+    launch_log = tmp_path / "launchctl.log"
+    preflight = BACKTESTER_ROOT / "scripts" / "market_data_preflight.sh"
+
+    _write_executable(
+        bin_dir / "curl",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            state_file="{state_file}"
+            count=0
+            if [[ -f "$state_file" ]]; then
+              count=$(cat "$state_file")
+            fi
+            count=$((count + 1))
+            printf '%s' "$count" >"$state_file"
+            url="${{@: -1}}"
+            if [[ "$count" -eq 1 ]]; then
+              exit 1
+            fi
+            if [[ "$url" == *"/market-data/ready" ]]; then
+              printf '%s\\n' '{{"data":{{"ready":true,"operatorState":"healthy","operatorAction":""}}}}'
+              exit 0
+            fi
+            if [[ "$url" == *"/market-data/ops" ]]; then
+              printf '%s\\n' '{{"data":{{"health":{{"providers":{{"schwab":"configured","schwabTokenStatus":"healthy","providerMetrics":{{}}}}}},"serviceOperatorState":"healthy","serviceOperatorAction":""}}}}'
+              exit 0
+            fi
+            exit 1
+            """
+        ),
+    )
+    _write_executable(
+        bin_dir / "launchctl",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            printf '%s\\n' "$*" >>"{launch_log}"
+            exit 0
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source '{preflight}' && ensure_market_data_runtime_ready http://localhost:3033 1",
+        ],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Auto-restarted com.cortana.fitness-service after http://localhost:3033/market-data/ready was unreachable." in result.stdout
+    assert "kickstart -k" in launch_log.read_text(encoding="utf-8")
 
 
 def test_nighttime_flow_forces_progress_and_unbuffered_python(tmp_path):
