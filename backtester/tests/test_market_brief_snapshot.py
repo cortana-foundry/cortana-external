@@ -62,6 +62,15 @@ def test_build_tape_summary_and_risk_tone():
     assert "Risk tone defensive" in summary
 
 
+def test_humanize_market_issue_prefers_plain_english():
+    assert module.humanize_market_issue("service: Schwab REST cooldown open until 2026-04-02T08:00:00Z") == (
+        "Schwab market data is in a brief cooldown"
+    )
+    assert module.humanize_market_issue("HTTP 503 Service Unavailable") == (
+        "the live market-data service is temporarily unavailable"
+    )
+
+
 def test_build_focus_names_prefers_leaders_then_macro():
     focus = module.build_focus_names(["OXY", "QQQ", "FANG"], ["MSFT", "NVDA", "OXY"])
     assert focus["symbols"] == ["OXY", "FANG", "MSFT"]
@@ -357,6 +366,65 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert "market_regime_unavailable" in snapshot["warnings"][0]
     assert snapshot["tape"]["risk_tone"] == "unknown"
+
+
+def test_build_snapshot_softens_posture_when_tape_cache_survives_regime_emergency_fallback(monkeypatch):
+    monkeypatch.setattr(
+        module.TradingAdvisor,
+        "get_market_status",
+        lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("service: Schwab REST cooldown open until 2026-04-01T13:59:29Z")),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_intraday_breadth_snapshot",
+        lambda service_base_url="http://service": {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_last_known_regime_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "load_structured_context", lambda max_age_hours=12.0: None)
+    monkeypatch.setattr(module, "load_last_known_macro_report", lambda max_age_hours=72.0: None)
+    monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: ["OXY"])
+    monkeypatch.setattr(
+        module,
+        "fetch_tape_quotes",
+        lambda service_base_url="http://service", symbols=module.TAPE_SYMBOLS: {
+            "status": "error",
+            "summary_line": "Tape unavailable",
+            "risk_tone": "unknown",
+            "primary_source": "unavailable",
+            "symbols": [],
+            "warnings": ["tape_fetch_failed: service unavailable"],
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "load_cached_tape_quotes",
+        lambda symbols=module.TAPE_SYMBOLS: {
+            "status": "degraded",
+            "summary_line": "SPY weak (-1.00%); QQQ weak (-1.50%); IWM unavailable; GLD unavailable. Risk tone defensive. Previous session fallback.",
+            "risk_tone": "defensive",
+            "primary_source": "cache",
+            "symbols": [{"symbol": "SPY", "change_percent": -1.0}],
+            "warnings": ["tape_previous_session_fallback"],
+        },
+    )
+
+    snapshot = module.build_snapshot(
+        "http://service",
+        now=module.datetime(2026, 4, 1, 8, 0, tzinfo=module.ZoneInfo("America/New_York")),
+    )
+
+    assert snapshot["posture"]["action"] == "NO_BUY"
+    assert snapshot["tape"]["primary_source"] == "cache"
+    assert snapshot["posture"]["reason"] == (
+        "Fresh live market regime is unavailable (Schwab market data is in a brief cooldown). "
+        "Using previous-session market context and "
+        "staying defensive until live data returns."
+    )
 
 
 def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(monkeypatch):
