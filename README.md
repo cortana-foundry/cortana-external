@@ -360,7 +360,7 @@ Local reliability monitor (every 15 min) for service/cron/agent health.
 - Degraded Mission Control agents
 - **Sub-agent watchdog events** from `~/clawd/tools/subagent-watchdog/` (failed/aborted/timed-out sub-agent runs persisted to `cortana_events`)
 - gog/Gmail availability
-- Schwab market-data lane (`/market-data/ready`, `/market-data/ops`, `SPY,QQQ` quote smoke test)
+- Schwab market-data lane (`/market-data/ready`, `/market-data/ops`, `SPY,QQQ` quote smoke test, sustained cooldown advisories)
 - Tonal/Whoop health
 - PostgreSQL health
 - API budget thresholds

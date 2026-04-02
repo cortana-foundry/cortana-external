@@ -14,7 +14,7 @@ CHAT_ID="8171372724"
 SLACK_WEBHOOK_URL="${WATCHDOG_SLACK_WEBHOOK_URL:-}"
 ALERTS=""
 LOGS=""
-STATE_FILE="$SCRIPT_DIR/watchdog-state.json"
+STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/watchdog-state.json}"
 FITNESS_BASE_URL="${FITNESS_BASE_URL:-http://localhost:3033}"
 MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
 MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
@@ -77,6 +77,12 @@ get_check_status() {
   echo "$state" | jq -r ".\"$check_name\".status // \"unknown\"" 2>/dev/null || echo "unknown"
 }
 
+get_check_last_recovery_time() {
+  local check_name="$1"
+  local state=$(load_state)
+  echo "$state" | jq -r ".\"$check_name\".last_recovery // 0" 2>/dev/null || echo "0"
+}
+
 # Update state for a check
 update_check_state() {
   local check_name="$1"
@@ -97,6 +103,28 @@ update_check_state() {
       '.[$check] = {last_alert: 0, first_failure: 0, status: "recovered", last_recovery: $time}')
   fi
 
+  save_state "$state"
+}
+
+begin_check_failure_grace_period() {
+  local check_name="$1"
+  local current_time
+  current_time=$(get_current_timestamp)
+  local state
+  state=$(load_state)
+  local first_failure
+  first_failure=$(echo "$state" | jq -r ".\"$check_name\".first_failure // 0" 2>/dev/null || echo "0")
+  if [[ "$first_failure" == "0" ]]; then
+    first_failure="$current_time"
+  fi
+  state=$(echo "$state" | jq --arg check "$check_name" --argjson first "$first_failure" '
+    .[$check] = {
+      last_alert: (.[$check].last_alert // 0),
+      first_failure: $first,
+      status: "failing",
+      last_recovery: (.[$check].last_recovery // 0)
+    }
+  ')
   save_state "$state"
 }
 
@@ -130,6 +158,23 @@ should_suppress_alert() {
   fi
 
   return 1  # Don't suppress
+}
+
+get_failure_duration_seconds() {
+  local check_name="$1"
+  local current_time
+  current_time=$(get_current_timestamp)
+  local first_failure
+  first_failure=$(get_first_failure_time "$check_name")
+  local check_status
+  check_status=$(get_check_status "$check_name")
+
+  if [[ "$check_status" != "failing" || "$first_failure" == "0" ]]; then
+    echo "0"
+    return
+  fi
+
+  echo $((current_time - first_failure))
 }
 
 log() {
@@ -172,6 +217,40 @@ recovery_alert() {
     log "info" "Recovery: $msg"
     update_check_state "$check_name" "recovered"
   fi
+}
+
+mark_check_failing_silent() {
+  local check_name="$1"
+  if [[ "$(get_check_status "$check_name")" != "failing" ]]; then
+    begin_check_failure_grace_period "$check_name"
+  fi
+}
+
+clear_check_recovery_silent() {
+  local check_name="$1"
+  if [[ "$(get_check_status "$check_name")" == "failing" ]]; then
+    update_check_state "$check_name" "recovered"
+  fi
+}
+
+alert_if_failure_persists() {
+  local check_name="$1"
+  local threshold_seconds="$2"
+  local msg="$3"
+  local severity="${4:-warning}"
+
+  if [[ "$(get_check_status "$check_name")" != "failing" ]]; then
+    begin_check_failure_grace_period "$check_name"
+    log "info" "Deferred alert for ${check_name} until failure persists: ${msg}"
+    return 1
+  fi
+
+  if [[ "$(get_failure_duration_seconds "$check_name")" -lt "$threshold_seconds" ]]; then
+    log "info" "Still waiting for ${check_name} to persist before alerting"
+    return 1
+  fi
+
+  alert "$msg" "$check_name" "$severity"
 }
 
 record_heartbeat_observation() {
@@ -284,6 +363,36 @@ humanize_market_data_issue() {
       printf '%s' "$raw"
       ;;
   esac
+}
+
+market_data_advisory_should_recover() {
+  local check_name="$1"
+  local min_duration_seconds="${2:-900}"
+  local check_status
+  check_status=$(get_check_status "$check_name")
+  if [[ "$check_status" != "failing" ]]; then
+    return 1
+  fi
+
+  local first_failure last_alert last_recovery current_time
+  first_failure=$(get_first_failure_time "$check_name")
+  last_alert=$(get_last_alert_time "$check_name")
+  last_recovery=$(get_check_last_recovery_time "$check_name")
+  current_time=$(get_current_timestamp)
+
+  if [[ "$last_alert" == "0" || "$first_failure" == "0" ]]; then
+    return 1
+  fi
+  if [[ $((current_time - first_failure)) -lt "$min_duration_seconds" ]]; then
+    return 1
+  fi
+  if [[ $((current_time - last_alert)) -lt "$min_duration_seconds" ]]; then
+    return 1
+  fi
+  if [[ "$last_recovery" != "0" && $((current_time - last_recovery)) -lt "$min_duration_seconds" ]]; then
+    return 1
+  fi
+  return 0
 }
 
 # ── A) Cron Health ──
@@ -441,6 +550,7 @@ check_market_data_health() {
   local readiness_check_name="market_data_service"
   local provider_check_name="market_data_provider"
   local quote_check_name="market_data_quotes"
+  local advisory_threshold_seconds="${MARKET_DATA_ADVISORY_THRESHOLD_SECONDS:-900}"
   local ready_body ops_body quote_body
   ready_body="$(mktemp)"
   ops_body="$(mktemp)"
@@ -491,12 +601,12 @@ check_market_data_health() {
   elif [[ "$ops_code" != "200" ]]; then
     alert "Market-data ops endpoint returned HTTP ${ops_code}" "market_data_ops" "warning"
   else
-    recovery_alert "market_data_ops" "Market-data ops endpoint recovered"
+    clear_check_recovery_silent "market_data_ops"
     local service_operator_state service_operator_action
     service_operator_state=$(jq -r '.data.serviceOperatorState // empty' "$ops_body" 2>/dev/null || true)
     service_operator_action=$(jq -r '.data.serviceOperatorAction // empty' "$ops_body" 2>/dev/null || true)
     if [[ "$service_operator_state" == "provider_cooldown" ]]; then
-      alert "Schwab market data is in a brief cooldown. Live trading data may be temporarily degraded." "$provider_check_name" "warning"
+      alert_if_failure_persists "$provider_check_name" "$advisory_threshold_seconds" "Schwab market data is in a brief cooldown. Live trading data may be temporarily degraded." "warning" >/dev/null || true
       log "info" "Skipping quote-smoke restart while provider cooldown is active"
       return
     fi
@@ -504,13 +614,21 @@ check_market_data_health() {
       alert "Schwab credentials need operator attention. ${service_operator_action:-Re-authorize Schwab and refresh the cached token.}" "$provider_check_name" "critical"
       return
     fi
-    recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
+    if market_data_advisory_should_recover "$provider_check_name" "$advisory_threshold_seconds"; then
+      recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
+    else
+      clear_check_recovery_silent "$provider_check_name"
+    fi
   fi
 
   local quote_code
   quote_code=$(probe_json_endpoint "$quote_url" "$quote_body")
   if [[ "$quote_code" == "200" ]]; then
-    recovery_alert "$quote_check_name" "Market-data quote smoke test recovered for ${MARKET_DATA_QUOTE_SYMBOLS}"
+    if market_data_advisory_should_recover "$quote_check_name" "$advisory_threshold_seconds"; then
+      recovery_alert "$quote_check_name" "Market-data quote smoke test recovered for ${MARKET_DATA_QUOTE_SYMBOLS}"
+    else
+      clear_check_recovery_silent "$quote_check_name"
+    fi
     log "info" "Market-data quote smoke: OK (${MARKET_DATA_QUOTE_SYMBOLS})"
     return
   fi
@@ -530,7 +648,8 @@ check_market_data_health() {
     return
   fi
 
-  alert "Market-data quote smoke test failed (HTTP ${quote_code} for ${MARKET_DATA_QUOTE_SYMBOLS})" "$quote_check_name" "warning"
+  mark_check_failing_silent "$quote_check_name"
+  log "info" "Market-data quote smoke test failed once (HTTP ${quote_code} for ${MARKET_DATA_QUOTE_SYMBOLS}); waiting for a sustained failure before alerting"
 }
 
 # ── E) Tool Smoke Tests ──
