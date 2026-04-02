@@ -554,6 +554,19 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         warnings.extend(tape_warnings)
     warnings.extend([f"intraday_breadth_{warning}" for warning in breadth.get("warnings", [])])
 
+    if (
+        status.status == "degraded"
+        and str(status.data_source or "").strip().lower() in {"unknown", "unavailable"}
+        and str(tape.get("primary_source") or "").strip().lower() == "cache"
+    ):
+        posture = {
+            **posture,
+            "reason": (
+                "Fresh live market regime is unavailable. Using previous-session market context and "
+                "staying defensive until live data returns."
+            ),
+        }
+
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
     regime_payload = normalize_regime(status)
