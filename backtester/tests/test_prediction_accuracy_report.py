@@ -7,6 +7,12 @@ import prediction_accuracy_report
 
 def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda: None)
+    called = {"decision_review": False}
+    monkeypatch.setattr(
+        prediction_accuracy_report,
+        "build_decision_review_artifact",
+        lambda: called.__setitem__("decision_review", True),
+    )
     monkeypatch.setattr(
         prediction_accuracy_report,
         "build_prediction_accuracy_summary",
@@ -141,6 +147,7 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     prediction_accuracy_report.main()
 
     out = capsys.readouterr().out
+    assert called["decision_review"] is True
     assert "Prediction accuracy" in out
     assert "Snapshots settled: 12" in out
     assert "Records logged: 48" in out

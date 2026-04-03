@@ -110,9 +110,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/evaluation/decision_review.py` or a companion module to compute missed-winner and overblock summaries for `WATCH` and `NO_BUY` outcomes.
-- Sub-task 2: Record veto paths or downgrade reasons in a reusable structure for later scorecards.
-- Sub-task 3: Emit dedicated opportunity-cost and veto-effectiveness artifacts for weekly review and later governance gates.
+- [x] Sub-task 1: Extend `backtester/evaluation/decision_review.py` or a companion module to compute missed-winner and overblock summaries for `WATCH` and `NO_BUY` outcomes.
+- [x] Sub-task 2: Record veto paths or downgrade reasons in a reusable structure for later scorecards.
+- [x] Sub-task 3: Emit dedicated opportunity-cost and veto-effectiveness artifacts for weekly review and later governance gates.
 
 #### Important Planning Notes
 

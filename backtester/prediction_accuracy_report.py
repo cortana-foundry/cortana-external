@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from evaluation.decision_review_metrics import build_decision_review_artifact
 from evaluation.prediction_accuracy import build_prediction_accuracy_summary, settle_prediction_snapshots
 
 
@@ -16,6 +17,7 @@ def main() -> None:
 
     settle_prediction_snapshots()
     summary = build_prediction_accuracy_summary()
+    build_decision_review_artifact()
 
     if args.json:
         print(json.dumps(summary, indent=2))
