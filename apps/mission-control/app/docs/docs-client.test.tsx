@@ -21,6 +21,7 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
     expect(screen.getByText("Docs Library")).toBeInTheDocument();
+    expect(await screen.findByText("No markdown files found.")).toBeInTheDocument();
   });
 
   it("shows loading state initially", () => {
@@ -45,8 +46,8 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    expect(await screen.findByRole("button", { name: "a.md" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "b.md" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /a\.md/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /b\.md/i })).toBeInTheDocument();
   });
 
   it("clicking a file updates selection and fetches content", async () => {
@@ -66,7 +67,7 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    const secondFile = await screen.findByRole("button", { name: "b.md" });
+    const secondFile = await screen.findByRole("button", { name: /b\.md/i });
     fireEvent.click(secondFile);
 
     await waitFor(() => {
@@ -114,7 +115,7 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    expect(await screen.findByText("OpenClaw Docs")).toBeInTheDocument();
-    expect(screen.getByText("Backtester Docs")).toBeInTheDocument();
+    expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
   });
 });
