@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type DocFile = { name: string; path: string };
+type DocFile = { id: string; name: string; path: string; section: string };
 
 type DocsListResponse =
   | { status: "ok"; files: DocFile[] }
@@ -19,8 +19,9 @@ type DocContentResponse =
 
 export default function DocsClient() {
   const [files, setFiles] = React.useState<DocFile[]>([]);
-  const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = React.useState<string | null>(null);
   const [content, setContent] = React.useState<string>("");
+  const [mobileBrowseOpen, setMobileBrowseOpen] = React.useState(false);
   const [listLoading, setListLoading] = React.useState(true);
   const [contentLoading, setContentLoading] = React.useState(false);
   const [listError, setListError] = React.useState<string | null>(null);
@@ -43,7 +44,8 @@ export default function DocsClient() {
         const sorted = [...payload.files].sort((a, b) => a.name.localeCompare(b.name));
         if (active) {
           setFiles(sorted);
-          setSelectedFile(sorted[0]?.name ?? null);
+          setSelectedFileId(sorted[0]?.id ?? null);
+          setMobileBrowseOpen(false);
           setListError(null);
         }
       } catch (error) {
@@ -66,7 +68,7 @@ export default function DocsClient() {
     let active = true;
 
     const loadDoc = async () => {
-      if (!selectedFile) {
+      if (!selectedFileId) {
         setContent("");
         setContentError(null);
         return;
@@ -74,7 +76,7 @@ export default function DocsClient() {
 
       try {
         setContentLoading(true);
-        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFile)}`, {
+        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFileId)}`, {
           cache: "no-store",
         });
         const payload = (await response.json()) as DocContentResponse;
@@ -102,17 +104,87 @@ export default function DocsClient() {
     return () => {
       active = false;
     };
-  }, [selectedFile]);
+  }, [selectedFileId]);
+
+  const selectedFile = React.useMemo(
+    () => files.find((file) => file.id === selectedFileId) ?? null,
+    [files, selectedFileId]
+  );
+
+  const filesBySection = React.useMemo(() => {
+    return files.reduce<Record<string, DocFile[]>>((acc, file) => {
+      acc[file.section] ||= [];
+      acc[file.section].push(file);
+      return acc;
+    }, {});
+  }, [files]);
+
+  const sections = React.useMemo(
+    () =>
+      Object.entries(filesBySection).map(([section, sectionFiles]) => ({
+        section,
+        files: sectionFiles,
+      })),
+    [filesBySection]
+  );
+
+  const renderFileList = (options?: { compact?: boolean; onSelect?: () => void }) => (
+    <div className={cn("space-y-3", options?.compact && "space-y-2")}>
+      {listLoading ? (
+        <p className="px-2 py-4 text-sm text-muted-foreground">Loading docs...</p>
+      ) : files.length === 0 ? (
+        <p className="px-2 py-4 text-sm text-muted-foreground">No markdown files found.</p>
+      ) : (
+        sections.map(({ section, files: sectionFiles }) => (
+          <div key={section} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 px-2 pt-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {section}
+              </p>
+              <Badge variant="outline" className="text-[10px]">
+                {sectionFiles.length}
+              </Badge>
+            </div>
+            <div className="space-y-1">
+              {sectionFiles.map((file) => {
+                const isActive = file.id === selectedFileId;
+                return (
+                  <button
+                    key={file.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedFileId(file.id);
+                      options?.onSelect?.();
+                    }}
+                    aria-pressed={isActive}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                      isActive
+                        ? "border-primary/30 bg-primary/10 text-foreground"
+                        : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/30"
+                    )}
+                  >
+                    <span className="min-w-0 truncate font-medium text-foreground">{file.name}</span>
+                    {isActive ? <span className="text-[10px] uppercase tracking-wide text-primary">Open</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-          OpenClaw Docs
+          Docs Library
         </p>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Docs</h1>
         <p className="text-sm text-muted-foreground">
-          Browse markdown documentation from the OpenClaw knowledge base.
+          Browse markdown documentation from the OpenClaw and Backtester knowledge bases.
         </p>
       </div>
 
@@ -124,52 +196,59 @@ export default function DocsClient() {
           <CardContent className="text-sm text-muted-foreground">{listError}</CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
-          <Card className="overflow-hidden">
+        <div className="space-y-4 md:grid md:grid-cols-[260px_minmax(0,1fr)] md:items-start md:gap-6 md:space-y-0">
+          <Card className="overflow-hidden md:hidden">
             <CardHeader className="border-b">
-              <CardTitle className="flex items-center justify-between text-base">
-                Files
-                <Badge variant="secondary">{files.length}</Badge>
+              <CardTitle className="flex items-center justify-between gap-3 text-base">
+                <div className="min-w-0">
+                  <span>Browse docs</span>
+                  <p className="mt-1 truncate text-xs font-normal text-muted-foreground">
+                    {selectedFile?.section ?? "Choose a section"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{files.length}</Badge>
+                  <button
+                    type="button"
+                    onClick={() => setMobileBrowseOpen((open) => !open)}
+                    aria-controls="mobile-docs-library"
+                    aria-expanded={mobileBrowseOpen}
+                    className="rounded-md border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
+                  >
+                    {mobileBrowseOpen ? "Hide" : "Browse"}
+                  </button>
+                </div>
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-0">
-              <div className="max-h-[200px] space-y-0.5 overflow-y-auto px-2 py-2 md:max-h-[520px] md:space-y-1 md:px-3">
-                {listLoading ? (
-                  <p className="px-2 py-4 text-sm text-muted-foreground">
-                    Loading docs...
-                  </p>
-                ) : files.length === 0 ? (
-                  <p className="px-2 py-4 text-sm text-muted-foreground">
-                    No markdown files found.
-                  </p>
-                ) : (
-                  files.map((file) => {
-                    const isActive = file.name === selectedFile;
-                    return (
-                      <button
-                        key={file.name}
-                        type="button"
-                        onClick={() => setSelectedFile(file.name)}
-                        className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                          isActive
-                            ? "bg-primary/10 text-foreground"
-                            : "text-muted-foreground hover:bg-muted/40"
-                        )}
-                      >
-                        <span className="truncate font-medium text-foreground">{file.name}</span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </CardContent>
+            {mobileBrowseOpen ? (
+              <CardContent id="mobile-docs-library" className="space-y-4 px-3 py-3">
+                {renderFileList({
+                  compact: true,
+                  onSelect: () => setMobileBrowseOpen(false),
+                })}
+              </CardContent>
+            ) : null}
           </Card>
+
+          <div className="hidden md:block md:sticky md:top-8">
+            <Card className="overflow-hidden">
+              <CardHeader className="border-b">
+                <CardTitle className="flex items-center justify-between text-base">
+                  Library
+                  <Badge variant="secondary">{files.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 px-3 py-4">
+                {renderFileList()}
+              </CardContent>
+            </Card>
+          </div>
 
           <Card className="overflow-hidden">
             <CardHeader className="border-b">
-              <CardTitle className="text-base">
-                {selectedFile ?? "Documentation"}
+              <CardTitle className="flex flex-wrap items-center justify-between gap-3 text-base">
+                <span>{selectedFile?.name ?? "Documentation"}</span>
+                {selectedFile ? <Badge variant="outline">{selectedFile.section}</Badge> : null}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
