@@ -476,3 +476,128 @@ timeout 15s bash -lc 'uv run python prediction_accuracy_report.py'
 ```
 
 That is the smallest high-signal recheck set for this QA pass.
+
+---
+
+## QA Round 2 - Full End-To-End Recheck
+
+This second pass was run after the remediation changes above landed on the same branch.
+
+### Automated verification
+
+Commands:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+uv run pytest -q
+
+cd /Users/hd/Developer/cortana-external
+npm --prefix apps/external-service test
+npm --prefix apps/external-service run typecheck
+```
+
+Results:
+
+- Python: `400 passed`
+- TS tests: `56 passed`
+- TS typecheck: passed
+
+### Operator and runtime checks
+
+Commands:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+uv run python market_brief_snapshot.py --operator
+uv run python runtime_health_snapshot.py --pretty
+uv run python trade_lifecycle_report.py
+uv run python pre_open_canary.py
+timeout 20s bash -lc 'uv run python prediction_accuracy_report.py'
+uv run python canslim_alert.py --limit 8 --universe-size 120
+timeout 45s bash -lc 'uv run python dipbuyer_alert.py --limit 5 --min-score 6 --universe-size 20'
+```
+
+Observed behavior:
+
+- `market_brief_snapshot.py --operator`
+  - returned a readable degraded after-hours snapshot
+  - wording stayed honest:
+    - cached regime age shown as underlying stale history
+    - tape clearly reported unavailable
+    - narrative/research/shadow sections rendered safely
+- `runtime_health_snapshot.py --pretty`
+  - surfaced `provider_cooldown` clearly in:
+    - `incident_markers`
+    - `service_health.operator_state`
+    - top-level warnings
+- `trade_lifecycle_report.py`
+  - rendered safely with no positions
+- `pre_open_canary.py`
+  - returned a valid degraded-safe `warn` artifact
+  - correctly marked:
+    - service ready warning
+    - quote smoke warning
+    - regime-path warning
+    - strategy smoke warning
+- `prediction_accuracy_report.py`
+  - completed successfully within the timeout and emitted a full summary
+- `canslim_alert.py`
+  - completed successfully
+  - wording was appropriate for degraded correction conditions:
+    - explicit degraded warning
+    - `stand aside` posture
+    - recovery hint
+
+### New finding from Round 2
+
+### P2 - Dip Buyer runtime is still too slow under live provider-cooldown conditions
+
+**Severity:** medium  
+**Status:** open  
+**Area:** alert runtime / operator flow latency
+
+#### What happened
+
+`dipbuyer_alert.py` did not complete within a bounded smoke timeout, even with a very small universe:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+timeout 45s bash -lc 'uv run python dipbuyer_alert.py --limit 5 --min-score 6 --universe-size 20'
+```
+
+This exited with code `124` and did not emit a final alert payload before the timeout.
+
+This also matches the earlier reduced `daytime_flow.sh` smoke, which progressed through:
+
+- market-data ops
+- market regime
+- leader buckets
+- CANSLIM
+
+and then effectively stalled once it reached Dip Buyer under the same degraded provider window.
+
+#### Why this matters
+
+- `cday` can still feel stuck/slow even though the original formatter crash is fixed
+- Telegram-facing daytime flows may still arrive too late in degraded market-data conditions
+- this is now the main remaining end-to-end latency risk in the daytime operator path
+
+#### Likely cause
+
+Most likely candidates:
+
+- Dip Buyer is still doing too much live work before it can emit a degraded-safe result
+- quote/history fetches may not be short-circuiting aggressively enough during `provider_cooldown`
+- degraded-path messaging is good, but degraded-path runtime is still too expensive
+
+#### Suggested next fix
+
+- trace Dip Buyer stage timings under `provider_cooldown`
+- add bounded stale-safe fast path similar to the one now used in prediction settlement/reporting
+- ensure a degraded/no-trade operator output can be produced quickly without waiting on full live enrichment
+
+### Round 2 overall read
+
+- No new blockers were found in automated coverage
+- Most operator surfaces behaved correctly and truthfully under degraded live conditions
+- The main remaining operational weakness is Dip Buyer latency during provider cooldown

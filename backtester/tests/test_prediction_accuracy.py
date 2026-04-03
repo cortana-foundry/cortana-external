@@ -244,7 +244,9 @@ def test_prediction_accuracy_skips_fresh_settlement_when_market_data_unavailable
 
     settled = settle_prediction_snapshots(root=tmp_path, provider=_ExplodingProvider(), now=generated_at + timedelta(days=30))
 
-    assert settled[0]["records"][0]["symbol"] == "AAPL"
+    assert settled == []
+    persisted = json.loads((settled_dir / path.name).read_text(encoding="utf-8"))
+    assert persisted["records"][0]["symbol"] == "AAPL"
 
 
 def test_prediction_snapshot_contract_requires_reason(tmp_path):
