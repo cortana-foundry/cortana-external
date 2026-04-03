@@ -70,9 +70,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Add a `weights.py` module for regime/session-aware strategy weights, veto weights, uncertainty penalties, and bounded change rates.
-- Sub-task 2: Integrate existing confidence and comparison outputs into adaptive weight snapshots without changing live authority yet.
-- Sub-task 3: Add cold-start behavior, minimum sample enforcement, smoothing, and decay controls.
+- [x] Sub-task 1: Add a `weights.py` module for regime/session-aware strategy weights, veto weights, uncertainty penalties, and bounded change rates.
+- [x] Sub-task 2: Integrate existing confidence and comparison outputs into adaptive weight snapshots without changing live authority yet.
+- [x] Sub-task 3: Add cold-start behavior, minimum sample enforcement, smoothing, and decay controls.
 
 #### Important Planning Notes
 
@@ -95,9 +95,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Normalize X-based outputs into `new_tickers`, `repeated_tickers`, `accelerating_tickers`, and `crowded_tickers`.
-- Sub-task 2: Normalize Polymarket outputs into theme support/conflict and theme-to-ticker mappings.
-- Sub-task 3: Add explicit bounded rules so narrative outputs can prioritize discovery or nudge confidence, but never create standalone buy authority.
+- [x] Sub-task 1: Normalize X-based outputs into `new_tickers`, `repeated_tickers`, `accelerating_tickers`, and `crowded_tickers`.
+- [x] Sub-task 2: Normalize Polymarket outputs into theme support/conflict and theme-to-ticker mappings.
+- [x] Sub-task 3: Add explicit bounded rules so narrative outputs can prioritize discovery or nudge confidence, but never create standalone buy authority.
 
 #### Testing
 
