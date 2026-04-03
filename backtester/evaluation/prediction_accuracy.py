@@ -16,7 +16,11 @@ from evaluation.prediction_contract import (
     build_prediction_contract_records,
     serialize_prediction_contract_records,
 )
-from outcomes import SETTLEMENT_ARTIFACT_SCHEMA_VERSION, build_forward_settlement_snapshot
+from outcomes import (
+    SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+    build_action_aware_validation_grades,
+    build_forward_settlement_snapshot,
+)
 
 DEFAULT_HORIZONS = (1, 5, 20)
 
@@ -88,18 +92,24 @@ def settle_prediction_snapshots(
                 continue
             settlement = _settle_record(
                 symbol=symbol,
+                record=record,
                 generated_at=generated_at,
                 horizons=horizons,
                 provider=provider,
                 now=current_time,
             )
             settled_records.append({**record, **settlement})
+        settlement_summary = _build_settlement_summary(settled_records)
         out_payload = {
             "schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+            "artifact_family": "prediction_settlement",
             "strategy": payload.get("strategy"),
             "market_regime": payload.get("market_regime"),
             "generated_at": payload.get("generated_at"),
             "settled_at": current_time.isoformat(),
+            "settlement_horizons": [f"{horizon}d" for horizon in horizons],
+            "record_count": len(settled_records),
+            "settlement_summary": settlement_summary,
             "records": settled_records,
         }
         out_path.write_text(json.dumps(out_payload, indent=2), encoding="utf-8")
@@ -139,10 +149,21 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
                     horizon_status[horizon_key]["incomplete"] += 1
 
     artifact = {
+        "schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+        "artifact_family": "prediction_accuracy_summary",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "snapshot_count": snapshot_count,
         "record_count": record_count,
+        "settlement_horizons": [f"{horizon}d" for horizon in DEFAULT_HORIZONS],
         "horizon_status": horizon_status,
+        "settlement_status_counts": _count_record_field(records, "settlement_status"),
+        "maturity_state_counts": _count_record_field(records, "settlement_maturity_state"),
+        "validation_grade_counts": {
+            "signal_validation_grade": _count_record_field(records, "signal_validation_grade"),
+            "entry_validation_grade": _count_record_field(records, "entry_validation_grade"),
+            "execution_validation_grade": _count_record_field(records, "execution_validation_grade"),
+            "trade_validation_grade": _count_record_field(records, "trade_validation_grade"),
+        },
         "summary": _build_group_summary(records, group_fields=("strategy", "action")),
         "by_regime": _build_group_summary(records, group_fields=("strategy", "market_regime", "action")),
         "by_confidence_bucket": _build_group_summary(records, group_fields=("strategy", "confidence_bucket", "action")),
@@ -156,6 +177,7 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
 def _settle_record(
     *,
     symbol: str,
+    record: dict,
     generated_at: datetime,
     horizons: tuple[int, ...],
     provider: MarketDataProvider,
@@ -206,12 +228,22 @@ def _settle_record(
             "matured_coverage_pct": 0.0,
             "incomplete_coverage_pct": 1.0,
         }
-    return build_forward_settlement_snapshot(
+    settlement = build_forward_settlement_snapshot(
         history=history,
         generated_at=generated_at,
         horizons=horizons,
         now=now,
     )
+    enriched_validation = {**settlement}
+    grades = build_action_aware_validation_grades(
+        action=str(record.get("action") or "UNKNOWN"),
+        forward_returns_pct=dict(settlement.get("forward_returns_pct") or {}),
+        max_adverse_excursion_pct=dict(settlement.get("max_adverse_excursion_pct") or {}),
+        max_favorable_excursion_pct=dict(settlement.get("max_favorable_excursion_pct") or {}),
+        execution_policy_ref=record.get("execution_policy_ref"),
+    )
+    enriched_validation.update(grades)
+    return enriched_validation
 
 
 def _to_float(value: object) -> float | None:
@@ -247,6 +279,36 @@ def _confidence_bucket(value: object) -> str:
     if confidence >= 35:
         return "low"
     return "very_low"
+
+
+def _build_settlement_summary(records: list[dict]) -> dict:
+    status_counts: dict[str, int] = defaultdict(int)
+    maturity_counts: dict[str, int] = defaultdict(int)
+    validation_grade_counts: dict[str, dict[str, int]] = {
+        "signal_validation_grade": defaultdict(int),
+        "entry_validation_grade": defaultdict(int),
+        "execution_validation_grade": defaultdict(int),
+        "trade_validation_grade": defaultdict(int),
+    }
+    for record in records:
+        status_counts[str(record.get("settlement_status") or "unknown")] += 1
+        maturity_counts[str(record.get("settlement_maturity_state") or "unknown")] += 1
+        for key in validation_grade_counts:
+            validation_grade_counts[key][str(record.get(key) or "unknown")] += 1
+    return {
+        "status_counts": dict(status_counts),
+        "maturity_state_counts": dict(maturity_counts),
+        "validation_grade_counts": {
+            key: dict(value) for key, value in validation_grade_counts.items()
+        },
+    }
+
+
+def _count_record_field(records: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for record in records:
+        counts[str(record.get(key) or "unknown")] += 1
+    return dict(counts)
 
 
 def _decision_success(action: str, forward_return_pct: float) -> bool:

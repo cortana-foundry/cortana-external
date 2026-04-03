@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, Sequence
 import pandas as pd
 
 SETTLEMENT_ARTIFACT_SCHEMA_VERSION = 1
+DEFAULT_SETTLEMENT_VALIDATION_HORIZON = "5d"
 
 
 @dataclass(frozen=True)
@@ -340,6 +341,11 @@ def build_forward_settlement_snapshot(
             "pending_coverage_pct": 1.0,
             "matured_coverage_pct": 0.0,
             "incomplete_coverage_pct": 0.0,
+            "validation_horizon_key": None,
+            "signal_validation_grade": "pending",
+            "entry_validation_grade": "pending",
+            "execution_validation_grade": "pending",
+            "trade_validation_grade": "pending",
         }
 
     anchor_row = anchor.iloc[0]
@@ -364,6 +370,11 @@ def build_forward_settlement_snapshot(
             "pending_coverage_pct": 0.0,
             "matured_coverage_pct": 0.0,
             "incomplete_coverage_pct": 1.0,
+            "validation_horizon_key": None,
+            "signal_validation_grade": "incomplete",
+            "entry_validation_grade": "incomplete",
+            "execution_validation_grade": "incomplete",
+            "trade_validation_grade": "incomplete",
         }
 
     forward_returns: Dict[str, float] = {}
@@ -420,6 +431,13 @@ def build_forward_settlement_snapshot(
         settlement_status = "insufficient_data"
         maturity_state = "incomplete"
 
+    validation = build_action_aware_validation_grades(
+        action="UNKNOWN",
+        forward_returns_pct=forward_returns,
+        max_adverse_excursion_pct=max_adverse_excursion,
+        max_favorable_excursion_pct=max_favorable_excursion,
+    )
+
     return {
         "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
         "settlement_status": settlement_status,
@@ -437,7 +455,151 @@ def build_forward_settlement_snapshot(
         "pending_coverage_pct": pending_coverage_pct,
         "matured_coverage_pct": matured_coverage_pct,
         "incomplete_coverage_pct": incomplete_coverage_pct,
+        **validation,
     }
+
+
+def build_action_aware_validation_grades(
+    *,
+    action: str,
+    forward_returns_pct: Dict[str, float] | None,
+    max_adverse_excursion_pct: Dict[str, float] | None,
+    max_favorable_excursion_pct: Dict[str, float] | None,
+    execution_policy_ref: str | None = None,
+    preferred_horizon_key: str = DEFAULT_SETTLEMENT_VALIDATION_HORIZON,
+) -> Dict[str, str | None]:
+    forward_returns_pct = dict(forward_returns_pct or {})
+    max_adverse_excursion_pct = dict(max_adverse_excursion_pct or {})
+    max_favorable_excursion_pct = dict(max_favorable_excursion_pct or {})
+    validation_horizon_key = _select_validation_horizon_key(
+        list(forward_returns_pct.keys()),
+        preferred=preferred_horizon_key,
+    )
+    if not validation_horizon_key:
+        return {
+            "validation_horizon_key": None,
+            "signal_validation_grade": "pending",
+            "entry_validation_grade": "pending",
+            "execution_validation_grade": "pending" if execution_policy_ref else "unknown",
+            "trade_validation_grade": "pending",
+        }
+
+    action = str(action or "UNKNOWN").strip().upper()
+    forward_return = _safe_float(forward_returns_pct.get(validation_horizon_key))
+    adverse_excursion = _safe_float(max_adverse_excursion_pct.get(validation_horizon_key))
+    favorable_excursion = _safe_float(max_favorable_excursion_pct.get(validation_horizon_key))
+
+    signal_grade = _grade_signal_validation(action=action, forward_return_pct=forward_return)
+    entry_grade = _grade_entry_validation(
+        action=action,
+        forward_return_pct=forward_return,
+        max_adverse_excursion_pct=adverse_excursion,
+        max_favorable_excursion_pct=favorable_excursion,
+    )
+    execution_grade = _grade_execution_validation(
+        action=action,
+        execution_policy_ref=execution_policy_ref,
+        max_adverse_excursion_pct=adverse_excursion,
+    )
+    trade_grade = _grade_trade_validation(signal_grade, entry_grade, execution_grade)
+    return {
+        "validation_horizon_key": validation_horizon_key,
+        "signal_validation_grade": signal_grade,
+        "entry_validation_grade": entry_grade,
+        "execution_validation_grade": execution_grade,
+        "trade_validation_grade": trade_grade,
+    }
+
+
+def _select_validation_horizon_key(horizon_keys: Sequence[str], *, preferred: str) -> str | None:
+    cleaned = [str(key or "").strip() for key in horizon_keys if str(key or "").strip()]
+    if not cleaned:
+        return None
+    if preferred in cleaned:
+        return preferred
+
+    def _sort_key(key: str) -> int:
+        try:
+            return int(key.rstrip("d"))
+        except Exception:
+            return 0
+
+    return sorted(cleaned, key=_sort_key)[-1]
+
+
+def _grade_signal_validation(*, action: str, forward_return_pct: float | None) -> str:
+    if forward_return_pct is None:
+        return "pending"
+    if action == "NO_BUY":
+        if forward_return_pct <= 0.0:
+            return "good"
+        if forward_return_pct <= 2.0:
+            return "mixed"
+        return "poor"
+    if forward_return_pct >= 3.0:
+        return "good"
+    if forward_return_pct > 0.0:
+        return "mixed"
+    return "poor"
+
+
+def _grade_entry_validation(
+    *,
+    action: str,
+    forward_return_pct: float | None,
+    max_adverse_excursion_pct: float | None,
+    max_favorable_excursion_pct: float | None,
+) -> str:
+    if action == "NO_BUY":
+        return "not_applicable"
+    if forward_return_pct is None:
+        return "pending"
+    if max_adverse_excursion_pct is None or max_favorable_excursion_pct is None:
+        return "unknown"
+    if forward_return_pct > 0 and max_adverse_excursion_pct >= -2.0 and max_favorable_excursion_pct >= 2.0:
+        return "good"
+    if max_adverse_excursion_pct >= -5.0 and max_favorable_excursion_pct >= 0.0:
+        return "mixed"
+    return "poor"
+
+
+def _grade_execution_validation(
+    *,
+    action: str,
+    execution_policy_ref: str | None,
+    max_adverse_excursion_pct: float | None,
+) -> str:
+    if action == "NO_BUY":
+        return "not_applicable"
+    if not str(execution_policy_ref or "").strip():
+        return "unknown"
+    if max_adverse_excursion_pct is None:
+        return "pending"
+    if max_adverse_excursion_pct >= -2.0:
+        return "good"
+    if max_adverse_excursion_pct >= -5.0:
+        return "mixed"
+    return "poor"
+
+
+def _grade_trade_validation(signal_grade: str, entry_grade: str, execution_grade: str) -> str:
+    ranked = {"good": 3, "mixed": 2, "unknown": 1, "not_applicable": 1, "pending": 0, "incomplete": 0, "poor": -1}
+    applicable = [grade for grade in (signal_grade, entry_grade, execution_grade) if grade not in {"not_applicable"}]
+    if not applicable:
+        return "unknown"
+    if any(grade == "poor" for grade in applicable):
+        return "poor"
+    if any(grade == "pending" for grade in applicable):
+        return "pending"
+    if any(grade == "incomplete" for grade in applicable):
+        return "incomplete"
+    if all(grade == "good" for grade in applicable if grade in ranked):
+        return "good"
+    if any(grade == "mixed" for grade in applicable):
+        return "mixed"
+    if any(grade == "unknown" for grade in applicable):
+        return "unknown"
+    return "mixed"
 
 
 def _extract_value(record: Any, key: str) -> Any:

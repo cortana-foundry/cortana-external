@@ -88,8 +88,18 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert settled_record["pending_coverage_pct"] == 0.0
     assert settled_record["max_favorable_excursion_pct"]["20d"] == 20.0
     assert settled_record["max_adverse_excursion_pct"]["20d"] == 0.0
+    assert settled_record["validation_horizon_key"] == "5d"
+    assert settled_record["signal_validation_grade"] == "good"
+    assert settled_record["entry_validation_grade"] == "good"
+    assert settled_record["execution_validation_grade"] == "unknown"
+    assert settled_record["trade_validation_grade"] == "unknown"
     summary = build_prediction_accuracy_summary(root=tmp_path)
 
+    assert summary["schema_version"] == 1
+    assert summary["artifact_family"] == "prediction_accuracy_summary"
+    assert summary["settlement_status_counts"]["settled"] == 1
+    assert summary["maturity_state_counts"]["matured"] == 1
+    assert summary["validation_grade_counts"]["signal_validation_grade"]["good"] == 1
     assert summary["snapshot_count"] == 1
     assert summary["record_count"] == 1
     assert summary["horizon_status"]["1d"]["matured"] == 1
@@ -309,3 +319,42 @@ def test_prediction_settlement_tracks_pending_and_incomplete_horizons(tmp_path):
     assert record["incomplete_horizons"] == ["5d", "20d"]
     assert record["matured_coverage_pct"] == 0.3333
     assert record["incomplete_coverage_pct"] == 0.6667
+    assert record["settlement_maturity_state"] == "partial"
+    assert record["signal_validation_grade"] == "good"
+    assert record["entry_validation_grade"] == "good"
+    assert record["execution_validation_grade"] == "unknown"
+    assert record["trade_validation_grade"] == "unknown"
+
+
+def test_prediction_settlement_grades_no_buy_avoidance(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    persist_prediction_snapshot(
+        strategy="canslim",
+        market_regime="correction",
+        records=[{
+            "symbol": "MSFT",
+            "action": "NO_BUY",
+            "score": 6,
+            "effective_confidence": 29,
+            "confidence": 29,
+            "risk": "high",
+            "market_regime": "correction",
+            "breadth_state": None,
+            "entry_plan_ref": None,
+            "execution_policy_ref": None,
+            "vetoes": ["market_regime"],
+            "reason": "test",
+        }],
+        root=tmp_path,
+        generated_at=generated_at,
+    )
+
+    settle_prediction_snapshots(root=tmp_path, provider=_NegativeStubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    record = settled_payload["records"][0]
+    assert record["signal_validation_grade"] == "good"
+    assert record["entry_validation_grade"] == "not_applicable"
+    assert record["execution_validation_grade"] == "not_applicable"
+    assert record["trade_validation_grade"] == "good"
