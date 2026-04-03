@@ -50,9 +50,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create shared lifecycle objects under a new `backtester/lifecycle/` package for `EntryPlan`, `OpenPosition`, `ClosedPosition`, `ExitDecision`, and `PositionReview`.
-- Sub-task 2: Define serialization and lineage rules so positions can be traced from prediction -> entry plan -> open position -> close -> review.
-- Sub-task 3: Add durable ledger writers/readers for open and closed paper positions.
+- [x] Sub-task 1: Create shared lifecycle objects under a new `backtester/lifecycle/` package for `EntryPlan`, `OpenPosition`, `ClosedPosition`, `ExitDecision`, and `PositionReview`.
+- [x] Sub-task 2: Define serialization and lineage rules so positions can be traced from prediction -> entry plan -> open position -> close -> review.
+- [x] Sub-task 3: Add durable ledger writers/readers for open and closed paper positions.
 
 #### Testing
 
@@ -70,9 +70,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Add a shared entry-plan builder with strategy-specific branches for CANSLIM breakout logic vs Dip Buyer rebound logic.
-- Sub-task 2: Update `backtester/canslim_alert.py` and `backtester/dipbuyer_alert.py` to emit full entry-plan artifacts and preview-plan behavior for `WATCH`.
-- Sub-task 3: Add degraded-risky suppression so plans are not emitted when inputs are too weak.
+- [x] Sub-task 1: Add a shared entry-plan builder with strategy-specific branches for CANSLIM breakout logic vs Dip Buyer rebound logic.
+- [x] Sub-task 2: Update `backtester/canslim_alert.py` and `backtester/dipbuyer_alert.py` to emit full entry-plan artifacts and preview-plan behavior for `WATCH`.
+- [x] Sub-task 3: Add degraded-risky suppression so plans are not emitted when inputs are too weak.
 
 #### Testing
 

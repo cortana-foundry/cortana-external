@@ -31,9 +31,12 @@ class _FakeCanSlimAdvisor:
                 "total_score": 8,
                 "data_source": "schwab",
                 "data_staleness_seconds": 14.0,
+                "price": 100.0,
                 "recommendation": {
                     "action": "BUY",
                     "reason": "Strong setup",
+                    "entry": 100.0,
+                    "stop_loss": 93.0,
                     "trade_quality_score": 82.0,
                     "effective_confidence": 76.0,
                 },
@@ -73,9 +76,12 @@ class _FakeDipBuyerAdvisor:
                 "total_score": 9,
                 "data_source": "schwab",
                 "data_staleness_seconds": 22.0,
+                "price": 50.0,
                 "recommendation": {
                     "action": "BUY",
                     "reason": "Strong rebound",
+                    "entry": 50.0,
+                    "stop_loss": 46.0,
                     "trade_quality_score": 79.0,
                     "effective_confidence": 73.0,
                 },
@@ -113,6 +119,8 @@ def test_canslim_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["inputs"]["source_counts"] == {"schwab": 1, "cache": 1}
     assert payload["signals"][0]["symbol"] == "MSFT"
     assert payload["signals"][0]["data_source"] == "schwab"
+    assert payload["signals"][0]["entry_plan"]["action_context"] == "BUY"
+    assert payload["entry_plans"][0]["entry_style"] == "breakout_buy_zone"
     assert payload["render_lines"][0] == "CANSLIM Scan"
 
 
@@ -143,6 +151,8 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["inputs"]["source_counts"] == {"schwab": 1}
     assert payload["overlays"]["breadth"]["override_state"] == "inactive"
     assert payload["signals"][0]["symbol"] == "MSFT"
+    assert payload["signals"][0]["entry_plan"]["action_context"] == "BUY"
+    assert payload["entry_plans"][0]["entry_style"] == "reversal_reclaim"
     assert payload["render_lines"][0] == "Dip Buyer Scan"
 
 

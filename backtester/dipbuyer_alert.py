@@ -35,6 +35,7 @@ from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annota
 from evaluation.failure_taxonomy import classify_strategy_outcome
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
+from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
 from strategies.dip_buyer import DIPBUYER_CONFIG
 
 
@@ -222,6 +223,7 @@ def _build_prediction_record(
         "action": action,
         "reason": reason,
         "rec": rec,
+        "price": rec.get("entry", context.get("price")),
         "sentiment_tag": sentiment_tag,
         "confidence": contract_fields.get("confidence"),
         "risk": contract_fields.get("risk"),
@@ -666,6 +668,7 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "score": int(record.get("score", 0) or 0),
                 "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
                 "reason": str(record.get("reason", "") or ""),
+                "price": float(record.get("price", 0.0) or 0.0),
                 "sentiment_tag": str(record.get("sentiment_tag", "") or ""),
                 "confidence": float(record.get("confidence", record.get("effective_confidence", 0.0)) or 0.0),
                 "risk": str(record.get("risk", "unknown") or "unknown"),
@@ -756,6 +759,11 @@ def _finalize_alert_payload(
         },
         "render_lines": list(lines),
     }
+    payload = annotate_alert_payload_with_entry_plans(
+        strategy=strategy,
+        payload=payload,
+        generated_at=generated_at,
+    )
     return annotate_artifact(
         payload,
         artifact_family=ARTIFACT_FAMILY_STRATEGY_ALERT,
