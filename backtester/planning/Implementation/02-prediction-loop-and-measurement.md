@@ -49,7 +49,7 @@ Week 5: V6 + replay/regression cleanup
 #### Jira
 
 - [x] Sub-task 1: Create a central prediction contract helper under `backtester/evaluation` that standardizes required fields such as symbol, strategy, action, confidence, risk, regime, breadth state, entry-plan reference, execution-policy reference, reason, timestamp, and schema metadata.
-- Sub-task 2: Update `backtester/advisor.py`, `backtester/canslim_alert.py`, and `backtester/dipbuyer_alert.py` so each emitted prediction snapshot includes the full contract, even if some fields are presently null placeholders for later workstreams.
+- [x] Sub-task 2: Update `backtester/advisor.py`, `backtester/canslim_alert.py`, and `backtester/dipbuyer_alert.py` so each emitted prediction snapshot includes the full contract, even if some fields are presently null placeholders for later workstreams.
 - Sub-task 3: Add validation helpers so incomplete predictions fail tests instead of silently writing partial artifacts.
 
 #### Testing

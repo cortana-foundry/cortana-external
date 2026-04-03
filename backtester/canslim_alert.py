@@ -124,6 +124,72 @@ def _persist_predictions(*, market: object, records: list[dict]) -> None:
         return
 
 
+def _build_prediction_record(
+    *,
+    symbol: str,
+    score: int,
+    action: str,
+    reason: str,
+    market_regime: str,
+    analysis: dict[str, Any] | None = None,
+    recommendation: dict[str, Any] | None = None,
+    execution_overlay: dict[str, Any] | None = None,
+    vetoes: list[str] | None = None,
+) -> dict[str, Any]:
+    rec = dict(recommendation or {})
+    context = dict(analysis or {})
+    if vetoes is not None:
+        context["vetoes"] = list(vetoes)
+    contract_fields = TradingAdvisor.build_prediction_contract_context(
+        strategy="canslim",
+        recommendation={**rec, "action": action, "reason": reason},
+        analysis={**context, "market_regime": market_regime},
+        execution_overlay=execution_overlay,
+    )
+    has_risk_telemetry = any(
+        key in rec or key in context
+        for key in (
+            "trade_quality_score",
+            "effective_confidence",
+            "uncertainty_pct",
+            "downside_penalty",
+            "churn_penalty",
+            "adverse_regime_score",
+            "adverse_regime_label",
+        )
+    ) or bool(rec.get("abstain", context.get("abstain", False)))
+    return {
+        "symbol": symbol,
+        "score": score,
+        "action": action,
+        "reason": reason,
+        "rec": rec,
+        "confidence": contract_fields.get("confidence"),
+        "risk": contract_fields.get("risk"),
+        "market_regime": contract_fields.get("market_regime"),
+        "breadth_state": contract_fields.get("breadth_state"),
+        "entry_plan_ref": contract_fields.get("entry_plan_ref"),
+        "execution_policy_ref": contract_fields.get("execution_policy_ref"),
+        "vetoes": list(contract_fields.get("vetoes") or []),
+        "trade_quality_score": rec.get("trade_quality_score", context.get("trade_quality_score", score)),
+        "effective_confidence": rec.get("effective_confidence", context.get("effective_confidence", context.get("confidence", 0))),
+        "uncertainty_pct": rec.get("uncertainty_pct", context.get("uncertainty_pct", 0)),
+        "downside_penalty": rec.get("downside_penalty", context.get("downside_penalty", 0.0)),
+        "churn_penalty": rec.get("churn_penalty", context.get("churn_penalty", 0.0)),
+        "adverse_regime_score": rec.get("adverse_regime_score", context.get("adverse_regime_score", context.get("adverse_regime", {}).get("score", 0.0))),
+        "adverse_regime_label": rec.get("adverse_regime_label", context.get("adverse_regime_label", context.get("adverse_regime", {}).get("label", "normal"))),
+        "abstain": rec.get("abstain", context.get("abstain", False)),
+        "abstain_reasons": rec.get("abstain_reasons", context.get("abstain_reasons", [])),
+        "abstain_reason_codes": rec.get("abstain_reason_codes", context.get("abstain_reason_codes", [])),
+        "sentiment_veto": bool(context.get("sentiment_overlay", {}).get("veto", False)),
+        "exit_risk_veto": bool(context.get("exit_risk", {}).get("veto", False)),
+        "market_regime_blocked": "market_regime" in (contract_fields.get("vetoes") or []),
+        "has_risk_telemetry": has_risk_telemetry,
+        "data_source": context.get("data_source", "unknown"),
+        "data_staleness_seconds": float(context.get("data_staleness_seconds", 0.0) or 0.0),
+    }
+
+
 def _dedupe_reason(reason: str) -> str:
     reason = re.sub(r"\s+", " ", (reason or "").strip())
     return reason.rstrip(".")
@@ -474,6 +540,13 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "score": int(record.get("score", 0) or 0),
                 "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
                 "reason": str(record.get("reason", "") or ""),
+                "confidence": float(record.get("confidence", record.get("effective_confidence", 0.0)) or 0.0),
+                "risk": str(record.get("risk", "unknown") or "unknown"),
+                "market_regime": str(record.get("market_regime", "unknown") or "unknown"),
+                "breadth_state": record.get("breadth_state"),
+                "entry_plan_ref": record.get("entry_plan_ref"),
+                "execution_policy_ref": record.get("execution_policy_ref"),
+                "vetoes": list(record.get("vetoes", []) or []),
                 "trade_quality_score": float(record.get("trade_quality_score", 0.0) or 0.0),
                 "effective_confidence": float(record.get("effective_confidence", 0.0) or 0.0),
                 "uncertainty_pct": float(record.get("uncertainty_pct", 0.0) or 0.0),
@@ -637,7 +710,18 @@ def build_alert_payload(
         lines.append(f"Adverse regime: {stress['label']} ({float(stress['score']):.0f}) -- {stress['reason']}")
 
     if getattr(getattr(market, "regime", None), "value", "") == "correction":
-        blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
+        blocked = [
+            _build_prediction_record(
+                symbol=s,
+                score=0,
+                action="NO_BUY",
+                reason=market.notes or "market correction gate",
+                market_regime=regime_value,
+                execution_overlay=execution_overlay,
+                vetoes=["market_regime"],
+            )
+            for s in symbols[:limit]
+        ]
         _persist_predictions(market=market, records=blocked)
         posture_line = describe_alert_posture(market_regime=regime_value, buy_count=0, watch_count=0)
         if posture_line:
@@ -716,41 +800,19 @@ def build_alert_payload(
         action = rec.get("action", "NO_BUY")
         reason = rec.get("reason") or "No reason provided."
 
-        has_risk_telemetry = any(
-            key in rec or key in analysis
-            for key in (
-                "trade_quality_score",
-                "effective_confidence",
-                "uncertainty_pct",
-                "downside_penalty",
-                "churn_penalty",
-                "adverse_regime_score",
-                "adverse_regime_label",
-            )
-        ) or bool(rec.get("abstain", analysis.get("abstain", False)))
-        record = {
-            "symbol": symbol,
-            "score": score,
-            "action": action,
-            "reason": reason,
-            "rec": rec,
-            "trade_quality_score": rec.get("trade_quality_score", analysis.get("trade_quality_score", score)),
-            "effective_confidence": rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))),
-            "uncertainty_pct": rec.get("uncertainty_pct", analysis.get("uncertainty_pct", 0)),
-            "downside_penalty": rec.get("downside_penalty", analysis.get("downside_penalty", 0.0)),
-            "churn_penalty": rec.get("churn_penalty", analysis.get("churn_penalty", 0.0)),
-            "adverse_regime_score": rec.get("adverse_regime_score", analysis.get("adverse_regime_score", analysis.get("adverse_regime", {}).get("score", 0.0))),
-            "adverse_regime_label": rec.get("adverse_regime_label", analysis.get("adverse_regime_label", analysis.get("adverse_regime", {}).get("label", "normal"))),
-            "abstain": rec.get("abstain", analysis.get("abstain", False)),
-            "abstain_reasons": rec.get("abstain_reasons", analysis.get("abstain_reasons", [])),
-            "abstain_reason_codes": rec.get("abstain_reason_codes", analysis.get("abstain_reason_codes", [])),
-            "sentiment_veto": bool(analysis.get("sentiment_overlay", {}).get("veto", False)),
-            "exit_risk_veto": bool(analysis.get("exit_risk", {}).get("veto", False)),
-            "market_regime_blocked": action == "NO_BUY" and "market in correction" in reason.lower(),
-            "has_risk_telemetry": has_risk_telemetry,
-            "data_source": analysis.get("data_source", "unknown"),
-            "data_staleness_seconds": float(analysis.get("data_staleness_seconds", 0.0) or 0.0),
-        }
+        record = _build_prediction_record(
+            symbol=symbol,
+            score=score,
+            action=action,
+            reason=reason,
+            market_regime=regime_value,
+            analysis={
+                **analysis,
+                "market_regime_blocked": action == "NO_BUY" and "market in correction" in reason.lower(),
+            },
+            recommendation=rec,
+            execution_overlay=execution_overlay,
+        )
         if score >= min_score:
             passed.append(record)
         else:

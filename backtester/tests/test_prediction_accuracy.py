@@ -132,3 +132,36 @@ def test_prediction_snapshot_contract_requires_reason(tmp_path):
         assert "requires a reason" in str(error)
     else:
         raise AssertionError("persist_prediction_snapshot should reject records without a reason")
+
+
+def test_prediction_snapshot_contract_preserves_explicit_fields(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[
+            {
+                "symbol": "NVDA",
+                "action": "WATCH",
+                "score": 9,
+                "effective_confidence": 68,
+                "risk": "medium",
+                "breadth_state": "inactive",
+                "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+                "execution_policy_ref": "execution.good.tight",
+                "vetoes": ["market_regime", "abstain:confidence"],
+                "reason": "Breadth is inactive so the setup stays watch-only.",
+            }
+        ],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    record = payload["records"][0]
+    assert record["risk"] == "medium"
+    assert record["breadth_state"] == "inactive"
+    assert record["entry_plan_ref"] == "dip_buyer.reversal_watch_v1"
+    assert record["execution_policy_ref"] == "execution.good.tight"
+    assert record["vetoes"] == ["market_regime", "abstain:confidence"]
