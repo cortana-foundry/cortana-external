@@ -133,6 +133,32 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: ["OXY", "FANG"])
     monkeypatch.setattr(
         module,
+        "load_shadow_inputs",
+        lambda: (
+            {"comparisons": {"by_strategy_action": [{"strategy": "dip_buyer", "action": "BUY", "settled_count": 25, "mean_return_pct": 3.0, "hit_rate": 0.62, "expectancy": 1.5}]}},
+            {"summary": {"by_confidence_bucket": [{"confidence_bucket": "high", "sample_count": 25, "avg_return_pct": 2.5, "hit_rate": 0.64}]}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_surface_research_runtime",
+        lambda generated_at: {
+            "artifact_family": "research_runtime_snapshot",
+            "summary": {
+                "health_status": "degraded",
+                "hot_count": 0,
+                "fresh_count": 0,
+                "stale_usable_count": 0,
+                "summary_line": "Research plane has no hot-path artifacts yet; decisions are not blocked.",
+            },
+            "hot_path_reads": [],
+            "warm_lane_registry": [],
+            "cold_lane_registry": [],
+        },
+    )
+    monkeypatch.setattr(
+        module,
         "requests",
         SimpleNamespace(
             get=lambda *args, **kwargs: SimpleNamespace(
@@ -168,8 +194,14 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["focus"]["symbols"] == ["OXY", "FANG", "NVDA"]
     assert snapshot["regime"]["display"] == "CORRECTION"
     assert snapshot["intraday_breadth"]["override_state"] == "inactive"
+    assert snapshot["decision_state"]["artifact_family"] == "decision_state"
+    assert snapshot["adaptive_weights"]["artifact_family"] == "adaptive_weight_snapshot"
+    assert snapshot["research_runtime"]["artifact_family"] == "research_runtime_snapshot"
+    assert snapshot["shadow_review"]["artifact_family"] == "decision_brain_shadow_review"
     assert snapshot["operator_summary"]["headline"].endswith("| size 0%")
     assert "Tape is using fresh live quotes." == snapshot["operator_summary"]["read_this_as"]["tape"]
+    assert snapshot["operator_summary"]["read_this_as"]["narrative"].startswith("Narrative overlay is nudging confidence toward")
+    assert snapshot["operator_summary"]["read_this_as"]["research"].startswith("Research plane has no hot-path artifacts yet")
     assert snapshot["operator_summary"]["read_this_as"]["focus"].startswith("OXY, FANG, NVDA.")
     assert snapshot["freshness"]["tape_primary_source"] == "schwab"
 
@@ -187,6 +219,9 @@ def test_format_operator_text_renders_human_summary():
                 "tape": "Tape is using fresh live quotes.",
                 "macro": "Macro overlay is watch (30m old).",
                 "breadth": "Intraday breadth is unavailable because live inputs are missing.",
+                "narrative": "Narrative overlay is bounded; no extra authority is active.",
+                "research": "Research plane has no hot-path artifacts yet; decisions are not blocked.",
+                "shadow": "Shadow review: live posture WATCH; shadow posture WATCH; session OPEN.",
                 "focus": "OXY, GEV, FANG. Focus names came from the leader-priority list.",
             },
         },
@@ -198,6 +233,9 @@ def test_format_operator_text_renders_human_summary():
     assert "OPEN: WATCH | CORRECTION | size 0%" in text
     assert "Status: valid defensive snapshot; market regime is blocking new risk." in text
     assert "Session: This is a regular session snapshot." in text
+    assert "Narrative: Narrative overlay is bounded; no extra authority is active." in text
+    assert "Research: Research plane has no hot-path artifacts yet; decisions are not blocked." in text
+    assert "Shadow: Shadow review: live posture WATCH; shadow posture WATCH; session OPEN." in text
     assert "Warnings: one, two, three" in text
 
 

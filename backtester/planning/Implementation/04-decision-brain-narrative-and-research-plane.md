@@ -48,9 +48,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Create a shared decision-state contract and serializer under a new `backtester/decision_brain/` package.
-- Sub-task 2: Create shared research artifact contracts under `backtester/research/` with `schema_version`, `producer`, `known_at`, `generated_at`, freshness TTL, health, degraded reason, and provenance.
-- Sub-task 3: Document producer/consumer ownership for TS-owned narrative or research fetchers and Python-owned synthesis artifacts.
+- [x] Sub-task 1: Create a shared decision-state contract and serializer under a new `backtester/decision_brain/` package.
+- [x] Sub-task 2: Create shared research artifact contracts under `backtester/research/` with `schema_version`, `producer`, `known_at`, `generated_at`, freshness TTL, health, degraded reason, and provenance.
+- [x] Sub-task 3: Document producer/consumer ownership for TS-owned narrative or research fetchers and Python-owned synthesis artifacts.
 
 #### Testing
 
@@ -70,9 +70,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Add a `weights.py` module for regime/session-aware strategy weights, veto weights, uncertainty penalties, and bounded change rates.
-- Sub-task 2: Integrate existing confidence and comparison outputs into adaptive weight snapshots without changing live authority yet.
-- Sub-task 3: Add cold-start behavior, minimum sample enforcement, smoothing, and decay controls.
+- [x] Sub-task 1: Add a `weights.py` module for regime/session-aware strategy weights, veto weights, uncertainty penalties, and bounded change rates.
+- [x] Sub-task 2: Integrate existing confidence and comparison outputs into adaptive weight snapshots without changing live authority yet.
+- [x] Sub-task 3: Add cold-start behavior, minimum sample enforcement, smoothing, and decay controls.
 
 #### Important Planning Notes
 
@@ -95,9 +95,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Normalize X-based outputs into `new_tickers`, `repeated_tickers`, `accelerating_tickers`, and `crowded_tickers`.
-- Sub-task 2: Normalize Polymarket outputs into theme support/conflict and theme-to-ticker mappings.
-- Sub-task 3: Add explicit bounded rules so narrative outputs can prioritize discovery or nudge confidence, but never create standalone buy authority.
+- [x] Sub-task 1: Normalize X-based outputs into `new_tickers`, `repeated_tickers`, `accelerating_tickers`, and `crowded_tickers`.
+- [x] Sub-task 2: Normalize Polymarket outputs into theme support/conflict and theme-to-ticker mappings.
+- [x] Sub-task 3: Add explicit bounded rules so narrative outputs can prioritize discovery or nudge confidence, but never create standalone buy authority.
 
 #### Testing
 
@@ -117,9 +117,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/data/intraday_breadth.py` into a state machine with `inactive`, `watch_only`, `selective_buy`, and `unavailable`.
-- Sub-task 2: Add weekly/daily/short-term confirmation helpers for timing refinement.
-- Sub-task 3: Add rules for narrow-rally rejection, persistence, session gating, and authority caps.
+- [x] Sub-task 1: Extend `backtester/data/intraday_breadth.py` into a state machine with `inactive`, `watch_only`, `selective_buy`, and `unavailable`.
+- [x] Sub-task 2: Add weekly/daily/short-term confirmation helpers for timing refinement.
+- [x] Sub-task 3: Add rules for narrow-rally rejection, persistence, session gating, and authority caps.
 
 #### Testing
 
@@ -137,9 +137,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Define hot-path read contracts for research artifacts used by `cday`, `cbreadth`, trading cron, and live scans.
-- Sub-task 2: Define warm-lane refresh jobs for earnings, catalysts, theme maps, and ticker research profiles.
-- Sub-task 3: Define cold-lane jobs for deep transcript and historical catalyst work, with clear scheduling and non-blocking rules.
+- [x] Sub-task 1: Define hot-path read contracts for research artifacts used by `cday`, `cbreadth`, trading cron, and live scans.
+- [x] Sub-task 2: Define warm-lane refresh jobs for earnings, catalysts, theme maps, and ticker research profiles.
+- [x] Sub-task 3: Define cold-lane jobs for deep transcript and historical catalyst work, with clear scheduling and non-blocking rules.
 
 #### Important Planning Notes
 
@@ -164,9 +164,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Update `market_brief_snapshot.py`, `advisor.py`, and related formatters to consume canonical decision-state and research artifacts.
-- Sub-task 2: Add shadow-mode artifacts that compare static vs adaptive state for operator review.
-- Sub-task 3: Add operator wording that explains selective-buy, crowding, narrative nudges, and research freshness without overstating authority.
+- [x] Sub-task 1: Update `market_brief_snapshot.py`, `advisor.py`, and related formatters to consume canonical decision-state and research artifacts.
+- [x] Sub-task 2: Add shadow-mode artifacts that compare static vs adaptive state for operator review.
+- [x] Sub-task 3: Add operator wording that explains selective-buy, crowding, narrative nudges, and research freshness without overstating authority.
 
 #### Testing
 

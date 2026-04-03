@@ -17,6 +17,11 @@ from zoneinfo import ZoneInfo
 import requests
 
 from advisor import TradingAdvisor
+from decision_brain.surfaces import (
+    build_market_brief_decision_bundle,
+    build_surface_research_runtime,
+    load_shadow_inputs,
+)
 from data.intraday_breadth import build_intraday_breadth_snapshot
 from data.leader_baskets import load_leader_priority_symbols
 from data.market_regime import MarketRegime, MarketStatus
@@ -453,6 +458,9 @@ def build_operator_summary(
     macro: dict[str, Any],
     breadth: dict[str, Any],
     focus: dict[str, Any],
+    research_runtime: dict[str, Any] | None = None,
+    shadow_review: dict[str, Any] | None = None,
+    narrative_overlay: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tape_source = str(tape.get("primary_source") or "unknown")
     breadth_state = str(breadth.get("override_state") or "unknown")
@@ -476,6 +484,8 @@ def build_operator_summary(
         breadth_read = f"Intraday breadth is unavailable because {breadth.get('override_reason', 'live breadth inputs are missing')}."
     elif breadth_state == "selective-buy":
         breadth_read = "Intraday breadth is strong enough to allow tightly selective buys."
+    elif breadth_state == "watch_only":
+        breadth_read = "Intraday breadth is constructive, but only supports watch-only posture."
     else:
         breadth_read = f"Intraday breadth state: {breadth_state}."
 
@@ -493,6 +503,49 @@ def build_operator_summary(
         regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
         regime_read = f"Market regime is {regime['display']} ({regime_age})."
 
+    research_summary = (research_runtime or {}).get("summary", {}) if isinstance(research_runtime, dict) else {}
+    research_read = str(
+        research_summary.get("summary_line") or "Research plane has no hot-path artifacts yet; decisions are not blocked."
+    ).strip()
+
+    narrative_priority = []
+    if isinstance(narrative_overlay, dict):
+        narrative_priority = [str(symbol).strip().upper() for symbol in (narrative_overlay.get("priority_symbols") or []) if str(symbol).strip()]
+        crowding = narrative_overlay.get("crowding_warnings") or []
+        confidence_nudges = narrative_overlay.get("confidence_nudges") or []
+        if crowding:
+            crowded_symbols = [str(item.get("symbol") or "").strip().upper() for item in crowding[:3] if str(item.get("symbol") or "").strip()]
+            if crowded_symbols:
+                narrative_read = (
+                    f"Narrative overlay is bounded; crowding is suppressing confidence on {', '.join(crowded_symbols)}."
+                )
+            else:
+                narrative_read = "Narrative overlay is bounded and crowding-aware."
+        elif narrative_priority:
+            narrative_read = f"Narrative overlay is prioritizing {', '.join(narrative_priority[:3])} for discovery only."
+        elif confidence_nudges:
+            nudged = []
+            for item in confidence_nudges:
+                symbol = str(item.get("symbol") or "").strip().upper()
+                if symbol and symbol not in nudged:
+                    nudged.append(symbol)
+            if nudged:
+                narrative_read = (
+                    f"Narrative overlay is nudging confidence toward {', '.join(nudged[:3])} from bounded theme support."
+                )
+            else:
+                narrative_read = "Narrative overlay is quiet; no bounded discovery nudges are active."
+        else:
+            narrative_read = "Narrative overlay is quiet; no bounded discovery nudges are active."
+    else:
+        narrative_read = "Narrative overlay is unavailable."
+
+    shadow_summary = (shadow_review or {}).get("summary_line", "") if isinstance(shadow_review, dict) else ""
+    if shadow_summary:
+        shadow_read = shadow_summary
+    else:
+        shadow_read = "Shadow review unavailable."
+
     headline = f"{session_phase}: {posture['action']} | {regime['display']} | size {regime['position_sizing_pct']:.0f}%"
     return {
         "headline": headline,
@@ -503,6 +556,9 @@ def build_operator_summary(
             "tape": tape_read,
             "macro": f"Macro overlay is {macro.get('state', 'unknown')} ({macro_age}).",
             "breadth": breadth_read,
+            "narrative": narrative_read,
+            "research": research_read,
+            "shadow": shadow_read,
             "focus": focus_line,
         },
     }
@@ -701,6 +757,24 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
     regime_payload = normalize_regime(status)
+    comparison_artifact, calibration_artifact, shadow_input_warnings = load_shadow_inputs()
+    warnings.extend(shadow_input_warnings)
+    research_runtime = build_surface_research_runtime(generated_at=generated_at)
+    decision_bundle = build_market_brief_decision_bundle(
+        generated_at=generated_at,
+        known_at=generated_at,
+        producer=MARKET_BRIEF_PRODUCER,
+        session_phase=session_phase,
+        regime=regime_payload,
+        posture=posture,
+        breadth=breadth,
+        tape=tape,
+        macro_report=macro_report,
+        focus=focus,
+        comparison_artifact=comparison_artifact,
+        calibration_artifact=calibration_artifact,
+        research_runtime=research_runtime,
+    )
     operator_summary = build_operator_summary(
         session_phase=session_phase,
         posture=posture,
@@ -709,6 +783,9 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         macro=macro,
         breadth=breadth,
         focus=focus,
+        research_runtime=research_runtime,
+        shadow_review=decision_bundle.get("shadow_review"),
+        narrative_overlay=decision_bundle.get("narrative_overlay"),
     )
 
     taxonomy = classify_market_brief_outcome(
@@ -733,6 +810,11 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         "tape": tape,
         "intraday_breadth": breadth,
         "focus": focus,
+        "decision_state": decision_bundle.get("decision_state"),
+        "adaptive_weights": decision_bundle.get("adaptive_weights"),
+        "narrative_overlay": decision_bundle.get("narrative_overlay"),
+        "research_runtime": research_runtime,
+        "shadow_review": decision_bundle.get("shadow_review"),
         "freshness": {
             "regime_snapshot_age_seconds": status.snapshot_age_seconds,
             "polymarket_age_hours": macro.get("freshness_hours"),
@@ -773,6 +855,9 @@ def format_operator_text(payload: dict[str, Any]) -> str:
         f"Tape: {read_this_as.get('tape', 'Unavailable')}",
         f"Macro: {read_this_as.get('macro', 'Unavailable')}",
         f"Breadth: {read_this_as.get('breadth', 'Unavailable')}",
+        f"Narrative: {read_this_as.get('narrative', 'Unavailable')}",
+        f"Research: {read_this_as.get('research', 'Unavailable')}",
+        f"Shadow: {read_this_as.get('shadow', 'Unavailable')}",
         f"Focus: {read_this_as.get('focus', 'Unavailable')}",
     ]
     warnings = payload.get("warnings", [])
