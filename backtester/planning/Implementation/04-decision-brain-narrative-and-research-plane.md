@@ -48,9 +48,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Create a shared decision-state contract and serializer under a new `backtester/decision_brain/` package.
-- Sub-task 2: Create shared research artifact contracts under `backtester/research/` with `schema_version`, `producer`, `known_at`, `generated_at`, freshness TTL, health, degraded reason, and provenance.
-- Sub-task 3: Document producer/consumer ownership for TS-owned narrative or research fetchers and Python-owned synthesis artifacts.
+- [x] Sub-task 1: Create a shared decision-state contract and serializer under a new `backtester/decision_brain/` package.
+- [x] Sub-task 2: Create shared research artifact contracts under `backtester/research/` with `schema_version`, `producer`, `known_at`, `generated_at`, freshness TTL, health, degraded reason, and provenance.
+- [x] Sub-task 3: Document producer/consumer ownership for TS-owned narrative or research fetchers and Python-owned synthesis artifacts.
 
 #### Testing
 
