@@ -22,6 +22,23 @@ Current location: `~/Developer/cortana-external/watchdog` · Status: **active** 
 
 All results logged to `cortana_events` table.
 
+## Related operator artifacts
+
+Use these when you want the structured operator view instead of raw shell logs:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+
+# What exists and what should be inspected
+uv run python runtime_inventory_snapshot.py --pretty
+
+# Current runtime health truth
+uv run python runtime_health_snapshot.py --pretty
+
+# Retention, backup, incident, and change-management plan
+uv run python ops_highway_snapshot.py --pretty
+```
+
 ## Install
 
 ```bash

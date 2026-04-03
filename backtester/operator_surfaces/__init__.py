@@ -8,6 +8,7 @@ from operator_surfaces.decision_contract import (
     validate_operator_payload,
 )
 from operator_surfaces.compatibility import assert_consumer_compatible
+from operator_surfaces.ops_highway import build_ops_highway_plan
 from operator_surfaces.renderers import (
     describe_operator_outcome,
     render_operator_payload,
@@ -19,6 +20,7 @@ __all__ = [
     "build_lifecycle_operator_payload",
     "build_market_brief_operator_payload",
     "build_operator_payload",
+    "build_ops_highway_plan",
     "describe_operator_outcome",
     "render_operator_payload",
     "validate_operator_payload",

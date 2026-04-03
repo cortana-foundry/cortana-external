@@ -110,6 +110,68 @@ Premarket / after-hours note:
 - if live tape is temporarily unavailable, the brief can fall back to previous-session cached tape instead of sending a raw 503-style tape error
 - Telegram formatting
 
+### Operator Surfaces: What To Read First
+
+You do not need to read every artifact every time.
+
+Use this simple ladder:
+
+- `cbreadth`
+  - the smallest answer
+  - use it for: "what is the market posture right now?"
+- `cday`
+  - the daytime operator surface
+  - use it for: "what should I pay attention to during the session?"
+- `cnight`
+  - the overnight operator surface
+  - use it for: "what changed, what settled, and what should I review tomorrow?"
+- `runtime_health_snapshot.py --pretty`
+  - the machine-health answer
+  - use it for: "is the live lane healthy enough to trust?"
+- `ops_highway_snapshot.py --pretty`
+  - the operating plan
+  - use it for: "what is critical, what should be backed up, and how do I recover?"
+
+Simple relationship:
+
+```mermaid
+flowchart LR
+    A["Machine truth<br/>decision state, lifecycle, governance, health"] --> B["Shared operator payload"]
+    B --> C["cbreadth"]
+    B --> D["cday"]
+    B --> E["cnight"]
+    B --> F["alerts / trading cron"]
+    G["Runtime inventory"] --> H["Runtime health snapshot"]
+    H --> I["Ops Highway plan"]
+```
+
+Short examples:
+
+- if `cbreadth` says `NO_BUY | CORRECTION`, do not go hunting for bullish meaning in some other surface
+- if `runtime_health_snapshot.py` is degraded, believe that warning before trusting a live scan
+- if `ops_highway_snapshot.py` marks an asset as critical, recovery depends on that file, service, or database
+
+### Ops Highway: What It Actually Means
+
+`Ops Highway` is just the safety lane for running the machine on the Mac mini.
+
+It answers:
+
+- what must be healthy?
+- what must be retained?
+- what must be backed up?
+- what do I inspect first when something breaks?
+- when is the machine getting too slow or too heavy?
+
+Think of it like this:
+
+```mermaid
+flowchart TD
+    A["Runtime inventory<br/>what exists"] --> B["Runtime health snapshot<br/>what is healthy right now"]
+    B --> C["Ops Highway plan<br/>what to retain, back up, inspect, and change carefully"]
+    C --> D["Operator commands<br/>cday, cnight, cbreadth"]
+```
+
 ### Streaming: When To Care
 
 For your normal operator routine:

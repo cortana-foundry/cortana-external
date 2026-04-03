@@ -33,6 +33,7 @@ Current stable families:
 - `operator_payload`
 - `runtime_inventory`
 - `runtime_health_snapshot`
+- `ops_highway_plan`
 - `strategy_alert`
 - `run_manifest`
 - `readiness_check`
@@ -137,6 +138,17 @@ Safe typed fields:
 - `delivery_health`
 - `incident_markers`
 - `inspection_paths`
+
+### `ops_highway_plan`
+
+Safe typed fields:
+
+- `retention_policies`
+- `backup_restore`
+- `incident_runbooks`
+- `capacity_thresholds`
+- `change_management`
+- `source_refs`
 
 ### `strategy_alert`
 
