@@ -50,9 +50,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create shared lifecycle objects under a new `backtester/lifecycle/` package for `EntryPlan`, `OpenPosition`, `ClosedPosition`, `ExitDecision`, and `PositionReview`.
-- Sub-task 2: Define serialization and lineage rules so positions can be traced from prediction -> entry plan -> open position -> close -> review.
-- Sub-task 3: Add durable ledger writers/readers for open and closed paper positions.
+- [x] Sub-task 1: Create shared lifecycle objects under a new `backtester/lifecycle/` package for `EntryPlan`, `OpenPosition`, `ClosedPosition`, `ExitDecision`, and `PositionReview`.
+- [x] Sub-task 2: Define serialization and lineage rules so positions can be traced from prediction -> entry plan -> open position -> close -> review.
+- [x] Sub-task 3: Add durable ledger writers/readers for open and closed paper positions.
 
 #### Testing
 
@@ -70,9 +70,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Add a shared entry-plan builder with strategy-specific branches for CANSLIM breakout logic vs Dip Buyer rebound logic.
-- Sub-task 2: Update `backtester/canslim_alert.py` and `backtester/dipbuyer_alert.py` to emit full entry-plan artifacts and preview-plan behavior for `WATCH`.
-- Sub-task 3: Add degraded-risky suppression so plans are not emitted when inputs are too weak.
+- [x] Sub-task 1: Add a shared entry-plan builder with strategy-specific branches for CANSLIM breakout logic vs Dip Buyer rebound logic.
+- [x] Sub-task 2: Update `backtester/canslim_alert.py` and `backtester/dipbuyer_alert.py` to emit full entry-plan artifacts and preview-plan behavior for `WATCH`.
+- [x] Sub-task 3: Add degraded-risky suppression so plans are not emitted when inputs are too weak.
 
 #### Testing
 
@@ -92,9 +92,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create an execution-policy module that tracks entry order type, gap handling, validity window, partial fills, cancel-if-not-filled, and execution timing assumption.
-- Sub-task 2: Integrate `backtester/data/liquidity_model.py` and related risk helpers into a reusable slippage / liquidity penalty layer.
-- Sub-task 3: Wire execution-policy references into entry plans and future settlement artifacts.
+- [x] Sub-task 1: Create an execution-policy module that tracks entry order type, gap handling, validity window, partial fills, cancel-if-not-filled, and execution timing assumption.
+- [x] Sub-task 2: Integrate `backtester/data/liquidity_model.py` and related risk helpers into a reusable slippage / liquidity penalty layer.
+- [x] Sub-task 3: Wire execution-policy references into entry plans and future settlement artifacts.
 
 #### Important Planning Notes
 
@@ -117,9 +117,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Implement exit taxonomy evaluation for stop hit, target hit, max hold, thesis invalidation, regime deterioration, signal downgrade, and manual override.
-- Sub-task 2: Create a position-review artifact that explains why a position closed and how it behaved in between.
-- Sub-task 3: Update daytime/nighttime flows to summarize lifecycle state and recent exits.
+- [x] Sub-task 1: Implement exit taxonomy evaluation for stop hit, target hit, max hold, thesis invalidation, regime deterioration, signal downgrade, and manual override.
+- [x] Sub-task 2: Create a position-review artifact that explains why a position closed and how it behaved in between.
+- [x] Sub-task 3: Update daytime/nighttime flows to summarize lifecycle state and recent exits.
 
 #### Testing
 
@@ -139,9 +139,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/data/risk_budget.py` to support explicit size tiers and hard suppression rules.
-- Sub-task 2: Blend confidence, expected drawdown, liquidity penalties, and regime state into transparent size recommendations.
-- Sub-task 3: Ensure high-confidence/high-risk and low-confidence/low-risk cases remain distinguishable in artifacts and operator wording.
+- [x] Sub-task 1: Extend `backtester/data/risk_budget.py` to support explicit size tiers and hard suppression rules.
+- [x] Sub-task 2: Blend confidence, expected drawdown, liquidity penalties, and regime state into transparent size recommendations.
+- [x] Sub-task 3: Ensure high-confidence/high-risk and low-confidence/low-risk cases remain distinguishable in artifacts and operator wording.
 
 #### Testing
 
@@ -159,9 +159,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Add a paper portfolio module that tracks available capital, open positions, pending entries, same-name re-entry rules, concentration caps, and correlation caps.
-- Sub-task 2: Implement capital competition so concurrent candidates are evaluated against each other, not only in isolation.
-- Sub-task 3: Add portfolio-state snapshots and summary outputs for later operator surfaces and governance review.
+- [x] Sub-task 1: Add a paper portfolio module that tracks available capital, open positions, pending entries, same-name re-entry rules, concentration caps, and correlation caps.
+- [x] Sub-task 2: Implement capital competition so concurrent candidates are evaluated against each other, not only in isolation.
+- [x] Sub-task 3: Add portfolio-state snapshots and summary outputs for later operator surfaces and governance review.
 
 #### Important Planning Notes
 
@@ -186,9 +186,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update operator formatters and `advisor.py` summaries so lifecycle-aware information is visible but still compact.
-- Sub-task 2: Add replay fixtures covering same-bar ambiguity, delayed entries, gap-through-stop behavior, duplicate entries, and concentration conflicts.
-- Sub-task 3: Keep machine-readable lifecycle artifacts authoritative and ensure human summaries never invent lifecycle state.
+- [x] Sub-task 1: Update operator formatters and `advisor.py` summaries so lifecycle-aware information is visible but still compact.
+- [x] Sub-task 2: Add replay fixtures covering same-bar ambiguity, delayed entries, gap-through-stop behavior, duplicate entries, and concentration conflicts.
+- [x] Sub-task 3: Keep machine-readable lifecycle artifacts authoritative and ensure human summaries never invent lifecycle state.
 
 #### Testing
 

@@ -35,6 +35,8 @@ from evaluation.failure_taxonomy import classify_strategy_outcome
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
+from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
+from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
 
 
 CANSLIM_ALERT_PRODUCER = "backtester.canslim_alert"
@@ -164,6 +166,7 @@ def _build_prediction_record(
         "action": action,
         "reason": reason,
         "rec": rec,
+        "price": rec.get("entry", context.get("price")),
         "confidence": contract_fields.get("confidence"),
         "risk": contract_fields.get("risk"),
         "market_regime": contract_fields.get("market_regime"),
@@ -540,6 +543,7 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "score": int(record.get("score", 0) or 0),
                 "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
                 "reason": str(record.get("reason", "") or ""),
+                "price": float(record.get("price", 0.0) or 0.0),
                 "confidence": float(record.get("confidence", record.get("effective_confidence", 0.0)) or 0.0),
                 "risk": str(record.get("risk", "unknown") or "unknown"),
                 "market_regime": str(record.get("market_regime", "unknown") or "unknown"),
@@ -626,6 +630,16 @@ def _finalize_alert_payload(
             "phase_timings": dict(phase_timings or {}),
             "nested_timings": dict(nested_timings or {}),
         }
+    payload = annotate_alert_payload_with_entry_plans(
+        strategy=strategy,
+        payload=payload,
+        generated_at=generated_at,
+    )
+    payload = annotate_alert_payload_with_execution_policies(
+        strategy=strategy,
+        payload=payload,
+        generated_at=generated_at,
+    )
     return annotate_artifact(
         payload,
         artifact_family=ARTIFACT_FAMILY_STRATEGY_ALERT,
