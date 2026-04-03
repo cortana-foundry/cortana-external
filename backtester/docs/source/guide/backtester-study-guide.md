@@ -196,6 +196,272 @@ This means:
 - it is not telling you to buy
 - and the correct action is patience, not override
 
+### Exact Workflows
+
+This section is the practical playbook.
+
+If you only remember one thing, remember this:
+
+- read the market first
+- then read the posture
+- then read the names
+- then decide whether you are acting or only observing
+
+### Workflow 1: Premarket Check
+
+Goal:
+
+- know if the day is likely to be a buy day, a watch day, or a stand-aside day
+
+Run:
+
+```bash
+cbreadth
+cday
+```
+
+What to read first in `cbreadth`:
+
+- headline
+- what this means
+- warnings
+
+What good looks like:
+
+- `CONFIRMED UPTREND`
+- size above `0%`
+- tape is available
+- warnings are minimal
+
+What bad looks like:
+
+- `CORRECTION`
+- size `0%`
+- tape unavailable
+- degraded warnings
+
+What to do:
+
+- if market is healthy:
+  - move on to `cday`
+  - pay attention to candidate names
+- if market is defensive:
+  - still run `cday`
+  - expect status updates, not buy-now calls
+
+What to look out for:
+
+- `provider_cooldown`
+  - live Schwab data is shaky right now
+- stale macro
+  - macro is still useful, but weaker than fresh tape
+- cached regime
+  - the market read is safe, but not fresh
+
+### Workflow 2: Open-Market Check
+
+Goal:
+
+- know whether the live session is strong enough to act
+
+Run:
+
+```bash
+cbreadth
+cdip
+clive
+```
+
+What to look for:
+
+- breadth state
+- tape tone
+- Dip Buyer posture
+- whether any `BUY` names survive
+
+What it means:
+
+- `Intraday breadth: selective-buy`
+  - a small exception is allowed even if the daily regime is still weak
+- `Alert posture: stand aside`
+  - do not buy; just watch
+- `BUY 0 | WATCH 0`
+  - the scan ran and found nothing strong enough
+
+What to do:
+
+- if breadth is weak and posture says stand aside:
+  - do nothing
+- if breadth is strong and Dip Buyer shows a small number of buys:
+  - review only those names
+- if tape is degraded:
+  - trust the degraded warning and wait
+
+What to look out for:
+
+- a hot-sounding header with no actual buys
+  - trust the posture, not the drama
+- `BUY 0`
+  - this means no entry, even if a stock is interesting
+- cooldown warnings
+  - decisions may be slower or more defensive
+
+### Workflow 3: Midday Recheck
+
+Goal:
+
+- see if the market changed enough to change your posture
+
+Run:
+
+```bash
+cbreadth
+cdip
+cwatch
+```
+
+What changed enough to matter:
+
+- tape went from weak to broad and strong
+- breadth changed from inactive/unavailable to selective-buy
+- Dip Buyer moved from no candidates to a few bounded buys
+
+What to do:
+
+- if nothing changed:
+  - do not force a new interpretation
+- if breadth improved:
+  - review the top names only
+- if watchlist names are still weak:
+  - keep waiting
+
+What to look out for:
+
+- one strong stock with weak breadth
+  - that is not enough by itself
+- broad rally but zero surviving buys
+  - the system still does not trust entries yet
+
+### Workflow 4: After-Close Review
+
+Goal:
+
+- understand what the system learned from the day
+
+Run:
+
+```bash
+cnight
+```
+
+What to read first:
+
+- universe summary
+- nightly discovery progress / timing
+- prediction accuracy
+- lifecycle review
+
+What to do:
+
+- check whether the nightly run completed normally
+- check whether predictions are settling
+- check whether trade lifecycle is opening or closing anything
+- check whether the system is improving or getting worse
+
+What to look out for:
+
+- repeated degraded warnings
+  - ops issue, not a strategy issue
+- poor prediction accuracy
+  - trust the strategy less
+- empty lifecycle with no trades
+  - system is being cautious, not necessarily broken
+
+### Workflow 5: Telegram Message Review
+
+Goal:
+
+- confirm that the messages match the underlying machine state
+
+What to compare:
+
+- Telegram alert
+- `cday`
+- `cbreadth`
+- direct strategy output like `cdip`
+
+What a correct message looks like:
+
+- posture matches the actual regime
+- warnings match the actual degraded state
+- no fake urgency when there are no buys
+- focus names match the underlying strategy or fallback source
+
+Bad signs:
+
+- Telegram says buy-now but `BUY 0`
+- message says unavailable when the scan really found nothing
+- message sounds fresh when inputs are cached or stale
+
+What to do:
+
+- if Telegram and local commands disagree:
+  - trust local command output first
+  - then inspect the underlying alert formatter path
+
+### Workflow 6: Ops / Failure Check
+
+Goal:
+
+- know whether a bad result is a market answer or a machine problem
+
+Run:
+
+```bash
+uv run python runtime_health_snapshot.py --pretty
+uv run python pre_open_canary.py
+```
+
+How to read it:
+
+- if runtime health is degraded because of `provider_cooldown`
+  - the system is being defensive on purpose
+- if pre-open canary says `warn`
+  - the market lane is not healthy enough for full trust
+
+What to do:
+
+- wait for cooldown to clear
+- rerun `cbreadth`
+- then rerun `cday` or `cdip`
+
+What to look out for:
+
+- repeated quote failures
+- repeated token refresh failures
+- repeated stale-cache fallback
+
+These are machine problems, not stock picks.
+
+### Fast Decision Ladder
+
+If you are in a hurry, use this ladder:
+
+1. run `cbreadth`
+2. if regime is bad, stop there
+3. if regime is okay, run `cday`
+4. if you want direct strategy detail, run `cdip`
+5. if you are only monitoring, run `clive` or `cwatch`
+6. after the close, run `cnight`
+
+Simple summary:
+
+- `cbreadth` = market answer
+- `cday` = session answer
+- `cdip` = strategy answer
+- `clive` / `cwatch` = monitoring answer
+- `cnight` = learning answer
+
 ### Stock Market Brief Snapshot
 
 There is now a small export specifically for the main `cortana` repo's daily market brief:
