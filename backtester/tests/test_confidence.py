@@ -9,6 +9,7 @@ from data.confidence import (
     downside_risk_proxy,
     regime_quality_modifier,
     risk_adjusted_size_multiplier,
+    stable_confidence_bucket,
 )
 from scoring_tuning import (
     AdverseRegimeCalibration,
@@ -55,6 +56,12 @@ def test_build_confidence_assessment_returns_shared_contract_for_clean_setup():
     assert assessment["abstain"] is False
     assert assessment["confidence_bucket"] == "high"
     assert assessment["adverse_regime"]["label"] == "normal"
+
+
+def test_stable_confidence_bucket_handles_percent_probability_and_unknown_inputs():
+    assert stable_confidence_bucket(82) == "high"
+    assert stable_confidence_bucket(0.62, probability=True) == "medium"
+    assert stable_confidence_bucket(None) == "unknown"
 
 
 def test_build_confidence_assessment_abstains_when_inputs_are_degraded_and_conflicted():

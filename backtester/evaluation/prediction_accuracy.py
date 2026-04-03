@@ -10,6 +10,7 @@ from typing import Iterable, Optional
 
 import pandas as pd
 
+from data.confidence import stable_confidence_bucket
 from data.market_data_provider import MarketDataError, MarketDataProvider
 from evaluation.prediction_contract import (
     PREDICTION_CONTRACT_SCHEMA_VERSION,
@@ -23,6 +24,7 @@ from outcomes import (
 )
 
 DEFAULT_HORIZONS = (1, 5, 20)
+ROLLING_SAMPLE_WINDOWS = (20, 50, 100)
 
 
 def default_prediction_root() -> Path:
@@ -137,7 +139,7 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
             normalized["strategy"] = strategy
             normalized["market_regime"] = str(record.get("market_regime") or market_regime)
             normalized["action"] = str(record.get("action") or "UNKNOWN").upper()
-            normalized["confidence_bucket"] = _confidence_bucket(record.get("confidence"))
+            normalized["confidence_bucket"] = stable_confidence_bucket(record.get("confidence"))
             records.append(normalized)
             record_count += 1
             for horizon_key in horizon_status:
@@ -148,6 +150,13 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
                 else:
                     horizon_status[horizon_key]["incomplete"] += 1
 
+    records.sort(key=_record_sort_key)
+    by_strategy = _build_group_summary(records, group_fields=("strategy",))
+    by_action = _build_group_summary(records, group_fields=("action",))
+    by_strategy_action = _build_group_summary(records, group_fields=("strategy", "action"))
+    by_regime = _build_group_summary(records, group_fields=("strategy", "market_regime", "action"))
+    by_confidence_bucket = _build_group_summary(records, group_fields=("strategy", "confidence_bucket", "action"))
+
     artifact = {
         "schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
         "artifact_family": "prediction_accuracy_summary",
@@ -155,6 +164,7 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
         "snapshot_count": snapshot_count,
         "record_count": record_count,
         "settlement_horizons": [f"{horizon}d" for horizon in DEFAULT_HORIZONS],
+        "rolling_window_sizes": list(ROLLING_SAMPLE_WINDOWS),
         "horizon_status": horizon_status,
         "settlement_status_counts": _count_record_field(records, "settlement_status"),
         "maturity_state_counts": _count_record_field(records, "settlement_maturity_state"),
@@ -164,9 +174,13 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
             "execution_validation_grade": _count_record_field(records, "execution_validation_grade"),
             "trade_validation_grade": _count_record_field(records, "trade_validation_grade"),
         },
-        "summary": _build_group_summary(records, group_fields=("strategy", "action")),
-        "by_regime": _build_group_summary(records, group_fields=("strategy", "market_regime", "action")),
-        "by_confidence_bucket": _build_group_summary(records, group_fields=("strategy", "confidence_bucket", "action")),
+        "summary": by_strategy_action,
+        "by_strategy": by_strategy,
+        "by_action": by_action,
+        "by_strategy_action": by_strategy_action,
+        "by_regime": by_regime,
+        "by_confidence_bucket": by_confidence_bucket,
+        "rolling_summary": _build_rolling_summary(records),
     }
     reports_dir = base / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -268,19 +282,6 @@ def _parse_dt(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _confidence_bucket(value: object) -> str:
-    confidence = _to_float(value)
-    if confidence is None:
-        return "unknown"
-    if confidence >= 75:
-        return "high"
-    if confidence >= 55:
-        return "medium"
-    if confidence >= 35:
-        return "low"
-    return "very_low"
-
-
 def _build_settlement_summary(records: list[dict]) -> dict:
     status_counts: dict[str, int] = defaultdict(int)
     maturity_counts: dict[str, int] = defaultdict(int)
@@ -325,6 +326,35 @@ def _decision_accuracy_label(action: str) -> str:
     if normalized == "WATCH":
         return "watch_success_rate"
     return "buy_success_rate"
+
+
+def _record_sort_key(record: dict) -> tuple[datetime, str, str]:
+    predicted_at = _parse_dt(record.get("predicted_at")) or _parse_dt(record.get("generated_at"))
+    return (
+        predicted_at or datetime.min.replace(tzinfo=timezone.utc),
+        str(record.get("strategy") or ""),
+        str(record.get("symbol") or ""),
+    )
+
+
+def _build_rolling_summary(records: list[dict]) -> dict[str, dict]:
+    payload: dict[str, dict] = {}
+    for window_size in ROLLING_SAMPLE_WINDOWS:
+        window_records = records[-window_size:]
+        payload[str(window_size)] = {
+            "requested_window": window_size,
+            "records_considered": len(window_records),
+            "is_partial_window": len(window_records) < window_size,
+            "by_strategy": _build_group_summary(window_records, group_fields=("strategy",)),
+            "by_action": _build_group_summary(window_records, group_fields=("action",)),
+            "summary": _build_group_summary(window_records, group_fields=("strategy", "action")),
+            "by_regime": _build_group_summary(window_records, group_fields=("strategy", "market_regime", "action")),
+            "by_confidence_bucket": _build_group_summary(
+                window_records,
+                group_fields=("strategy", "confidence_bucket", "action"),
+            ),
+        }
+    return payload
 
 
 def _build_group_summary(records: list[dict], *, group_fields: tuple[str, ...]) -> list[dict]:

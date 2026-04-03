@@ -90,9 +90,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update `backtester/evaluation/prediction_accuracy.py` to compute grouped rollups by strategy, action, regime bucket, and confidence bucket.
-- Sub-task 2: Update `backtester/data/confidence.py` and `backtester/buy_decision_calibration.py` to support stable confidence-bucket and calibration outputs for the new contract.
-- Sub-task 3: Extend `backtester/prediction_accuracy_report.py` to render rolling 20/50/100-sample summaries and preserve machine-readable payloads.
+- [x] Sub-task 1: Update `backtester/evaluation/prediction_accuracy.py` to compute grouped rollups by strategy, action, regime bucket, and confidence bucket.
+- [x] Sub-task 2: Update `backtester/data/confidence.py` and `backtester/buy_decision_calibration.py` to support stable confidence-bucket and calibration outputs for the new contract.
+- [x] Sub-task 3: Extend `backtester/prediction_accuracy_report.py` to render rolling 20/50/100-sample summaries and preserve machine-readable payloads.
 
 #### Testing
 

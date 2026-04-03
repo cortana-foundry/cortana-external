@@ -68,6 +68,20 @@ def main() -> None:
     for row in rows:
         print(_format_summary_row(row, key_fields=("strategy", "action")))
 
+    strategy_rows = summary.get("by_strategy") or []
+    if strategy_rows:
+        print("")
+        print("By strategy")
+        for row in strategy_rows:
+            print(_format_summary_row(row, key_fields=("strategy",)))
+
+    action_rows = summary.get("by_action") or []
+    if action_rows:
+        print("")
+        print("By action")
+        for row in action_rows:
+            print(_format_summary_row(row, key_fields=("action",)))
+
     regime_rows = summary.get("by_regime") or []
     if regime_rows:
         print("")
@@ -81,6 +95,26 @@ def main() -> None:
         print("By confidence bucket")
         for row in confidence_rows:
             print(_format_summary_row(row, key_fields=("strategy", "confidence_bucket", "action")))
+
+    rolling_summary = summary.get("rolling_summary") or {}
+    if rolling_summary:
+        print("")
+        print("Rolling windows")
+        for window_key in ("20", "50", "100"):
+            payload = rolling_summary.get(window_key)
+            if not isinstance(payload, dict):
+                continue
+            requested = int(payload.get("requested_window", 0) or 0)
+            considered = int(payload.get("records_considered", 0) or 0)
+            partial = bool(payload.get("is_partial_window"))
+            qualifier = " (partial)" if partial else ""
+            print(f"Latest {requested} samples{qualifier}: {considered} records")
+            window_rows = payload.get("summary") or []
+            if not window_rows:
+                print("  no settled records")
+                continue
+            for row in window_rows:
+                print("  " + _format_summary_row(row, key_fields=("strategy", "action")))
 
 
 def _format_summary_row(row: dict, *, key_fields: tuple[str, ...]) -> str:

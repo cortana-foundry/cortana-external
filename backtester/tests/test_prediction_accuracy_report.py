@@ -15,6 +15,7 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
             "artifact_family": "prediction_accuracy_summary",
             "snapshot_count": 12,
             "record_count": 48,
+            "rolling_window_sizes": [20, 50, 100],
             "settlement_status_counts": {"settled": 9, "partially_settled": 2, "insufficient_data": 1},
             "maturity_state_counts": {"matured": 9, "partial": 2, "incomplete": 1},
             "horizon_status": {
@@ -42,6 +43,32 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
                         "avg_max_drawdown_pct": -3.2,
                         "avg_max_runup_pct": 1.1,
                     }
+                }
+            ],
+            "by_strategy": [
+                {
+                    "strategy": "dip_buyer",
+                    "5d": {
+                        "samples": 8,
+                        "avg_return_pct": -1.25,
+                        "median_return_pct": -0.8,
+                        "hit_rate": 0.25,
+                        "decision_accuracy": 0.75,
+                        "decision_accuracy_label": "avoidance_rate",
+                    },
+                }
+            ],
+            "by_action": [
+                {
+                    "action": "NO_BUY",
+                    "5d": {
+                        "samples": 8,
+                        "avg_return_pct": -1.25,
+                        "median_return_pct": -0.8,
+                        "hit_rate": 0.25,
+                        "decision_accuracy": 0.75,
+                        "decision_accuracy_label": "avoidance_rate",
+                    },
                 }
             ],
             "by_regime": [
@@ -74,6 +101,39 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
                     },
                 }
             ],
+            "rolling_summary": {
+                "20": {
+                    "requested_window": 20,
+                    "records_considered": 20,
+                    "is_partial_window": False,
+                    "summary": [
+                        {
+                            "strategy": "dip_buyer",
+                            "action": "NO_BUY",
+                            "5d": {
+                                "samples": 6,
+                                "avg_return_pct": -1.0,
+                                "median_return_pct": -0.8,
+                                "hit_rate": 0.2,
+                                "decision_accuracy": 0.8,
+                                "decision_accuracy_label": "avoidance_rate",
+                            },
+                        }
+                    ],
+                },
+                "50": {
+                    "requested_window": 50,
+                    "records_considered": 48,
+                    "is_partial_window": True,
+                    "summary": [],
+                },
+                "100": {
+                    "requested_window": 100,
+                    "records_considered": 48,
+                    "is_partial_window": True,
+                    "summary": [],
+                },
+            },
         },
     )
     monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py"])
@@ -92,7 +152,12 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     assert "dip_buyer NO_BUY" in out
     assert "avoidance_rate=75%" in out
     assert "avg drawdown -3.20%" in out
+    assert "By strategy" in out
+    assert "By action" in out
     assert "By regime" in out
     assert "dip_buyer correction NO_BUY" in out
     assert "By confidence bucket" in out
     assert "dip_buyer medium NO_BUY" in out
+    assert "Rolling windows" in out
+    assert "Latest 20 samples: 20 records" in out
+    assert "Latest 50 samples (partial): 48 records" in out

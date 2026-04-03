@@ -9,8 +9,10 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 import math
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable, Optional, Sequence
 
+from data.confidence import stable_confidence_bucket
 from experimental_alpha import (
     build_calibration_report,
     default_alpha_root,
@@ -24,6 +26,7 @@ DEFAULT_MIN_BUCKET_COUNT = 2
 DEFAULT_HORIZON = "5d"
 DEFAULT_OUTPUT_NAME = "buy-decision-calibration-latest.json"
 DIMENSION_CANDIDATES: tuple[str, ...] = (
+    "confidence_bucket",
     "market_regime",
     "risk_budget_state",
     "aggression_posture",
@@ -71,19 +74,20 @@ def build_buy_decision_calibration_artifact(
     source_root: Optional[Path] = None,
 ) -> dict:
     now = _normalize_datetime(generated_at or datetime.now(UTC))
+    materialized_records = _materialize_records(records)
     calibration = build_calibration_report(
-        records,
+        materialized_records,
         generated_at=now,
         minimum_samples=minimum_samples,
     )
-    dimensions = _available_dimensions(records, DIMENSION_CANDIDATES)
+    dimensions = _available_dimensions(materialized_records, DIMENSION_CANDIDATES)
     by_dimension = summarize_forward_return_by_dimension(
-        records,
+        materialized_records,
         dimensions=dimensions,
         horizon_key=horizon,
         min_count=max(1, int(min_bucket_count)),
     )
-    latest_settled_at = _latest_timestamp(records)
+    latest_settled_at = _latest_timestamp(materialized_records)
     freshness = _freshness_metadata(
         now=now,
         latest_settled_at=latest_settled_at,
@@ -107,10 +111,14 @@ def build_buy_decision_calibration_artifact(
             "settled_candidates": int(calibration.settled_candidates),
             "promotion_gate": asdict(calibration.gate),
             "action_bucket_count": len(calibration.by_action),
+            "confidence_bucket_count": len(by_dimension.get("confidence_bucket", {})),
             "dimension_bucket_count": sum(len(items) for items in by_dimension.values()),
         },
         "calibration": {
             "by_action": [asdict(item) for item in calibration.by_action],
+            "by_confidence_bucket": _format_dimension_slices(
+                {"confidence_bucket": by_dimension.get("confidence_bucket", {})}
+            ).get("confidence_bucket", []),
             "by_dimension": _format_dimension_slices(by_dimension),
         },
     }
@@ -165,6 +173,16 @@ def main(argv: Optional[list[str]] = None) -> None:
         f"stale={artifact['freshness']['is_stale']} "
         f"(age_hours={artifact['freshness']['age_hours']}, max_age_hours={artifact['freshness']['max_age_hours']})"
     )
+
+
+def _materialize_records(records: Sequence[Any]) -> list[Any]:
+    materialized: list[Any] = []
+    for record in records:
+        mapping = _record_to_mapping(record)
+        calibrated_prob = mapping.get("calibrated_prob")
+        mapping["confidence_bucket"] = stable_confidence_bucket(calibrated_prob, probability=True)
+        materialized.append(SimpleNamespace(**mapping))
+    return materialized
 
 
 def _available_dimensions(records: Sequence[Any], candidates: Iterable[str]) -> list[str]:
@@ -255,6 +273,14 @@ def _extract_value(record: Any, key: str) -> Any:
     if isinstance(record, dict):
         return record.get(key)
     return getattr(record, key, None)
+
+
+def _record_to_mapping(record: Any) -> dict[str, Any]:
+    if isinstance(record, dict):
+        return dict(record)
+    if hasattr(record, "__dict__"):
+        return dict(vars(record))
+    raise TypeError(f"Unsupported calibration record type: {type(record)!r}")
 
 
 def _safe_float(value: Any) -> Optional[float]:

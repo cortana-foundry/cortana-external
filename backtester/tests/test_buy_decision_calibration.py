@@ -83,12 +83,17 @@ def test_artifact_includes_action_and_bucket_calibration_when_available():
     assert artifact["artifact_type"] == "buy_decision_calibration"
     assert artifact["freshness"]["is_stale"] is False
     assert artifact["summary"]["promotion_gate"]["minimum_samples"] == 2
+    assert artifact["summary"]["confidence_bucket_count"] >= 1
 
     by_action = {item["action"]: item for item in artifact["calibration"]["by_action"]}
     assert by_action["paper_long"]["count"] == 2
     assert by_action["track"]["count"] == 1
 
+    by_confidence_bucket = artifact["calibration"]["by_confidence_bucket"]
+    assert by_confidence_bucket[0]["bucket"] in {"high", "medium"}
+
     by_dimension = artifact["calibration"]["by_dimension"]
+    assert "confidence_bucket" in by_dimension
     assert "execution_quality" in by_dimension
     assert "liquidity_tier" in by_dimension
     assert "market_regime" in by_dimension
