@@ -10,6 +10,10 @@ ARTIFACT_FAMILY_MARKET_BRIEF = "market_brief"
 ARTIFACT_FAMILY_STRATEGY_ALERT = "strategy_alert"
 ARTIFACT_FAMILY_RUN_MANIFEST = "run_manifest"
 ARTIFACT_FAMILY_READINESS_CHECK = "readiness_check"
+ARTIFACT_FAMILY_OPERATOR_PAYLOAD = "operator_payload"
+ARTIFACT_FAMILY_RUNTIME_INVENTORY = "runtime_inventory"
+ARTIFACT_FAMILY_RUNTIME_HEALTH_SNAPSHOT = "runtime_health_snapshot"
+ARTIFACT_FAMILY_OPS_HIGHWAY_PLAN = "ops_highway_plan"
 
 ARTIFACT_STATUS_OK = "ok"
 ARTIFACT_STATUS_DEGRADED = "degraded"
@@ -72,6 +76,42 @@ ARTIFACT_FAMILY_MINIMUM_FIELDS: dict[str, tuple[str, ...]] = {
         "ready_for_open",
         "checked_at",
         "checks",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_OPERATOR_PAYLOAD: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "payload_key",
+        "surface_type",
+        "summary",
+        "decision_contract_ref",
+        "source_refs",
+        "health",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_RUNTIME_INVENTORY: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "components",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_RUNTIME_HEALTH_SNAPSHOT: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "pre_open_gate_status",
+        "service_health",
+        "cron_health",
+        "watchdog_health",
+        "delivery_health",
+        "incident_markers",
+        "inspection_paths",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_OPS_HIGHWAY_PLAN: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "retention_policies",
+        "backup_restore",
+        "incident_runbooks",
+        "capacity_thresholds",
+        "change_management",
+        "source_refs",
         "warnings",
     ),
 }

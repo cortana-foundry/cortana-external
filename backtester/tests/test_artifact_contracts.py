@@ -91,3 +91,64 @@ def test_validate_artifact_payload_accepts_readiness_check_family():
 
     assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_READINESS_CHECK
     assert payload["degraded_status"] == "healthy"
+
+
+def test_validate_artifact_payload_accepts_operator_payload_family():
+    payload = contracts.annotate_artifact(
+        {
+            "payload_key": "market_brief:2026-04-03T12:00:00Z",
+            "surface_type": "brief",
+            "summary": {
+                "headline": "OPEN: NO_BUY | CORRECTION | size 0%",
+                "what_this_means": "Stay defensive.",
+            },
+            "decision_contract_ref": {
+                "artifact_family": "decision_state",
+                "producer": "backtester.market_brief_snapshot",
+                "generated_at": "2026-04-03T12:00:00+00:00",
+            },
+            "source_refs": {
+                "market_brief": {
+                    "artifact_family": "market_brief",
+                    "producer": "backtester.market_brief_snapshot",
+                    "generated_at": "2026-04-03T12:00:00+00:00",
+                }
+            },
+            "health": {"status": "ok"},
+            "warnings": [],
+        },
+        artifact_family=contracts.ARTIFACT_FAMILY_OPERATOR_PAYLOAD,
+        producer="backtester.market_brief_snapshot",
+        generated_at="2026-04-03T12:00:00+00:00",
+        status="ok",
+    )
+
+    assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_OPERATOR_PAYLOAD
+    assert payload["degraded_status"] == "healthy"
+
+
+def test_validate_artifact_payload_accepts_ops_highway_plan_family():
+    payload = contracts.annotate_artifact(
+        {
+            "retention_policies": [{"artifact_family": "market_brief", "retention_window": "14d"}],
+            "backup_restore": {"critical_assets": []},
+            "incident_runbooks": [],
+            "capacity_thresholds": [],
+            "change_management": {"post_merge_smoke_tests": []},
+            "source_refs": {
+                "runtime_inventory": {
+                    "artifact_family": "runtime_inventory",
+                    "producer": "backtester.operator_surfaces.runtime_inventory",
+                    "generated_at": "2026-04-03T12:00:00+00:00",
+                }
+            },
+            "warnings": [],
+        },
+        artifact_family=contracts.ARTIFACT_FAMILY_OPS_HIGHWAY_PLAN,
+        producer="backtester.operator_surfaces.ops_highway",
+        generated_at="2026-04-03T12:00:00+00:00",
+        status="ok",
+    )
+
+    assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_OPS_HIGHWAY_PLAN
+    assert payload["degraded_status"] == "healthy"

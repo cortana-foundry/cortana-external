@@ -4,11 +4,36 @@ This document defines the stable typed subset that downstream consumers should p
 
 Parse typed machine fields first. Do not scrape operator prose.
 
+## Version Rule
+
+Consumers should validate both:
+
+- `artifact_family`
+- `schema_version`
+
+If the schema version is not in the consumer's supported set, fail loudly instead of guessing.
+
+Example Python pattern:
+
+```python
+from operator_surfaces.compatibility import assert_consumer_compatible
+
+payload = assert_consumer_compatible(
+    payload,
+    expected_family="operator_payload",
+    supported_schema_versions=(1,),
+)
+```
+
 ## Artifact Families
 
 Current stable families:
 
 - `market_brief`
+- `operator_payload`
+- `runtime_inventory`
+- `runtime_health_snapshot`
+- `ops_highway_plan`
 - `strategy_alert`
 - `run_manifest`
 - `readiness_check`
@@ -70,6 +95,60 @@ Display-only / unstable fields:
 
 - `operator_summary`
 - freeform warning strings in `warnings`
+
+### `operator_payload`
+
+Safe typed fields:
+
+- `payload_key`
+- `surface_type`
+- `status`
+- `degraded_status`
+- `outcome_class`
+- `summary.headline`
+- `summary.what_this_means`
+- `decision_contract_ref`
+- `source_refs`
+- `health.status`
+
+Display-only / unstable fields:
+
+- `summary.read_this_as`
+- freeform warning strings in `warnings`
+
+### `runtime_inventory`
+
+Safe typed fields:
+
+- `components`
+- `components[].component_key`
+- `components[].component_type`
+- `components[].must_be_running`
+- `components[].health_probe`
+- `components[].restart_policy`
+
+### `runtime_health_snapshot`
+
+Safe typed fields:
+
+- `pre_open_gate_status`
+- `service_health`
+- `cron_health`
+- `watchdog_health`
+- `delivery_health`
+- `incident_markers`
+- `inspection_paths`
+
+### `ops_highway_plan`
+
+Safe typed fields:
+
+- `retention_policies`
+- `backup_restore`
+- `incident_runbooks`
+- `capacity_thresholds`
+- `change_management`
+- `source_refs`
 
 ### `strategy_alert`
 

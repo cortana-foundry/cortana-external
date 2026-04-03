@@ -48,9 +48,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Create a canonical operator payload contract that references decision state, lifecycle state, governance status, health, degraded status, and artifact lineage.
-- Sub-task 2: Define which fields are mandatory for all surfaces vs optional for richer surfaces.
-- Sub-task 3: Add contract validation and sample fixture payloads for future renderers and cross-repo consumers.
+- [x] Sub-task 1: Create a canonical operator payload contract that references decision state, lifecycle state, governance status, health, degraded status, and artifact lineage.
+- [x] Sub-task 2: Define which fields are mandatory for all surfaces vs optional for richer surfaces.
+- [x] Sub-task 3: Add contract validation and sample fixture payloads for future renderers and cross-repo consumers.
 
 #### Testing
 
@@ -68,9 +68,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Refactor `market_brief_snapshot.py`, local output formatters, and flow summaries to consume the shared operator payload.
-- Sub-task 2: Standardize wording for healthy-empty, market-gated, degraded-safe, degraded-risky, and failed outcomes.
-- Sub-task 3: Add regression fixtures proving the same run tells the same story across surfaces.
+- [x] Sub-task 1: Refactor `market_brief_snapshot.py`, local output formatters, and flow summaries to consume the shared operator payload.
+- [x] Sub-task 2: Standardize wording for healthy-empty, market-gated, degraded-safe, degraded-risky, and failed outcomes.
+- [x] Sub-task 3: Add regression fixtures proving the same run tells the same story across surfaces.
 
 #### Testing
 
@@ -90,9 +90,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Identify every consumer in `cortana` or adjacent tooling that reads backtester/operator payloads.
-- Sub-task 2: Add schema-version and compatibility checks so surface changes cannot silently corrupt alerts.
-- Sub-task 3: Add replay fixtures or sample payloads for cross-repo verification.
+- [x] Sub-task 1: Identify every consumer in `cortana` or adjacent tooling that reads backtester/operator payloads.
+- [x] Sub-task 2: Add schema-version and compatibility checks so surface changes cannot silently corrupt alerts.
+- [x] Sub-task 3: Add replay fixtures or sample payloads for cross-repo verification.
 
 #### Important Planning Notes
 
@@ -115,9 +115,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Create a runtime inventory artifact covering services, launchd jobs, scripts, databases, and artifact families.
-- Sub-task 2: Add shared runtime-health snapshots that capture pre-open gate, service health, cron health, watchdog health, and delivery health.
-- Sub-task 3: Link health snapshots to incident markers and operator inspection paths.
+- [x] Sub-task 1: Create a runtime inventory artifact covering services, launchd jobs, scripts, databases, and artifact families.
+- [x] Sub-task 2: Add shared runtime-health snapshots that capture pre-open gate, service health, cron health, watchdog health, and delivery health.
+- [x] Sub-task 3: Link health snapshots to incident markers and operator inspection paths.
 
 #### Testing
 
@@ -137,9 +137,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Produce retention tables and prune-policy artifacts by artifact family.
-- Sub-task 2: Produce backup and restore manifests covering Postgres, configs, tokens, and critical artifacts.
-- Sub-task 3: Produce incident markers and runbook references for common failure modes.
+- [x] Sub-task 1: Produce retention tables and prune-policy artifacts by artifact family.
+- [x] Sub-task 2: Produce backup and restore manifests covering Postgres, configs, tokens, and critical artifacts.
+- [x] Sub-task 3: Produce incident markers and runbook references for common failure modes.
 
 #### Testing
 
@@ -157,9 +157,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Define acceptable runtime thresholds and warning thresholds for major flows.
-- Sub-task 2: Define post-merge smoke tests, rollback checklists, and schema-change checklists.
-- Sub-task 3: Define trigger conditions for when the Mac mini, local disk, or database shape should be reconsidered.
+- [x] Sub-task 1: Define acceptable runtime thresholds and warning thresholds for major flows.
+- [x] Sub-task 2: Define post-merge smoke tests, rollback checklists, and schema-change checklists.
+- [x] Sub-task 3: Define trigger conditions for when the Mac mini, local disk, or database shape should be reconsidered.
 
 #### Testing
 
@@ -219,3 +219,9 @@ Each implementation PR under this workstream should update this plan with:
 - cross-repo compatibility changes
 - new runtime-health, retention, backup, or runbook artifacts added
 - any Ops Highway activation changes or deferred items
+
+### Commit Log
+
+- Sprint 1: shared operator payload contract, shared renderers, and surface convergence landed across market brief, lifecycle review, and local formatter entry points.
+- Sprint 2: cross-repo compatibility checks, replay fixtures, runtime inventory artifact, and runtime-health snapshots landed with shared artifact families and CLI exporters.
+- Sprint 3: ops-highway planning artifact, retention and backup tables, incident runbook links, capacity thresholds, change-management checklists, and simplified README/study-guide operator docs landed.

@@ -171,6 +171,11 @@ uv run python nightly_discovery.py --limit 20
 # Compact snapshot for the main Cortana stock-market cron
 uv run python market_brief_snapshot.py --operator
 uv run python market_brief_snapshot.py --pretty
+
+# Runtime and ops-highway surfaces
+uv run python runtime_inventory_snapshot.py --pretty
+uv run python runtime_health_snapshot.py --pretty
+uv run python ops_highway_snapshot.py --pretty
 ```
 
 `market_brief_snapshot.py` is the lightweight export used by the main `cortana` repo's daily stock-market brief.
@@ -503,6 +508,80 @@ Best use:
 - before the next day’s live scan
 
 ## Core Surfaces
+
+Think of the system as three layers:
+
+- `machine truth`
+  - the structured artifacts that say what the system believes
+- `operator surfaces`
+  - the commands you read: `cbreadth`, `cday`, `cnight`, alerts, lifecycle review
+- `ops highway`
+  - the health, retention, backup, and recovery layer that keeps the machine safe to run
+
+Simple relationship:
+
+```mermaid
+flowchart LR
+    A["Machine truth<br/>decision state, lifecycle, governance, health"] --> B["Shared operator payload"]
+    B --> C["cbreadth / market brief"]
+    B --> D["cday / daytime flow"]
+    B --> E["cnight / nightly flow"]
+    B --> F["alerts / trading cron"]
+    G["Runtime inventory"] --> H["Runtime health snapshot"]
+    H --> I["Ops Highway plan"]
+    I --> D
+    I --> E
+    I --> F
+```
+
+What to read first:
+
+- `cbreadth`
+  - smallest answer
+  - use when you want: "what is the market posture right now?"
+- `cday`
+  - daytime operator surface
+  - use when you want: "what should I pay attention to today?"
+- `cnight`
+  - overnight operator surface
+  - use when you want: "what changed, what was measured, and what should I review tomorrow?"
+- `runtime_health_snapshot.py --pretty`
+  - machine health truth
+  - use when you want: "is the live lane actually healthy?"
+- `ops_highway_snapshot.py --pretty`
+  - operating plan
+  - use when you want: "what should be retained, backed up, watched, or recovered?"
+
+Examples:
+
+```bash
+# Smallest readable market answer
+cd /Users/hd/Developer/cortana-external/backtester
+uv run python market_brief_snapshot.py --operator
+
+# Raw machine payload for the same brief
+uv run python market_brief_snapshot.py --pretty
+
+# What is running, what matters, what should be inspected
+uv run python runtime_inventory_snapshot.py --pretty
+
+# Is the Mac mini healthy enough for live work right now?
+uv run python runtime_health_snapshot.py --pretty
+
+# Retention, backup, incident, and change-management plan
+uv run python ops_highway_snapshot.py --pretty
+```
+
+How to read them:
+
+- if `cbreadth` says `NO_BUY | CORRECTION`, that is your market posture
+- if `runtime_health_snapshot.py` is degraded, trust the warning before trusting the scan
+- if `ops_highway_snapshot.py` says a path is critical, that means recovery depends on it
+
+The important rule:
+- prose can be short
+- machine truth cannot drift
+- every operator surface should tell the same story at a different zoom level
 
 ## Market Data Boundary
 
