@@ -38,7 +38,22 @@ def test_prediction_accuracy_round_trip(tmp_path):
     path = persist_prediction_snapshot(
         strategy="dip_buyer",
         market_regime="correction",
-        records=[{"symbol": "AAPL", "action": "WATCH", "score": 8, "effective_confidence": 61, "uncertainty_pct": 18, "trade_quality_score": 72, "reason": "test"}],
+        records=[{
+            "symbol": "AAPL",
+            "action": "WATCH",
+            "score": 8,
+            "effective_confidence": 61,
+            "confidence": 61,
+            "risk": "medium",
+            "market_regime": "correction",
+            "breadth_state": "inactive",
+            "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+            "execution_policy_ref": None,
+            "vetoes": [],
+            "uncertainty_pct": 18,
+            "trade_quality_score": 72,
+            "reason": "test",
+        }],
         root=tmp_path,
         generated_at=generated_at,
         producer="backtester.test_prediction_accuracy",
@@ -52,14 +67,39 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert record["strategy"] == "dip_buyer"
     assert record["market_regime"] == "correction"
     assert record["predicted_at"] == generated_at.isoformat()
-    assert record["risk"] == "unknown"
-    assert record["entry_plan_ref"] is None
+    assert record["risk"] == "medium"
+    assert record["entry_plan_ref"] == "dip_buyer.reversal_watch_v1"
     assert record["execution_policy_ref"] is None
     assert record["vetoes"] == []
 
     settle_prediction_snapshots(root=tmp_path, provider=_StubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    settled_record = settled_payload["records"][0]
+    assert settled_payload["schema_version"] == 1
+    assert settled_record["settlement_schema_version"] == 1
+    assert settled_record["settlement_status"] == "settled"
+    assert settled_record["settlement_maturity_state"] == "matured"
+    assert settled_record["matured_horizons"] == ["1d", "5d", "20d"]
+    assert settled_record["pending_horizons"] == []
+    assert settled_record["incomplete_horizons"] == []
+    assert settled_record["matured_coverage_pct"] == 1.0
+    assert settled_record["pending_coverage_pct"] == 0.0
+    assert settled_record["max_favorable_excursion_pct"]["20d"] == 20.0
+    assert settled_record["max_adverse_excursion_pct"]["20d"] == 0.0
+    assert settled_record["validation_horizon_key"] == "5d"
+    assert settled_record["signal_validation_grade"] == "good"
+    assert settled_record["entry_validation_grade"] == "good"
+    assert settled_record["execution_validation_grade"] == "unknown"
+    assert settled_record["trade_validation_grade"] == "unknown"
     summary = build_prediction_accuracy_summary(root=tmp_path)
 
+    assert summary["schema_version"] == 1
+    assert summary["artifact_family"] == "prediction_accuracy_summary"
+    assert summary["settlement_status_counts"]["settled"] == 1
+    assert summary["maturity_state_counts"]["matured"] == 1
+    assert summary["validation_grade_counts"]["signal_validation_grade"]["good"] == 1
     assert summary["snapshot_count"] == 1
     assert summary["record_count"] == 1
     assert summary["horizon_status"]["1d"]["matured"] == 1
@@ -97,12 +137,45 @@ class _NegativeStubProvider:
         return type("History", (), {"frame": frame})()
 
 
+class _ShortHistoryStubProvider:
+    def get_history(self, symbol: str, period: str = "6mo"):
+        frame = pd.DataFrame(
+            {
+                "Open": [10.0, 11.0],
+                "High": [10.0, 11.0],
+                "Low": [10.0, 11.0],
+                "Close": [10.0, 11.0],
+                "Volume": [100, 100],
+            },
+            index=pd.to_datetime(
+                [
+                    datetime(2026, 3, 1, tzinfo=timezone.utc),
+                    datetime(2026, 3, 3, tzinfo=timezone.utc),
+                ]
+            ),
+        )
+        return type("History", (), {"frame": frame})()
+
+
 def test_prediction_accuracy_uses_action_aware_avoidance_rate_for_no_buy(tmp_path):
     generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
     persist_prediction_snapshot(
         strategy="canslim",
         market_regime="correction",
-        records=[{"symbol": "MSFT", "action": "NO_BUY", "score": 6, "effective_confidence": 29, "reason": "test"}],
+        records=[{
+            "symbol": "MSFT",
+            "action": "NO_BUY",
+            "score": 6,
+            "effective_confidence": 29,
+            "confidence": 29,
+            "risk": "high",
+            "market_regime": "correction",
+            "breadth_state": None,
+            "entry_plan_ref": None,
+            "execution_policy_ref": None,
+            "vetoes": ["market_regime"],
+            "reason": "test",
+        }],
         root=tmp_path,
         generated_at=generated_at,
     )
@@ -123,12 +196,165 @@ def test_prediction_snapshot_contract_requires_reason(tmp_path):
         persist_prediction_snapshot(
             strategy="canslim",
             market_regime="correction",
-            records=[{"symbol": "MSFT", "action": "BUY", "score": 8}],
+            records=[{
+                "symbol": "MSFT",
+                "action": "BUY",
+                "score": 8,
+                "effective_confidence": 70,
+                "confidence": 70,
+                "risk": "medium",
+                "market_regime": "confirmed_uptrend",
+                "breadth_state": None,
+                "entry_plan_ref": "canslim.breakout_entry_v1",
+                "execution_policy_ref": None,
+                "vetoes": [],
+            }],
             root=tmp_path,
             generated_at=generated_at,
             producer="backtester.test_prediction_accuracy",
         )
     except ValueError as error:
-        assert "requires a reason" in str(error)
+        assert "requires explicit producer fields" in str(error)
+        assert "reason" in str(error)
     else:
         raise AssertionError("persist_prediction_snapshot should reject records without a reason")
+
+
+def test_prediction_snapshot_contract_requires_explicit_surface_fields(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    try:
+        persist_prediction_snapshot(
+            strategy="canslim",
+            market_regime="correction",
+            records=[{
+                "symbol": "MSFT",
+                "action": "BUY",
+                "score": 8,
+                "effective_confidence": 70,
+                "reason": "Strong setup",
+            }],
+            root=tmp_path,
+            generated_at=generated_at,
+            producer="backtester.test_prediction_accuracy",
+        )
+    except ValueError as error:
+        assert "requires explicit producer fields" in str(error)
+        assert "risk" in str(error)
+        assert "market_regime" in str(error)
+    else:
+        raise AssertionError("persist_prediction_snapshot should reject records missing explicit contract fields")
+
+
+def test_prediction_snapshot_contract_preserves_explicit_fields(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[
+            {
+                "symbol": "NVDA",
+                "action": "WATCH",
+                "score": 9,
+                "effective_confidence": 68,
+                "confidence": 68,
+                "market_regime": "correction",
+                "risk": "medium",
+                "breadth_state": "inactive",
+                "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+                "execution_policy_ref": "execution.good.tight",
+                "vetoes": ["market_regime", "abstain:confidence"],
+                "reason": "Breadth is inactive so the setup stays watch-only.",
+            }
+        ],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    record = payload["records"][0]
+    assert record["risk"] == "medium"
+    assert record["breadth_state"] == "inactive"
+    assert record["entry_plan_ref"] == "dip_buyer.reversal_watch_v1"
+    assert record["execution_policy_ref"] == "execution.good.tight"
+    assert record["vetoes"] == ["market_regime", "abstain:confidence"]
+
+
+def test_prediction_settlement_tracks_pending_and_incomplete_horizons(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[
+            {
+                "symbol": "AAPL",
+                "action": "WATCH",
+                "score": 8,
+                "effective_confidence": 61,
+                "confidence": 61,
+                "risk": "medium",
+                "market_regime": "correction",
+                "breadth_state": "inactive",
+                "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+                "execution_policy_ref": None,
+                "vetoes": [],
+                "reason": "test",
+            }
+        ],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+    assert path is not None
+
+    settle_prediction_snapshots(root=tmp_path, provider=_ShortHistoryStubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    record = settled_payload["records"][0]
+    assert record["settlement_status"] == "partially_settled"
+    assert record["settlement_maturity_state"] == "partial"
+    assert record["matured_horizons"] == ["1d"]
+    assert record["pending_horizons"] == []
+    assert record["incomplete_horizons"] == ["5d", "20d"]
+    assert record["matured_coverage_pct"] == 0.3333
+    assert record["incomplete_coverage_pct"] == 0.6667
+    assert record["settlement_maturity_state"] == "partial"
+    assert record["signal_validation_grade"] == "good"
+    assert record["entry_validation_grade"] == "good"
+    assert record["execution_validation_grade"] == "unknown"
+    assert record["trade_validation_grade"] == "unknown"
+
+
+def test_prediction_settlement_grades_no_buy_avoidance(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    persist_prediction_snapshot(
+        strategy="canslim",
+        market_regime="correction",
+        records=[{
+            "symbol": "MSFT",
+            "action": "NO_BUY",
+            "score": 6,
+            "effective_confidence": 29,
+            "confidence": 29,
+            "risk": "high",
+            "market_regime": "correction",
+            "breadth_state": None,
+            "entry_plan_ref": None,
+            "execution_policy_ref": None,
+            "vetoes": ["market_regime"],
+            "reason": "test",
+        }],
+        root=tmp_path,
+        generated_at=generated_at,
+    )
+
+    settle_prediction_snapshots(root=tmp_path, provider=_NegativeStubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    record = settled_payload["records"][0]
+    assert record["signal_validation_grade"] == "good"
+    assert record["entry_validation_grade"] == "not_applicable"
+    assert record["execution_validation_grade"] == "not_applicable"
+    assert record["trade_validation_grade"] == "good"

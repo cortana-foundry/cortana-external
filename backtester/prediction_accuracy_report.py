@@ -24,6 +24,12 @@ def main() -> None:
     print("Prediction accuracy")
     print(f"Snapshots settled: {int(summary.get('snapshot_count', 0) or 0)}")
     print(f"Records logged: {int(summary.get('record_count', 0) or 0)}")
+    settlement_status_counts = summary.get("settlement_status_counts") or {}
+    if settlement_status_counts:
+        print("Settlement states: " + _format_counts(settlement_status_counts))
+    maturity_state_counts = summary.get("maturity_state_counts") or {}
+    if maturity_state_counts:
+        print("Maturity states: " + _format_counts(maturity_state_counts))
     horizon_status = summary.get("horizon_status") or {}
     if horizon_status:
         parts = []
@@ -37,6 +43,22 @@ def main() -> None:
             )
         if parts:
             print("Settlement coverage: " + " ; ".join(parts))
+    validation_grade_counts = summary.get("validation_grade_counts") or {}
+    if validation_grade_counts:
+        grade_parts = []
+        for key in (
+            "signal_validation_grade",
+            "entry_validation_grade",
+            "execution_validation_grade",
+            "trade_validation_grade",
+        ):
+            counts = validation_grade_counts.get(key)
+            if not isinstance(counts, dict) or not counts:
+                continue
+            label = key.replace("_grade", "").replace("_", " ")
+            grade_parts.append(f"{label}: {_format_counts(counts)}")
+        if grade_parts:
+            print("Validation grades: " + " ; ".join(grade_parts))
     rows = summary.get("summary") or []
     if not rows:
         print("No settled prediction samples yet.")
@@ -85,6 +107,13 @@ def _format_summary_row(row: dict, *, key_fields: tuple[str, ...]) -> str:
         if extras:
             segment += " | " + " | ".join(extras)
         parts.append(segment)
+    return " | ".join(parts)
+
+
+def _format_counts(counts: dict) -> str:
+    parts = []
+    for key, value in sorted(counts.items()):
+        parts.append(f"{key} {int(value or 0)}")
     return " | ".join(parts)
 
 

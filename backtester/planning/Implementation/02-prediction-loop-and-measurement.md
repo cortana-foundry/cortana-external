@@ -49,8 +49,8 @@ Week 5: V6 + replay/regression cleanup
 #### Jira
 
 - [x] Sub-task 1: Create a central prediction contract helper under `backtester/evaluation` that standardizes required fields such as symbol, strategy, action, confidence, risk, regime, breadth state, entry-plan reference, execution-policy reference, reason, timestamp, and schema metadata.
-- Sub-task 2: Update `backtester/advisor.py`, `backtester/canslim_alert.py`, and `backtester/dipbuyer_alert.py` so each emitted prediction snapshot includes the full contract, even if some fields are presently null placeholders for later workstreams.
-- Sub-task 3: Add validation helpers so incomplete predictions fail tests instead of silently writing partial artifacts.
+- [x] Sub-task 2: Update `backtester/advisor.py`, `backtester/canslim_alert.py`, and `backtester/dipbuyer_alert.py` so each emitted prediction snapshot includes the full contract, even if some fields are presently null placeholders for later workstreams.
+- [x] Sub-task 3: Add validation helpers so incomplete predictions fail tests instead of silently writing partial artifacts.
 
 #### Testing
 
@@ -68,9 +68,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/outcomes.py` and related settlement helpers to compute horizon returns, max favorable excursion, max adverse excursion, pending coverage, and settlement maturity state.
-- Sub-task 2: Add action-aware grading helpers that distinguish signal validation, entry validation, execution validation, and trade validation.
-- Sub-task 3: Persist or emit settlement artifacts in a stable versioned shape for later reports.
+- [x] Sub-task 1: Extend `backtester/outcomes.py` and related settlement helpers to compute horizon returns, max favorable excursion, max adverse excursion, pending coverage, and settlement maturity state.
+- [x] Sub-task 2: Add action-aware grading helpers that distinguish signal validation, entry validation, execution validation, and trade validation.
+- [x] Sub-task 3: Persist or emit settlement artifacts in a stable versioned shape for later reports.
 
 #### Testing
 

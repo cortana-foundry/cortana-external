@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from advisor import TradingAdvisor as _RealTradingAdvisor
 from data.market_regime import MarketRegime
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, ARTIFACT_SCHEMA_VERSION
 
@@ -12,6 +13,9 @@ import dipbuyer_alert
 
 
 class _FakeCanSlimAdvisor:
+    build_prediction_contract_context = staticmethod(_RealTradingAdvisor.build_prediction_contract_context)
+    _action_priority = staticmethod(_RealTradingAdvisor._action_priority)
+
     def __init__(self):
         self._market = SimpleNamespace(
             regime=MarketRegime.CONFIRMED_UPTREND,
@@ -50,6 +54,9 @@ class _FakeCanSlimAdvisor:
 
 
 class _FakeDipBuyerAdvisor:
+    build_prediction_contract_context = staticmethod(_RealTradingAdvisor.build_prediction_contract_context)
+    _action_priority = staticmethod(_RealTradingAdvisor._action_priority)
+
     def __init__(self):
         self.risk_fetcher = SimpleNamespace(get_snapshot=lambda: {})
         self._market = SimpleNamespace(
@@ -260,3 +267,115 @@ def test_dipbuyer_build_alert_payload_marks_market_gate_blocked(monkeypatch):
     assert payload["status"] == "ok"
     assert payload["outcome_class"] == "market_gate_blocked"
     assert payload["degraded_status"] == "healthy"
+
+
+def test_canslim_persisted_prediction_records_include_explicit_contract_fields(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _capture_predictions(**kwargs):
+        captured["records"] = kwargs["records"]
+        return None
+
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setattr("canslim_alert.persist_prediction_snapshot", _capture_predictions)
+    monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("canslim_alert.build_alert_context_lines", lambda watchlist: [])
+    with patch("canslim_alert.TradingAdvisor", _FakeCanSlimAdvisor):
+        canslim_alert.build_alert_payload(limit=5, min_score=6, universe_size=2, review_detail_limit=2)
+
+    records = captured["records"]
+    assert isinstance(records, list) and records
+    record = records[0]
+    assert record["market_regime"] == "confirmed_uptrend"
+    assert record["confidence"] == 76.0
+    assert record["risk"] == "low"
+    assert record["entry_plan_ref"] == "canslim.breakout_entry_v1"
+    assert record["execution_policy_ref"] is None
+    assert record["vetoes"] == []
+
+
+def test_dipbuyer_persisted_prediction_records_include_explicit_contract_fields(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _capture_predictions(**kwargs):
+        captured["records"] = kwargs["records"]
+        return None
+
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setattr("dipbuyer_alert.persist_prediction_snapshot", _capture_predictions)
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {"stage": "enforced", "execution_quality": "good"}))
+    monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
+    analyzer = MagicMock()
+    analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
+
+    with patch("dipbuyer_alert.TradingAdvisor", _FakeDipBuyerAdvisor), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ):
+        dipbuyer_alert.build_alert_payload(limit=5, min_score=6, universe_size=1, review_detail_limit=2)
+
+    records = captured["records"]
+    assert isinstance(records, list) and records
+    record = records[0]
+    assert record["market_regime"] == "uptrend_under_pressure"
+    assert record["confidence"] == 73.0
+    assert record["breadth_state"] == "inactive"
+    assert record["entry_plan_ref"] == "dip_buyer.reversal_entry_v1"
+    assert record["execution_policy_ref"] == "execution.enforced.good"
+    assert record["vetoes"] == []
+
+
+def test_dipbuyer_analysis_failure_predictions_include_contract_placeholders(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _capture_predictions(**kwargs):
+        captured["records"] = kwargs["records"]
+        return None
+
+    class _CorrectionAdvisor(_FakeDipBuyerAdvisor):
+        def __init__(self):
+            super().__init__()
+            self._market = SimpleNamespace(
+                regime=MarketRegime.CORRECTION,
+                position_sizing=0.0,
+                notes="market correction gate",
+                status="ok",
+                data_source="schwab",
+                snapshot_age_seconds=0.0,
+            )
+            self._analysis = {}
+
+        def analyze_dip_stock(self, symbol: str):
+            return {"symbol": symbol, "error": "market gated"}
+
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setattr("dipbuyer_alert.persist_prediction_snapshot", _capture_predictions)
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
+    analyzer = MagicMock()
+    analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
+
+    with patch("dipbuyer_alert.TradingAdvisor", _CorrectionAdvisor), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ):
+        dipbuyer_alert.build_alert_payload(limit=2, min_score=6, universe_size=2, review_detail_limit=2)
+
+    records = captured["records"]
+    assert isinstance(records, list) and records
+    record = records[0]
+    assert record["action"] == "NO_BUY"
+    assert record["risk"] == "unknown"
+    assert record["breadth_state"] == "inactive"
+    assert record["entry_plan_ref"] is None
+    assert record["execution_policy_ref"] is None
+    assert record["vetoes"] == ["analysis_failure"]

@@ -11,12 +11,22 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
         prediction_accuracy_report,
         "build_prediction_accuracy_summary",
         lambda: {
+            "schema_version": 1,
+            "artifact_family": "prediction_accuracy_summary",
             "snapshot_count": 12,
             "record_count": 48,
+            "settlement_status_counts": {"settled": 9, "partially_settled": 2, "insufficient_data": 1},
+            "maturity_state_counts": {"matured": 9, "partial": 2, "incomplete": 1},
             "horizon_status": {
                 "1d": {"matured": 16, "pending": 20, "incomplete": 12},
                 "5d": {"matured": 8, "pending": 24, "incomplete": 16},
                 "20d": {"matured": 3, "pending": 30, "incomplete": 15},
+            },
+            "validation_grade_counts": {
+                "signal_validation_grade": {"good": 8, "mixed": 3, "poor": 1},
+                "entry_validation_grade": {"good": 6, "unknown": 4, "not_applicable": 2},
+                "execution_validation_grade": {"unknown": 10, "good": 2},
+                "trade_validation_grade": {"good": 5, "mixed": 4, "unknown": 2, "poor": 1},
             },
             "summary": [
                 {
@@ -74,7 +84,10 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     assert "Prediction accuracy" in out
     assert "Snapshots settled: 12" in out
     assert "Records logged: 48" in out
+    assert "Settlement states: insufficient_data 1 | partially_settled 2 | settled 9" in out
+    assert "Maturity states: incomplete 1 | matured 9 | partial 2" in out
     assert "Settlement coverage: 1d: matured 16 | pending 20 | incomplete 12" in out
+    assert "Validation grades: signal validation: good 8 | mixed 3 | poor 1" in out
     assert "By strategy/action" in out
     assert "dip_buyer NO_BUY" in out
     assert "avoidance_rate=75%" in out
