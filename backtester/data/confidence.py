@@ -52,6 +52,16 @@ def confidence_bucket(value: float) -> str:
     return "very_low"
 
 
+def stable_confidence_bucket(value: object, *, probability: bool = False, unknown_bucket: str = "unknown") -> str:
+    """Map a confidence-like input into a stable bucket with explicit unknown handling."""
+    numeric = _safe_float(value, default=float("nan"))
+    if numeric != numeric:
+        return unknown_bucket
+    if probability:
+        numeric *= 100.0
+    return confidence_bucket(numeric)
+
+
 def _size_multiplier(
     effective_confidence_pct: float,
     uncertainty_pct: float,

@@ -358,3 +358,56 @@ def test_prediction_settlement_grades_no_buy_avoidance(tmp_path):
     assert record["entry_validation_grade"] == "not_applicable"
     assert record["execution_validation_grade"] == "not_applicable"
     assert record["trade_validation_grade"] == "good"
+
+
+def test_prediction_accuracy_summary_includes_grouped_and_rolling_rollups(tmp_path):
+    settled_dir = tmp_path / "settled"
+    settled_dir.mkdir(parents=True, exist_ok=True)
+
+    records: list[dict] = []
+    for idx in range(25):
+        records.append(
+            {
+                "symbol": f"T{idx:02d}",
+                "action": "BUY" if idx % 2 == 0 else "NO_BUY",
+                "confidence": 82 if idx % 3 == 0 else 48,
+                "market_regime": "confirmed_uptrend" if idx < 10 else "correction",
+                "predicted_at": (datetime(2026, 3, 1, tzinfo=timezone.utc) + timedelta(days=idx)).isoformat(),
+                "settlement_status": "settled",
+                "settlement_maturity_state": "matured",
+                "signal_validation_grade": "good",
+                "entry_validation_grade": "good" if idx % 2 == 0 else "not_applicable",
+                "execution_validation_grade": "unknown",
+                "trade_validation_grade": "good",
+                "forward_returns_pct": {"5d": 4.0 if idx % 2 == 0 else -2.0},
+                "max_drawdown_pct": {"5d": -1.0 if idx % 2 == 0 else -0.5},
+                "max_runup_pct": {"5d": 5.0 if idx % 2 == 0 else 0.4},
+                "pending_horizons": [],
+            }
+        )
+
+    first_payload = {
+        "strategy": "dip_buyer",
+        "market_regime": "confirmed_uptrend",
+        "records": records[:15],
+    }
+    second_payload = {
+        "strategy": "canslim",
+        "market_regime": "correction",
+        "records": records[15:],
+    }
+    (settled_dir / "20260301-dip_buyer.json").write_text(json.dumps(first_payload), encoding="utf-8")
+    (settled_dir / "20260316-canslim.json").write_text(json.dumps(second_payload), encoding="utf-8")
+
+    summary = build_prediction_accuracy_summary(root=tmp_path)
+
+    assert {row["strategy"] for row in summary["by_strategy"]} == {"dip_buyer", "canslim"}
+    assert {row["action"] for row in summary["by_action"]} == {"BUY", "NO_BUY"}
+    assert summary["by_strategy_action"] == summary["summary"]
+    assert summary["rolling_window_sizes"] == [20, 50, 100]
+    assert summary["rolling_summary"]["20"]["records_considered"] == 20
+    assert summary["rolling_summary"]["20"]["is_partial_window"] is False
+    assert summary["rolling_summary"]["50"]["records_considered"] == 25
+    assert summary["rolling_summary"]["50"]["is_partial_window"] is True
+    assert any(row["strategy"] == "canslim" for row in summary["rolling_summary"]["20"]["by_strategy"])
+    assert any(row["confidence_bucket"] == "high" for row in summary["by_confidence_bucket"])

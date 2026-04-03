@@ -90,9 +90,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update `backtester/evaluation/prediction_accuracy.py` to compute grouped rollups by strategy, action, regime bucket, and confidence bucket.
-- Sub-task 2: Update `backtester/data/confidence.py` and `backtester/buy_decision_calibration.py` to support stable confidence-bucket and calibration outputs for the new contract.
-- Sub-task 3: Extend `backtester/prediction_accuracy_report.py` to render rolling 20/50/100-sample summaries and preserve machine-readable payloads.
+- [x] Sub-task 1: Update `backtester/evaluation/prediction_accuracy.py` to compute grouped rollups by strategy, action, regime bucket, and confidence bucket.
+- [x] Sub-task 2: Update `backtester/data/confidence.py` and `backtester/buy_decision_calibration.py` to support stable confidence-bucket and calibration outputs for the new contract.
+- [x] Sub-task 3: Extend `backtester/prediction_accuracy_report.py` to render rolling 20/50/100-sample summaries and preserve machine-readable payloads.
 
 #### Testing
 
@@ -110,9 +110,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/evaluation/decision_review.py` or a companion module to compute missed-winner and overblock summaries for `WATCH` and `NO_BUY` outcomes.
-- Sub-task 2: Record veto paths or downgrade reasons in a reusable structure for later scorecards.
-- Sub-task 3: Emit dedicated opportunity-cost and veto-effectiveness artifacts for weekly review and later governance gates.
+- [x] Sub-task 1: Extend `backtester/evaluation/decision_review.py` or a companion module to compute missed-winner and overblock summaries for `WATCH` and `NO_BUY` outcomes.
+- [x] Sub-task 2: Record veto paths or downgrade reasons in a reusable structure for later scorecards.
+- [x] Sub-task 3: Emit dedicated opportunity-cost and veto-effectiveness artifacts for weekly review and later governance gates.
 
 #### Important Planning Notes
 
@@ -137,9 +137,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create lightweight baseline comparison helpers under `backtester/evaluation/benchmark_models.py`.
-- Sub-task 2: Add benchmark comparisons to measurement rollups without breaking current report readers.
-- Sub-task 3: Persist the benchmark comparison outputs for later governance and promotion work.
+- [x] Sub-task 1: Create lightweight baseline comparison helpers under `backtester/evaluation/benchmark_models.py`.
+- [x] Sub-task 2: Add benchmark comparisons to measurement rollups without breaking current report readers.
+- [x] Sub-task 3: Persist the benchmark comparison outputs for later governance and promotion work.
 
 #### Testing
 
@@ -157,9 +157,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update report formatting in `backtester/prediction_accuracy_report.py` and any supporting formatters to surface strategy/action/regime/confidence groupings clearly.
-- Sub-task 2: Add concise summary sections for opportunity cost, veto effectiveness, and benchmark comparisons.
-- Sub-task 3: Ensure machine-readable rollups are written before human-readable summaries and remain the source of truth.
+- [x] Sub-task 1: Update report formatting in `backtester/prediction_accuracy_report.py` and any supporting formatters to surface strategy/action/regime/confidence groupings clearly.
+- [x] Sub-task 2: Add concise summary sections for opportunity cost, veto effectiveness, and benchmark comparisons.
+- [x] Sub-task 3: Ensure machine-readable rollups are written before human-readable summaries and remain the source of truth.
 
 #### Testing
 
