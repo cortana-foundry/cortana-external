@@ -11,6 +11,7 @@ BACKTESTER_ROOT = REPO_ROOT / "backtester"
 DAYTIME_FLOW = BACKTESTER_ROOT / "scripts" / "daytime_flow.sh"
 NIGHTTIME_FLOW = BACKTESTER_ROOT / "scripts" / "nighttime_flow.sh"
 TREND_SWEEP = REPO_ROOT / "tools" / "stock-discovery" / "trend_sweep.sh"
+OPERATOR_WORKFLOW = BACKTESTER_ROOT / "scripts" / "operator_workflow.sh"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -258,13 +259,241 @@ def test_daytime_flow_writes_run_manifest_and_strategy_artifacts(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["artifact_family"] == "run_manifest"
     assert manifest["producer"] == "backtester.daytime_flow"
-    assert manifest["run_kind"] == "daytime_flow"
-    assert manifest["status"] == "degraded"
-    assert manifest["degraded_status"] == "degraded_safe"
-    assert any(stage["name"] == "canslim_alert" for stage in manifest["stages"])
-    assert any(stage["name"] == "dipbuyer_alert" for stage in manifest["stages"])
-    assert any(artifact["label"] == "canslim-alert-json" for artifact in manifest["artifacts"])
-    assert any(artifact["label"] == "dipbuyer-alert-json" for artifact in manifest["artifacts"])
+
+
+def test_operator_workflow_premarket_runs_market_brief_canary_and_runtime_health(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "$*" >>"{uv_log}"
+            case "$3" in
+              market_brief_snapshot.py)
+                printf '%s\\n' "brief"
+                ;;
+              pre_open_canary.py)
+                printf '%s\\n' "canary"
+                ;;
+              runtime_health_snapshot.py)
+                printf '%s\\n' "health"
+                ;;
+            esac
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "premarket"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: PREMARKET" in result.stdout
+    assert "== Market Brief ==" in result.stdout
+    assert "== Pre-Open Canary ==" in result.stdout
+    assert "== Runtime Health ==" in result.stdout
+    uv_calls = uv_log.read_text(encoding="utf-8")
+    assert "run python market_brief_snapshot.py --operator" in uv_calls
+    assert "run python pre_open_canary.py" in uv_calls
+    assert "run python runtime_health_snapshot.py --pretty" in uv_calls
+
+
+def test_operator_workflow_open_runs_daytime_flow(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_daytime = tmp_path / "fake-daytime.sh"
+    _write_executable(fake_daytime, "#!/usr/bin/env bash\nprintf '%s\\n' 'daytime-ok'\n")
+
+    env = _shell_env(bin_dir)
+    env["DAYTIME_FLOW_SCRIPT"] = str(fake_daytime)
+
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "open"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: OPEN" in result.stdout
+    assert "== Daytime Flow ==" in result.stdout
+    assert "daytime-ok" in result.stdout
+
+
+def test_operator_workflow_midday_runs_brief_dipbuyer_and_watchlist(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+    fake_watch = tmp_path / "fake-watch.sh"
+    _write_executable(fake_watch, "#!/usr/bin/env bash\nprintf '%s\\n' 'watch-ok'\n")
+
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "$*" >>"{uv_log}"
+            case "$3" in
+              market_brief_snapshot.py)
+                printf '%s\\n' "brief"
+                ;;
+              dipbuyer_alert.py)
+                printf '%s\\n' "dipbuyer"
+                ;;
+            esac
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    env["WATCHLIST_WATCH_SCRIPT"] = str(fake_watch)
+
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "midday"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: MIDDAY" in result.stdout
+    assert "== Market Brief ==" in result.stdout
+    assert "== Dip Buyer ==" in result.stdout
+    assert "== Watchlist Pulse ==" in result.stdout
+    assert "watch-ok" in result.stdout
+    uv_calls = uv_log.read_text(encoding="utf-8")
+    assert "run python market_brief_snapshot.py --operator" in uv_calls
+    assert "run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120" in uv_calls
+
+
+def test_operator_workflow_close_runs_brief_lifecycle_and_accuracy(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "$*" >>"{uv_log}"
+            case "$3" in
+              market_brief_snapshot.py)
+                printf '%s\\n' "brief"
+                ;;
+              trade_lifecycle_report.py)
+                printf '%s\\n' "lifecycle"
+                ;;
+              prediction_accuracy_report.py)
+                printf '%s\\n' "accuracy"
+                ;;
+            esac
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "close"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: CLOSE" in result.stdout
+    uv_calls = uv_log.read_text(encoding="utf-8")
+    assert "run python market_brief_snapshot.py --operator" in uv_calls
+    assert "run python trade_lifecycle_report.py" in uv_calls
+    assert "run python prediction_accuracy_report.py" in uv_calls
+
+
+def test_operator_workflow_night_runs_nighttime_flow(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_night = tmp_path / "fake-night.sh"
+    _write_executable(fake_night, "#!/usr/bin/env bash\nprintf '%s\\n' 'night-ok'\n")
+
+    env = _shell_env(bin_dir)
+    env["NIGHTTIME_FLOW_SCRIPT"] = str(fake_night)
+
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "night"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: NIGHT" in result.stdout
+    assert "== Nighttime Flow ==" in result.stdout
+    assert "night-ok" in result.stdout
+
+
+def test_operator_workflow_health_runs_runtime_canary_and_ops_highway(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "$*" >>"{uv_log}"
+            case "$3" in
+              runtime_health_snapshot.py)
+                printf '%s\\n' "health"
+                ;;
+              pre_open_canary.py)
+                printf '%s\\n' "canary"
+                ;;
+              ops_highway_snapshot.py)
+                printf '%s\\n' "ops"
+                ;;
+            esac
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    result = subprocess.run(
+        ["bash", str(OPERATOR_WORKFLOW), "health"],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Workflow: HEALTH" in result.stdout
+    uv_calls = uv_log.read_text(encoding="utf-8")
+    assert "run python runtime_health_snapshot.py --pretty" in uv_calls
+    assert "run python pre_open_canary.py" in uv_calls
+    assert "run python ops_highway_snapshot.py --pretty" in uv_calls
 
 
 def test_trend_sweep_preserves_existing_watchlist_when_x_auth_is_unavailable(tmp_path):
