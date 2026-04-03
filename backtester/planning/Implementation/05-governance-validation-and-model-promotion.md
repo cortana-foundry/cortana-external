@@ -138,9 +138,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement gate evaluators for promotion and demotion using explicit thresholds and artifact inputs.
-- Sub-task 2: Add challenger lifecycle logic so candidates can move through shadow, challenger, incumbent, retired, or blocked states.
-- Sub-task 3: Ensure degraded-input evaluations, tiny-sample streaks, or one-regime wins cannot pass promotion silently.
+- [x] Sub-task 1: Implement gate evaluators for promotion and demotion using explicit thresholds and artifact inputs.
+- [x] Sub-task 2: Add challenger lifecycle logic so candidates can move through shadow, challenger, incumbent, retired, or blocked states.
+- [x] Sub-task 3: Ensure degraded-input evaluations, tiny-sample streaks, or one-regime wins cannot pass promotion silently.
 
 #### Testing
 
@@ -158,9 +158,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Add operator-facing governance summaries that explain current trust tiers and recent authority changes.
-- Sub-task 2: Add status-based activation hooks so compare-only mode can later evolve into enforcement.
-- Sub-task 3: Ensure demoted or retired logic no longer appears as incumbent in downstream artifacts.
+- [x] Sub-task 1: Add operator-facing governance summaries that explain current trust tiers and recent authority changes.
+- [x] Sub-task 2: Add status-based activation hooks so compare-only mode can later evolve into enforcement.
+- [x] Sub-task 3: Ensure demoted or retired logic no longer appears as incumbent in downstream artifacts.
 
 #### Testing
 
