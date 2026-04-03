@@ -12,7 +12,9 @@ from decision_brain.narrative import (
     normalize_polymarket_narrative_snapshot,
     normalize_x_narrative_snapshot,
 )
+from decision_brain.multi_timeframe import build_multi_timeframe_context
 from decision_brain.weights import build_adaptive_weight_snapshot
+from research.runtime import build_research_runtime_snapshot, read_hot_research_artifact
 
 __all__ = [
     "DECISION_STATE_SCHEMA_VERSION",
@@ -21,7 +23,10 @@ __all__ = [
     "build_bounded_narrative_overlay",
     "build_decision_state_artifact",
     "build_default_ownership_map",
+    "build_multi_timeframe_context",
+    "build_research_runtime_snapshot",
     "normalize_polymarket_narrative_snapshot",
     "normalize_x_narrative_snapshot",
+    "read_hot_research_artifact",
     "validate_decision_state_artifact",
 ]

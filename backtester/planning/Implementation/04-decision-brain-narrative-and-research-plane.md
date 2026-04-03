@@ -117,9 +117,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/data/intraday_breadth.py` into a state machine with `inactive`, `watch_only`, `selective_buy`, and `unavailable`.
-- Sub-task 2: Add weekly/daily/short-term confirmation helpers for timing refinement.
-- Sub-task 3: Add rules for narrow-rally rejection, persistence, session gating, and authority caps.
+- [x] Sub-task 1: Extend `backtester/data/intraday_breadth.py` into a state machine with `inactive`, `watch_only`, `selective_buy`, and `unavailable`.
+- [x] Sub-task 2: Add weekly/daily/short-term confirmation helpers for timing refinement.
+- [x] Sub-task 3: Add rules for narrow-rally rejection, persistence, session gating, and authority caps.
 
 #### Testing
 
@@ -137,9 +137,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Define hot-path read contracts for research artifacts used by `cday`, `cbreadth`, trading cron, and live scans.
-- Sub-task 2: Define warm-lane refresh jobs for earnings, catalysts, theme maps, and ticker research profiles.
-- Sub-task 3: Define cold-lane jobs for deep transcript and historical catalyst work, with clear scheduling and non-blocking rules.
+- [x] Sub-task 1: Define hot-path read contracts for research artifacts used by `cday`, `cbreadth`, trading cron, and live scans.
+- [x] Sub-task 2: Define warm-lane refresh jobs for earnings, catalysts, theme maps, and ticker research profiles.
+- [x] Sub-task 3: Define cold-lane jobs for deep transcript and historical catalyst work, with clear scheduling and non-blocking rules.
 
 #### Important Planning Notes
 

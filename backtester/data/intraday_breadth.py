@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from decision_brain.multi_timeframe import build_multi_timeframe_context
 from data.universe import GROWTH_WATCHLIST
 
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
@@ -105,18 +106,27 @@ def _breadth_stats(symbols: list[str], change_map: dict[str, float]) -> dict[str
     }
 
 
-def _evaluate_override(*, tape: dict[str, float], sp500: dict[str, Any], growth: dict[str, Any], warnings: list[str]) -> tuple[str, str]:
+def _evaluate_override(
+    *,
+    tape: dict[str, float],
+    sp500: dict[str, Any],
+    growth: dict[str, Any],
+    warnings: list[str],
+    multi_timeframe: dict[str, Any],
+) -> tuple[str, str, str]:
     if warnings:
-        return "unavailable", "live breadth inputs are stale or incomplete"
+        return "unavailable", "live breadth inputs are stale or incomplete", "no_intraday_authority"
     if sp500["total"] == 0 or growth["total"] == 0:
-        return "unavailable", "live breadth inputs are missing"
+        return "unavailable", "live breadth inputs are missing", "no_intraday_authority"
     spy = float(tape.get("SPY", 0.0))
     qqq = float(tape.get("QQQ", 0.0))
     if spy >= float(os.getenv("TRADING_INTRADAY_BREADTH_SPY_MIN_PCT", "1.5")) and qqq >= float(os.getenv("TRADING_INTRADAY_BREADTH_QQQ_MIN_PCT", "2.0")):
         if sp500["pct_up"] >= float(os.getenv("TRADING_INTRADAY_BREADTH_SP500_PCT_UP_MIN", "0.70")) and growth["pct_up"] >= float(os.getenv("TRADING_INTRADAY_BREADTH_GROWTH_PCT_UP_MIN", "0.65")):
-            return "selective-buy", "broad intraday rally with strong participation despite the defensive daily regime"
-        return "inactive", "indexes are strong, but breadth is not broad enough to confirm the move"
-    return "inactive", "index strength is not strong enough to relax correction-mode discipline"
+            return "selective-buy", "broad intraday rally with strong participation despite the defensive daily regime", str(multi_timeframe.get("authority_cap") or "selective_buy")
+        return "watch_only", "indexes are strong, but breadth is not broad enough to confirm a selective-buy posture", "watch_only"
+    if sp500["pct_up"] >= 0.60 or growth["pct_up"] >= 0.60:
+        return "watch_only", "breadth is constructive, but tape strength is not strong enough for selective-buy authority", "watch_only"
+    return "inactive", "index strength is not strong enough to relax correction-mode discipline", "inactive"
 
 
 def build_intraday_breadth_snapshot(
@@ -129,13 +139,18 @@ def build_intraday_breadth_snapshot(
             "status": "disabled",
             "override_state": "inactive",
             "override_reason": "intraday breadth override is disabled",
+            "authority_cap": "inactive",
+            "session_phase": "CLOSED",
             "warnings": [],
         }
-    if not _is_regular_market_session(now):
+    session_now = now or datetime.now(ZoneInfo("America/New_York"))
+    if not _is_regular_market_session(session_now):
         return {
             "status": "inactive",
             "override_state": "inactive",
             "override_reason": "outside regular market session",
+            "authority_cap": "inactive",
+            "session_phase": "CLOSED" if session_now.weekday() >= 5 else "OFF_HOURS",
             "warnings": [],
         }
 
@@ -160,14 +175,29 @@ def build_intraday_breadth_snapshot(
     if growth_symbols and (growth["total"] / max(len(growth_symbols), 1)) < min_valid_ratio:
         warnings.append("growth_coverage_too_low")
 
-    override_state, override_reason = _evaluate_override(tape=tape, sp500=sp500, growth=growth, warnings=warnings)
+    multi_timeframe = build_multi_timeframe_context(
+        regime_label="correction",
+        tape=tape,
+        weekly_confirmed=False,
+        daily_confirmed=sp500["pct_up"] >= 0.70,
+    )
+    override_state, override_reason, authority_cap = _evaluate_override(
+        tape=tape,
+        sp500=sp500,
+        growth=growth,
+        warnings=warnings,
+        multi_timeframe=multi_timeframe,
+    )
     return {
         "status": "degraded" if warnings else "ok",
         "override_state": override_state,
         "override_reason": override_reason,
+        "authority_cap": authority_cap,
+        "session_phase": "OPEN",
         "tape": tape,
         "s_and_p": sp500,
         "growth": growth,
+        "multi_timeframe_context": multi_timeframe,
         "strong_up_day_flag": bool(sp500["pct_up"] >= 0.80),
         "narrow_rally_flag": bool(
             float(tape.get("SPY", 0.0) or 0.0) >= 1.0 and sp500["pct_up"] < 0.60
@@ -201,6 +231,8 @@ def render_intraday_breadth_lines(snapshot: dict[str, Any] | None) -> list[str]:
     reason = str(snapshot.get("override_reason", "")).strip()
     if override_state == "selective-buy":
         lines.append(f"Intraday override: selective-buy active — {reason}")
+    elif override_state == "watch_only":
+        lines.append(f"Intraday override: watch-only — {reason}")
     elif override_state == "unavailable":
         lines.append(f"Intraday override: unavailable — {reason}")
     else:

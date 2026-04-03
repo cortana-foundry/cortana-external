@@ -70,9 +70,10 @@ def test_build_intraday_breadth_snapshot_stays_inactive_when_breadth_is_narrow(m
     snapshot = module.build_intraday_breadth_snapshot(service_base_url="http://service", now=_market_time(13, 5))
 
     assert snapshot["status"] == "ok"
-    assert snapshot["override_state"] == "inactive"
+    assert snapshot["override_state"] == "watch_only"
     assert "breadth is not broad enough" in snapshot["override_reason"]
     assert snapshot["narrow_rally_flag"] is True
+    assert snapshot["authority_cap"] == "watch_only"
 
 
 def test_build_intraday_breadth_snapshot_marks_unavailable_when_coverage_is_too_low(monkeypatch):
@@ -98,3 +99,17 @@ def test_build_intraday_breadth_snapshot_marks_unavailable_when_coverage_is_too_
     assert snapshot["override_state"] == "unavailable"
     assert "coverage" in " ".join(snapshot["warnings"])
 
+
+def test_render_intraday_breadth_lines_includes_watch_only_label():
+    lines = module.render_intraday_breadth_lines(
+        {
+            "override_state": "watch_only",
+            "override_reason": "constructive but not broad enough",
+            "s_and_p": {"pct_up": 0.62, "up": 310, "total": 500},
+            "growth": {"pct_up": 0.55, "up": 55, "total": 100},
+            "tape": {"SPY": 1.2, "QQQ": 1.4},
+            "warnings": [],
+        }
+    )
+
+    assert any("watch-only" in line for line in lines)
