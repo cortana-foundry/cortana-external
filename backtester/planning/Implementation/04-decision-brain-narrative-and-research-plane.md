@@ -164,9 +164,9 @@ Week 5: V6 + shadow comparisons
 
 #### Jira
 
-- Sub-task 1: Update `market_brief_snapshot.py`, `advisor.py`, and related formatters to consume canonical decision-state and research artifacts.
-- Sub-task 2: Add shadow-mode artifacts that compare static vs adaptive state for operator review.
-- Sub-task 3: Add operator wording that explains selective-buy, crowding, narrative nudges, and research freshness without overstating authority.
+- [x] Sub-task 1: Update `market_brief_snapshot.py`, `advisor.py`, and related formatters to consume canonical decision-state and research artifacts.
+- [x] Sub-task 2: Add shadow-mode artifacts that compare static vs adaptive state for operator review.
+- [x] Sub-task 3: Add operator wording that explains selective-buy, crowding, narrative nudges, and research freshness without overstating authority.
 
 #### Testing
 

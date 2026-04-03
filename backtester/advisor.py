@@ -43,6 +43,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 import pandas as pd
+from decision_brain.surfaces import (
+    build_market_brief_decision_bundle,
+    build_surface_research_runtime,
+    load_shadow_inputs,
+)
 from data.confidence import (
     build_confidence_assessment,
     build_trade_quality_score,
@@ -1142,6 +1147,58 @@ class TradingAdvisor:
             return ""
         return "Overlay promotion: " + " | ".join(segments)
 
+    @classmethod
+    def _build_quick_check_shadow_bundle(
+        cls,
+        *,
+        market: MarketStatus,
+        verdict: str,
+        reason: str,
+        symbol: str,
+    ) -> Dict:
+        generated_at = datetime.now(UTC).isoformat()
+        comparison_artifact, calibration_artifact, warnings = load_shadow_inputs()
+        research_runtime = build_surface_research_runtime(generated_at=generated_at)
+        posture_action = "NO_BUY"
+        if verdict in {"actionable", "extended"}:
+            posture_action = "BUY"
+        elif verdict in {"needs confirmation", "early / interesting"}:
+            posture_action = "WATCH"
+        bundle = build_market_brief_decision_bundle(
+            generated_at=generated_at,
+            known_at=generated_at,
+            producer="advisor.quick_check",
+            session_phase="QUICK_CHECK",
+            regime={
+                "label": market.regime.value,
+                "display": market.regime.value.replace("_", " ").upper(),
+                "position_sizing_pct": round(float(market.position_sizing) * 100.0, 1),
+                "distribution_days": int(market.distribution_days),
+                "regime_score": int(market.regime_score),
+                "notes": str(market.notes or "").strip(),
+                "status": market.status,
+                "data_source": market.data_source,
+                "degraded_reason": market.degraded_reason or None,
+                "snapshot_age_seconds": market.snapshot_age_seconds,
+            },
+            posture={"action": posture_action, "reason": reason},
+            breadth={
+                "status": "inactive",
+                "override_state": "inactive",
+                "override_reason": "quick check does not evaluate intraday breadth",
+                "authority_cap": "inactive",
+                "warnings": warnings,
+            },
+            tape={"status": "ok", "primary_source": "unknown", "symbols": []},
+            macro_report=None,
+            focus={"symbols": [symbol], "sources": ["quick_check"], "reason": "Focus name came from the requested quick-check symbol."},
+            comparison_artifact=comparison_artifact,
+            calibration_artifact=calibration_artifact,
+            research_runtime=research_runtime,
+        )
+        bundle["warnings"] = warnings
+        return bundle
+
     def quick_check(self, symbol: str) -> Dict:
         target = self._normalize_quick_check_symbol(symbol)
         display_symbol = target["display_symbol"]
@@ -1185,6 +1242,12 @@ class TradingAdvisor:
             analysis=analysis if isinstance(analysis, dict) else {},
         )
         promotion_context = self._load_overlay_promotion_context()
+        shadow_bundle = self._build_quick_check_shadow_bundle(
+            market=market,
+            verdict=verdict,
+            reason=reason,
+            symbol=display_symbol,
+        )
 
         return {
             "input_symbol": target["input_symbol"],
@@ -1199,6 +1262,7 @@ class TradingAdvisor:
             "risk_budget_overlay": overlays.get("risk_budget_overlay", {}),
             "execution_quality_overlay": overlays.get("execution_quality_overlay", {}),
             "overlay_promotion": promotion_context,
+            "decision_brain_shadow": shadow_bundle.get("shadow_review", {}),
         }
 
     @staticmethod
@@ -1336,6 +1400,11 @@ class TradingAdvisor:
         promotion_line = TradingAdvisor._compact_overlay_promotion_line(result.get("overlay_promotion") or {})
         if promotion_line:
             lines.append(promotion_line)
+        shadow = result.get("decision_brain_shadow") or {}
+        if isinstance(shadow, dict):
+            shadow_summary = str(shadow.get("summary_line") or "").strip()
+            if shadow_summary:
+                lines.append(f"Shadow: {shadow_summary}")
 
         analysis = result.get("analysis", {})
         rec = analysis.get("recommendation", {}) if isinstance(analysis, dict) else {}
