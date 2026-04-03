@@ -218,6 +218,14 @@ Simple operating rule:
 Recommended aliases:
 
 ```bash
+alias cop='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/operator_workflow.sh'
+alias cop_pre='cop premarket'
+alias cop_open='cop open'
+alias cop_mid='cop midday'
+alias cop_close='cop close'
+alias cop_night='cop night'
+alias cop_health='cop health'
+
 alias cday='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/daytime_flow.sh'
 alias cnight='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/nighttime_flow.sh'
 alias cday_nostream='cd /Users/hd/Developer/cortana-external/backtester && SCHWAB_STREAMER_ENABLED=0 ./scripts/daytime_flow.sh'
@@ -231,11 +239,20 @@ alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_
 
 How to think about them:
 
+- `cop`
+  - main operator entrypoint
+  - use it for:
+    - `cop premarket`
+    - `cop open`
+    - `cop midday`
+    - `cop close`
+    - `cop night`
+    - `cop health`
 - `cday`
-  - normal daytime use
-  - refreshes market-intel and the X/Twitter dynamic watchlist by default before the main analysis
+  - direct daytime flow
+  - keep this for direct access or debugging
 - `cnight`
-  - normal nighttime use
+  - direct nighttime flow
 - `cday_nostream`
   - debug-only comparison mode
 - `clive`
@@ -250,6 +267,15 @@ How to think about them:
   - quick live watchlist pulse using the latest watchlist artifacts
 - `cwatch20`
   - same as `cwatch`, but with a larger top-20 list
+
+If you want the easiest routine, use:
+
+- `cop premarket`
+- `cop open`
+- `cop midday`
+- `cop close`
+- `cop night`
+- `cop health`
 
 X/Twitter auth note:
 
