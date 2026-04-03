@@ -1,6 +1,7 @@
 import { AlertTriangle, ClipboardList, Gauge, Radar, ShieldCheck, Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ArtifactState, TradingOpsDashboardData } from "@/lib/trading-ops";
 import {
   formatMoney,
@@ -22,13 +23,50 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           <h1 className="text-3xl font-semibold tracking-tight">Backtester operator console</h1>
           <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
             This page pulls the live operator surfaces plus the last workflow artifacts into one read-only view.
-            Start at market posture, then runtime health, then the last workflow run.
+            If you are new, read the checklist first. After that, use the tabs to drill into the part you care about.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span>Generated {formatRelativeAge(data.generatedAt)}</span>
           <span>Backtester root: {data.repoPath}</span>
         </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">What to read first</CardTitle>
+            <CardDescription>Use this order if you are not sure what matters yet.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <ReadStep title="1. Market posture" body="Read this first. If regime is correction and sizing is 0%, do not force buys." />
+            <ReadStep title="2. Runtime health" body="If you see provider cooldown or auth trouble, trust degraded warnings and expect slower signals." />
+            <ReadStep title="3. Latest workflow" body="Check whether CANSLIM and Dip Buyer actually finished, and whether any stage failed." />
+            <ReadStep title="4. Prediction and lifecycle" body="Use these to judge whether the system is getting better over time, not to override market posture." />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Quick answer</CardTitle>
+            <CardDescription>If you only want the headline, read this box and stop.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="rounded-lg border border-border/70 bg-card/40 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Right now</p>
+              <p className="mt-2 text-lg font-semibold">
+                {data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
+              </p>
+              <p className="mt-2 text-muted-foreground">{data.market.message}</p>
+            </div>
+            <dl className="grid grid-cols-2 gap-3">
+              <Metric label="Focus names" value={data.market.data?.focusSymbols.join(", ") || "None yet"} />
+              <Metric label="Runtime" value={data.runtime.data?.operatorState ?? data.runtime.label} />
+              <Metric label="Workflow" value={data.workflow.data ? data.workflow.data.runId : data.workflow.label} />
+              <Metric label="Open positions" value={String(data.lifecycle.data?.openCount ?? 0)} />
+            </dl>
+          </CardContent>
+        </Card>
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -66,165 +104,169 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
-        <ArtifactCard title="Market brief" artifact={data.market}>
-          {data.market.data ? (
-            <div className="space-y-3 text-sm">
-              <p className="font-medium">{data.market.data.reason}</p>
-              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Metric label="Regime" value={data.market.data.regime.toUpperCase()} />
-                <Metric label="Sizing" value={formatPercent(data.market.data.positionSizingPct)} />
-                <Metric label="Focus" value={data.market.data.focusSymbols.join(", ") || "None yet"} />
-                <Metric label="Next action" value={data.market.data.nextAction ?? "Wait for fresher data"} />
-              </dl>
-              <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest strategy summary</p>
-                <p className="mt-1 font-mono text-sm">{data.market.data.alertSummary || "No recent alert summary."}</p>
-              </div>
-            </div>
-          ) : null}
-        </ArtifactCard>
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="health">System Health</TabsTrigger>
+          <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
+        </TabsList>
 
-        <ArtifactCard title="Pre-open canary" artifact={data.canary}>
-          {data.canary.data ? (
-            <div className="space-y-3 text-sm">
-              <dl className="grid grid-cols-2 gap-3">
-                <Metric label="Ready for open" value={String(data.canary.data.readyForOpen ?? false)} />
-                <Metric label="Warnings" value={String(data.canary.data.warningCount)} />
-              </dl>
-              <div className="space-y-2">
-                {data.canary.data.checks.map((check) => (
-                  <div key={check.name} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-                    <span className="text-sm">{check.name}</span>
-                    <Badge variant={check.result === "ok" ? "success" : "warning"}>{check.result}</Badge>
+        <TabsContent value="overview" className="space-y-4">
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
+            <ArtifactCard title="Market brief" artifact={data.market}>
+              {data.market.data ? (
+                <div className="space-y-3 text-sm">
+                  <p className="font-medium">{data.market.data.reason}</p>
+                  <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Metric label="Regime" value={data.market.data.regime.toUpperCase()} />
+                    <Metric label="Sizing" value={formatPercent(data.market.data.positionSizingPct)} />
+                    <Metric label="Focus" value={data.market.data.focusSymbols.join(", ") || "None yet"} />
+                    <Metric label="Next action" value={data.market.data.nextAction ?? "Wait for fresher data"} />
+                  </dl>
+                  <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest strategy summary</p>
+                    <p className="mt-1 font-mono text-sm">{data.market.data.alertSummary || "No recent alert summary."}</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </ArtifactCard>
-      </section>
+                </div>
+              ) : null}
+            </ArtifactCard>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <ArtifactCard title="Runtime health" artifact={data.runtime}>
-          {data.runtime.data ? (
-            <div className="space-y-3 text-sm">
-              <Metric label="Operator action" value={data.runtime.data.operatorAction} />
-              <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
-              <div className="space-y-2">
-                {data.runtime.data.incidents.length > 0 ? (
-                  data.runtime.data.incidents.map((incident) => (
-                    <div key={`${incident.incidentType}-${incident.severity}`} className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <AlertTriangle className="h-4 w-4" />
-                        {incident.incidentType} · {incident.severity}
+            <ArtifactCard title="Latest workflow" artifact={data.workflow}>
+              {data.workflow.data ? (
+                <div className="space-y-3 text-sm">
+                  <dl className="grid grid-cols-2 gap-3">
+                    <Metric label="Run id" value={data.workflow.data.runId} />
+                    <Metric
+                      label="Stage counts"
+                      value={Object.entries(data.workflow.data.stageCounts).map(([status, count]) => `${status}:${count}`).join(" · ")}
+                    />
+                  </dl>
+                  <div className="space-y-2">
+                    {data.workflow.data.stageRows.slice(0, 6).map((stage) => (
+                      <div key={`${stage.name}-${stage.startedAt}`} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{stage.name}</p>
+                          <p className="text-xs text-muted-foreground">{stage.endedAt || stage.startedAt}</p>
+                        </div>
+                        <Badge variant={stage.status === "ok" ? "success" : stage.status === "error" ? "destructive" : "outline"}>
+                          {stage.status}
+                        </Badge>
                       </div>
-                      <p className="mt-1 text-sm">{incident.operatorAction}</p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-muted-foreground">No active runtime incidents.</p>
-                )}
-              </div>
-            </div>
-          ) : null}
-        </ArtifactCard>
-
-        <ArtifactCard title="Latest workflow" artifact={data.workflow}>
-          {data.workflow.data ? (
-            <div className="space-y-3 text-sm">
-              <dl className="grid grid-cols-2 gap-3">
-                <Metric label="Run id" value={data.workflow.data.runId} />
-                <Metric
-                  label="Stage counts"
-                  value={Object.entries(data.workflow.data.stageCounts).map(([status, count]) => `${status}:${count}`).join(" · ")}
-                />
-              </dl>
-              <div className="space-y-2">
-                {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
-                  <div key={`${stage.name}-${stage.startedAt}`} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{stage.name}</p>
-                      <p className="text-xs text-muted-foreground">{stage.endedAt || stage.startedAt}</p>
-                    </div>
-                    <Badge variant={stage.status === "ok" ? "success" : stage.status === "error" ? "destructive" : "outline"}>
-                      {stage.status}
-                    </Badge>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <details className="rounded-lg border border-border/70 bg-muted/30 p-3">
-                <summary className="cursor-pointer text-sm font-medium">Recent artifacts</summary>
-                <ul className="mt-3 space-y-2 text-xs text-muted-foreground">
-                  {data.workflow.data.artifactRows.map((artifact) => (
-                    <li key={`${artifact.name}-${artifact.location}`}>
-                      <span className="font-medium text-foreground">{artifact.name}</span> · {artifact.kind}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          ) : null}
-        </ArtifactCard>
-      </section>
+                </div>
+              ) : null}
+            </ArtifactCard>
+          </section>
+        </TabsContent>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <ArtifactCard title="Prediction accuracy" artifact={data.prediction}>
-          {data.prediction.data ? (
-            <div className="space-y-3 text-sm">
-              <Metric label="1d matured" value={String(data.prediction.data.oneDayMatured)} />
-              <Metric label="1d pending" value={String(data.prediction.data.oneDayPending)} />
-              <Metric label="Best visible slice" value={data.prediction.data.bestStrategyLabel ?? "Not enough settled data"} />
-              <Metric label="Trade grades" value={data.prediction.data.decisionGradeHeadline ?? "No grade rollup yet"} />
-            </div>
-          ) : null}
-        </ArtifactCard>
+        <TabsContent value="health" className="space-y-4">
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <ArtifactCard title="Runtime health" artifact={data.runtime}>
+              {data.runtime.data ? (
+                <div className="space-y-3 text-sm">
+                  <Metric label="Operator action" value={data.runtime.data.operatorAction} />
+                  <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
+                  <div className="space-y-2">
+                    {data.runtime.data.incidents.length > 0 ? (
+                      data.runtime.data.incidents.map((incident) => (
+                        <div key={`${incident.incidentType}-${incident.severity}`} className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <AlertTriangle className="h-4 w-4" />
+                            {incident.incidentType} · {incident.severity}
+                          </div>
+                          <p className="mt-1 text-sm">{incident.operatorAction}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground">No active runtime incidents.</p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </ArtifactCard>
 
-        <ArtifactCard title="Benchmark ladder" artifact={data.benchmark}>
-          {data.benchmark.data ? (
-            <div className="space-y-3 text-sm">
-              <Metric label="Horizon" value={data.benchmark.data.horizonKey ?? "n/a"} />
-              <Metric label="Matured samples" value={String(data.benchmark.data.maturedCount ?? 0)} />
-              <Metric label="Best visible comparison" value={data.benchmark.data.bestComparisonLabel ?? "Still waiting on mature comparisons"} />
-            </div>
-          ) : null}
-        </ArtifactCard>
+            <ArtifactCard title="Pre-open canary" artifact={data.canary}>
+              {data.canary.data ? (
+                <div className="space-y-3 text-sm">
+                  <dl className="grid grid-cols-2 gap-3">
+                    <Metric label="Ready for open" value={String(data.canary.data.readyForOpen ?? false)} />
+                    <Metric label="Warnings" value={String(data.canary.data.warningCount)} />
+                  </dl>
+                  <div className="space-y-2">
+                    {data.canary.data.checks.map((check) => (
+                      <div key={check.name} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
+                        <span className="text-sm">{check.name}</span>
+                        <Badge variant={check.result === "ok" ? "success" : "warning"}>{check.result}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </ArtifactCard>
+          </section>
+        </TabsContent>
 
-        <ArtifactCard title="Paper lifecycle" artifact={data.lifecycle}>
-          {data.lifecycle.data ? (
-            <div className="space-y-3 text-sm">
-              <Metric label="Total capital" value={formatMoney(data.lifecycle.data.totalCapital)} />
-              <Metric label="Available capital" value={formatMoney(data.lifecycle.data.availableCapital)} />
-              <Metric label="Gross exposure" value={formatPercent(data.lifecycle.data.grossExposurePct)} />
-            </div>
-          ) : null}
-        </ArtifactCard>
-      </section>
+        <TabsContent value="deep-dive" className="space-y-4">
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <ArtifactCard title="Prediction accuracy" artifact={data.prediction}>
+              {data.prediction.data ? (
+                <div className="space-y-3 text-sm">
+                  <Metric label="1d matured" value={String(data.prediction.data.oneDayMatured)} />
+                  <Metric label="1d pending" value={String(data.prediction.data.oneDayPending)} />
+                  <Metric label="Best visible slice" value={data.prediction.data.bestStrategyLabel ?? "Not enough settled data"} />
+                  <Metric label="Trade grades" value={data.prediction.data.decisionGradeHeadline ?? "No grade rollup yet"} />
+                </div>
+              ) : null}
+            </ArtifactCard>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <ArtifactCard title="Ops highway" artifact={data.opsHighway}>
-          {data.opsHighway.data ? (
-            <div className="space-y-3 text-sm">
-              <Metric label="Critical assets" value={String(data.opsHighway.data.criticalAssetCount)} />
-              <Metric label="Do not commit paths" value={String(data.opsHighway.data.doNotCommitCount)} />
-              <Metric label="Recovery step 1" value={data.opsHighway.data.firstRecoveryStep ?? "No recovery sequence recorded"} />
-            </div>
-          ) : null}
-        </ArtifactCard>
+            <ArtifactCard title="Benchmark ladder" artifact={data.benchmark}>
+              {data.benchmark.data ? (
+                <div className="space-y-3 text-sm">
+                  <Metric label="Horizon" value={data.benchmark.data.horizonKey ?? "n/a"} />
+                  <Metric label="Matured samples" value={String(data.benchmark.data.maturedCount ?? 0)} />
+                  <Metric label="Best visible comparison" value={data.benchmark.data.bestComparisonLabel ?? "Still waiting on mature comparisons"} />
+                </div>
+              ) : null}
+            </ArtifactCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What to read first</CardTitle>
-            <CardDescription>Use this order when you want to know if the system is healthy.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <ReadStep title="1. Market posture" body="If regime is correction and sizing is 0%, do not force buys. Treat everything else as secondary." />
-            <ReadStep title="2. Runtime health" body="If runtime shows provider cooldown or auth trouble, trust degraded warnings and expect slower signals." />
-            <ReadStep title="3. Latest workflow" body="Check whether CANSLIM or Dip Buyer actually finished, and whether any stage failed." />
-            <ReadStep title="4. Prediction and lifecycle" body="Use these to judge whether the system is improving, not to override market posture." />
-          </CardContent>
-        </Card>
-      </section>
+            <ArtifactCard title="Paper lifecycle" artifact={data.lifecycle}>
+              {data.lifecycle.data ? (
+                <div className="space-y-3 text-sm">
+                  <Metric label="Total capital" value={formatMoney(data.lifecycle.data.totalCapital)} />
+                  <Metric label="Available capital" value={formatMoney(data.lifecycle.data.availableCapital)} />
+                  <Metric label="Gross exposure" value={formatPercent(data.lifecycle.data.grossExposurePct)} />
+                </div>
+              ) : null}
+            </ArtifactCard>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
+            <ArtifactCard title="Ops highway" artifact={data.opsHighway}>
+              {data.opsHighway.data ? (
+                <div className="space-y-3 text-sm">
+                  <Metric label="Critical assets" value={String(data.opsHighway.data.criticalAssetCount)} />
+                  <Metric label="Do not commit paths" value={String(data.opsHighway.data.doNotCommitCount)} />
+                  <Metric label="Recovery step 1" value={data.opsHighway.data.firstRecoveryStep ?? "No recovery sequence recorded"} />
+                </div>
+              ) : null}
+            </ArtifactCard>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Why this tab exists</CardTitle>
+                <CardDescription>Use this only after the top checklist looks healthy.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <ReadStep title="Prediction accuracy" body="Tells you whether past calls aged well." />
+                <ReadStep title="Benchmark ladder" body="Shows whether a strategy is beating a simple baseline." />
+                <ReadStep title="Paper lifecycle" body="Shows the paper portfolio and risk state." />
+                <ReadStep title="Ops highway" body="Shows recovery and runbook planning, not trading edge." />
+              </CardContent>
+            </Card>
+          </section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

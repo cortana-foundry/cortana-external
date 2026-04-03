@@ -136,11 +136,13 @@ describe("TradingOpsDashboard", () => {
     render(<TradingOpsDashboard data={fixture} />);
 
     expect(screen.getByText("Backtester operator console")).toBeInTheDocument();
-    expect(screen.getByText("Market posture")).toBeInTheDocument();
-    expect(screen.getByText("Latest workflow")).toBeInTheDocument();
-    expect(screen.getByText("Prediction accuracy")).toBeInTheDocument();
     expect(screen.getByText("What to read first")).toBeInTheDocument();
-    expect(screen.getByText("OXY, GEV, FANG")).toBeInTheDocument();
+    expect(screen.getByText("Quick answer")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
+    expect(screen.getByText("Market posture")).toBeInTheDocument();
+    expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
     expect(screen.getByText("Failed stages: dipbuyer_alert")).toBeInTheDocument();
   });
 });
