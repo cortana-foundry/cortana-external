@@ -157,9 +157,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update report formatting in `backtester/prediction_accuracy_report.py` and any supporting formatters to surface strategy/action/regime/confidence groupings clearly.
-- Sub-task 2: Add concise summary sections for opportunity cost, veto effectiveness, and benchmark comparisons.
-- Sub-task 3: Ensure machine-readable rollups are written before human-readable summaries and remain the source of truth.
+- [x] Sub-task 1: Update report formatting in `backtester/prediction_accuracy_report.py` and any supporting formatters to surface strategy/action/regime/confidence groupings clearly.
+- [x] Sub-task 2: Add concise summary sections for opportunity cost, veto effectiveness, and benchmark comparisons.
+- [x] Sub-task 3: Ensure machine-readable rollups are written before human-readable summaries and remain the source of truth.
 
 #### Testing
 

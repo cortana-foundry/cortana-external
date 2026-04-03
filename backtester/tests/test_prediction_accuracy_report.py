@@ -11,7 +11,55 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     monkeypatch.setattr(
         prediction_accuracy_report,
         "build_decision_review_artifact",
-        lambda: called.__setitem__("decision_review", True),
+        lambda: (
+            called.__setitem__("decision_review", True),
+            {
+                "opportunity_cost": {
+                    "by_action": [
+                        {
+                            "action": "WATCH",
+                            "matured_count": 8,
+                            "missed_winner_count": 3,
+                            "missed_winner_rate": 0.375,
+                            "avg_missed_return_pct": 4.2,
+                            "overblock_count": 1,
+                            "top_missed_symbols": [{"symbol": "ABBV"}, {"symbol": "MSFT"}],
+                        }
+                    ]
+                },
+                "veto_effectiveness": [
+                    {
+                        "veto": "market_regime",
+                        "matured_count": 6,
+                        "preserved_bad_outcome_count": 4,
+                        "preserved_bad_outcome_rate": 0.667,
+                        "blocked_winner_rate": 0.333,
+                        "avg_return_pct": -1.4,
+                    }
+                ],
+            },
+        )[1],
+    )
+    called["benchmark"] = False
+    monkeypatch.setattr(
+        prediction_accuracy_report,
+        "build_benchmark_comparison_artifact",
+        lambda: (
+            called.__setitem__("benchmark", True),
+            {
+                "comparisons": {
+                    "by_strategy_action": [
+                        {
+                            "strategy": "dip_buyer",
+                            "action": "NO_BUY",
+                            "metrics": {"matured_count": 8, "mean_return": -1.25, "hit_rate": 0.25},
+                            "lift_vs_all_predictions": {"mean_return_lift": -0.55, "hit_rate_lift": 0.12},
+                            "lift_vs_same_action": {"mean_return_lift": -0.25, "hit_rate_lift": 0.05},
+                        }
+                    ]
+                }
+            },
+        )[1],
     )
     monkeypatch.setattr(
         prediction_accuracy_report,
@@ -148,6 +196,7 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert called["decision_review"] is True
+    assert called["benchmark"] is True
     assert "Prediction accuracy" in out
     assert "Snapshots settled: 12" in out
     assert "Records logged: 48" in out
@@ -168,3 +217,24 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     assert "Rolling windows" in out
     assert "Latest 20 samples: 20 records" in out
     assert "Latest 50 samples (partial): 48 records" in out
+    assert "Opportunity cost" in out
+    assert "WATCH: missed 3/8 (38%) | avg missed return +4.20% | overblocks 1 | top missed ABBV, MSFT" in out
+    assert "Veto effectiveness" in out
+    assert "market_regime: preserved bad 4/6 (67%) | blocked winners 33% | avg return -1.40%" in out
+    assert "Benchmark comparisons" in out
+    assert "dip_buyer NO_BUY: n=8 mean=-1.25% hit=25% | vs all mean -0.55% hit +12% | vs action mean -0.25% hit +5%" in out
+
+
+def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
+    monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda: None)
+    monkeypatch.setattr(prediction_accuracy_report, "build_prediction_accuracy_summary", lambda: {"artifact_family": "prediction_accuracy_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "build_decision_review_artifact", lambda: {"artifact_family": "decision_review_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "build_benchmark_comparison_artifact", lambda: {"artifact_family": "benchmark_comparison_summary"})
+    monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py", "--json"])
+
+    prediction_accuracy_report.main()
+
+    payload = capsys.readouterr().out
+    assert '"prediction_accuracy"' in payload
+    assert '"decision_review"' in payload
+    assert '"benchmark_comparisons"' in payload
