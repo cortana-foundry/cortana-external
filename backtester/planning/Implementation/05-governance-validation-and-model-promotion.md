@@ -49,9 +49,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Create governance registry helpers and stable artifact contracts for experiments, walk-forward results, benchmark results, and governance decisions.
-- Sub-task 2: Add registry configs for benchmark ladders, promotion gates, demotion rules, and explicit activation status.
-- Sub-task 3: Add explicit incumbent/challenger status transitions with audit fields.
+- [x] Sub-task 1: Create governance registry helpers and stable artifact contracts for experiments, walk-forward results, benchmark results, and governance decisions.
+- [x] Sub-task 2: Add registry configs for benchmark ladders, promotion gates, demotion rules, and explicit activation status.
+- [x] Sub-task 3: Add explicit incumbent/challenger status transitions with audit fields.
 
 #### Testing
 
@@ -69,9 +69,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement benchmark runners for the agreed null-model ladder.
-- Sub-task 2: Guarantee that benchmark and candidate evaluations share identical windows, fill assumptions, and point-in-time inputs.
-- Sub-task 3: Persist benchmark outputs in a machine-readable format consumable by promotion gates.
+- [x] Sub-task 1: Implement benchmark runners for the agreed null-model ladder.
+- [x] Sub-task 2: Guarantee that benchmark and candidate evaluations share identical windows, fill assumptions, and point-in-time inputs.
+- [x] Sub-task 3: Persist benchmark outputs in a machine-readable format consumable by promotion gates.
 
 #### Testing
 
