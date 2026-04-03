@@ -139,9 +139,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/data/risk_budget.py` to support explicit size tiers and hard suppression rules.
-- Sub-task 2: Blend confidence, expected drawdown, liquidity penalties, and regime state into transparent size recommendations.
-- Sub-task 3: Ensure high-confidence/high-risk and low-confidence/low-risk cases remain distinguishable in artifacts and operator wording.
+- [x] Sub-task 1: Extend `backtester/data/risk_budget.py` to support explicit size tiers and hard suppression rules.
+- [x] Sub-task 2: Blend confidence, expected drawdown, liquidity penalties, and regime state into transparent size recommendations.
+- [x] Sub-task 3: Ensure high-confidence/high-risk and low-confidence/low-risk cases remain distinguishable in artifacts and operator wording.
 
 #### Testing
 
@@ -159,9 +159,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Add a paper portfolio module that tracks available capital, open positions, pending entries, same-name re-entry rules, concentration caps, and correlation caps.
-- Sub-task 2: Implement capital competition so concurrent candidates are evaluated against each other, not only in isolation.
-- Sub-task 3: Add portfolio-state snapshots and summary outputs for later operator surfaces and governance review.
+- [x] Sub-task 1: Add a paper portfolio module that tracks available capital, open positions, pending entries, same-name re-entry rules, concentration caps, and correlation caps.
+- [x] Sub-task 2: Implement capital competition so concurrent candidates are evaluated against each other, not only in isolation.
+- [x] Sub-task 3: Add portfolio-state snapshots and summary outputs for later operator surfaces and governance review.
 
 #### Important Planning Notes
 

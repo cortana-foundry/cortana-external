@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from data.risk_budget import build_position_size_recommendation
 from lifecycle.entry_plan import build_entry_plan_from_signal
 from lifecycle.execution_policy import build_execution_policy
 from lifecycle.exit_engine import evaluate_exit_decision, update_position_mark_to_market
 from lifecycle.ledgers import LifecycleLedgerStore
+from lifecycle.paper_portfolio import build_portfolio_snapshot_artifact, select_entries
 from lifecycle.position_review import build_position_review, build_position_review_artifact
 from lifecycle.trade_objects import ClosedPosition, OpenPosition, deterministic_key
 
@@ -31,6 +33,7 @@ def run_cycle(
     signal_map = _collect_signal_map(alerts)
     open_positions = store.load_open_positions()
     closed_positions = store.load_closed_positions()
+    all_closed_positions = list(closed_positions)
 
     updated_open_positions: list[OpenPosition] = []
     new_closed_positions: list[ClosedPosition] = []
@@ -63,32 +66,34 @@ def run_cycle(
         reviews.append(review)
         exit_decisions.append(decision.to_dict())
         if decision.action == "EXIT":
-            new_closed_positions.append(
-                ClosedPosition(
-                    id=deterministic_key("closed_position", position.position_key, generated_at),
-                    position_key=position.position_key,
-                    schema_version=position.schema_version,
-                    symbol=position.symbol,
-                    strategy=position.strategy,
-                    entered_at=position.entered_at,
-                    exited_at=generated_at,
-                    entry_price=position.entry_price,
-                    exit_price=decision.exit_price or marked.entry_price,
-                    exit_reason=decision.reason,
-                    realized_return_pct=review.realized_return_pct,
-                    hold_days=review.hold_days,
-                    position_review_ref=review.review_key,
-                    entry_plan_ref=position.entry_plan_ref,
-                    execution_policy_ref=position.execution_policy_ref,
-                )
+            closed_position = ClosedPosition(
+                id=deterministic_key("closed_position", position.position_key, generated_at),
+                position_key=position.position_key,
+                schema_version=position.schema_version,
+                symbol=position.symbol,
+                strategy=position.strategy,
+                entered_at=position.entered_at,
+                exited_at=generated_at,
+                entry_price=position.entry_price,
+                exit_price=decision.exit_price or marked.entry_price,
+                exit_reason=decision.reason,
+                realized_return_pct=review.realized_return_pct,
+                hold_days=review.hold_days,
+                position_review_ref=review.review_key,
+                entry_plan_ref=position.entry_plan_ref,
+                execution_policy_ref=position.execution_policy_ref,
             )
+            new_closed_positions.append(closed_position)
+            all_closed_positions.append(closed_position)
         else:
             updated_open_positions.append(marked)
 
     existing_symbols = {position.symbol for position in updated_open_positions}
     opened_positions: list[OpenPosition] = []
     execution_policies: list[dict[str, Any]] = []
+    portfolio_snapshot = None
     if not review_only:
+        candidate_entries: list[dict[str, Any]] = []
         for signal in _entry_candidates(alerts):
             symbol = str(signal.get("symbol") or "").strip().upper()
             if not symbol or symbol in existing_symbols:
@@ -120,39 +125,68 @@ def run_cycle(
                 )
                 execution_policy = policy.to_dict()
             execution_policies.append(execution_policy)
-            if execution_policy.get("fill_allowed") is False:
-                continue
             entry_price = _entry_fill_price(signal=signal, entry_plan=entry_plan)
             if entry_price is None:
                 continue
+            size_guidance = build_position_size_recommendation(
+                signal=signal,
+                risk_overlay=_signal_overlays(signal, alerts).get("risk"),
+                execution_policy=execution_policy,
+                data_quality_state=str(entry_plan.get("data_quality_state") or signal.get("data_quality_state") or "ok"),
+            ).to_dict()
+            candidate_entries.append(
+                {
+                    "symbol": symbol,
+                    "strategy": str(signal.get("strategy") or "").strip().lower(),
+                    "trade_quality_score": float(signal.get("trade_quality_score") or 0.0),
+                    "effective_confidence": float(signal.get("effective_confidence") or 0.0),
+                    "entry_price": entry_price,
+                    "entry_plan": entry_plan,
+                    "execution_policy": execution_policy,
+                    "size_guidance": size_guidance,
+                    "capital_fraction": float(size_guidance.get("capital_fraction") or 0.0),
+                    "size_tier": str(size_guidance.get("size_tier") or "no_size"),
+                    "entry_plan_ref": str(signal.get("entry_plan_ref") or entry_plan.get("plan_key") or "") or None,
+                    "execution_policy_ref": str(signal.get("execution_policy_ref") or execution_policy.get("policy_key") or "") or None,
+                }
+            )
+
+        selected_candidates, portfolio_snapshot = select_entries(
+            candidates=candidate_entries,
+            open_positions=updated_open_positions,
+            closed_positions=all_closed_positions,
+            snapshot_at=generated_at,
+        )
+        for candidate in selected_candidates:
+            symbol = str(candidate.get("symbol") or "").strip().upper()
             position_key = deterministic_key(
                 "position",
-                str(signal.get("strategy") or ""),
+                str(candidate.get("strategy") or ""),
                 symbol,
-                str(signal.get("entry_plan_ref") or entry_plan.get("plan_key") or ""),
+                str(candidate.get("entry_plan_ref") or ""),
             )
             opened = OpenPosition(
                 id=deterministic_key("open_position", position_key, generated_at),
                 position_key=position_key,
-                schema_version=str(entry_plan.get("schema_version") or "lifecycle.v1"),
+                schema_version=str((candidate.get("entry_plan") or {}).get("schema_version") or "lifecycle.v1"),
                 symbol=symbol,
-                strategy=str(signal.get("strategy") or "").strip().lower(),
+                strategy=str(candidate.get("strategy") or "").strip().lower(),
                 entered_at=generated_at,
-                entry_price=entry_price,
-                size_tier="starter",
-                capital_allocated=None,
-                entry_plan_ref=str(signal.get("entry_plan_ref") or entry_plan.get("plan_key") or "") or None,
-                execution_policy_ref=str(signal.get("execution_policy_ref") or execution_policy.get("policy_key") or "") or None,
-                stop_price=_optional_float(entry_plan.get("initial_stop_price")),
-                target_price_1=_optional_float(entry_plan.get("first_target_price")),
-                target_price_2=_optional_float(entry_plan.get("stretch_target_price")),
+                entry_price=float(candidate.get("entry_price")),
+                size_tier=str(candidate.get("size_tier") or "no_size"),
+                capital_allocated=float(candidate.get("capital_allocated") or 0.0),
+                entry_plan_ref=str(candidate.get("entry_plan_ref") or "") or None,
+                execution_policy_ref=str(candidate.get("execution_policy_ref") or "") or None,
+                stop_price=_optional_float((candidate.get("entry_plan") or {}).get("initial_stop_price")),
+                target_price_1=_optional_float((candidate.get("entry_plan") or {}).get("first_target_price")),
+                target_price_2=_optional_float((candidate.get("entry_plan") or {}).get("stretch_target_price")),
                 current_state="open",
+                portfolio_snapshot_ref=portfolio_snapshot.snapshot_id if portfolio_snapshot else None,
             )
             updated_open_positions.append(opened)
             opened_positions.append(opened)
             existing_symbols.add(symbol)
 
-    all_closed_positions = closed_positions + new_closed_positions
     store.write_open_positions(updated_open_positions)
     store.write_closed_positions(all_closed_positions)
     store.write_artifact(
@@ -168,6 +202,11 @@ def run_cycle(
             "policies": execution_policies,
         },
     )
+    if portfolio_snapshot is not None:
+        store.write_artifact(
+            "portfolio_snapshot.json",
+            build_portfolio_snapshot_artifact(portfolio_snapshot),
+        )
 
     summary = {
         "artifact_family": "trade_lifecycle_cycle",
@@ -186,6 +225,7 @@ def run_cycle(
         "open_positions": [position.to_dict() for position in updated_open_positions],
         "reviews": [review.to_dict() for review in reviews],
         "exit_decisions": exit_decisions,
+        "portfolio_snapshot": portfolio_snapshot.to_dict() if portfolio_snapshot is not None else None,
     }
     store.write_artifact("cycle_summary.json", summary)
     return summary

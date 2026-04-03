@@ -7,6 +7,11 @@ from lifecycle.execution_policy import (
 )
 from lifecycle.exit_engine import evaluate_exit_decision, update_position_mark_to_market
 from lifecycle.ledgers import LifecycleLedgerStore, default_lifecycle_root
+from lifecycle.paper_portfolio import (
+    PaperPortfolioSnapshot,
+    build_portfolio_snapshot_artifact,
+    select_entries,
+)
 from lifecycle.position_review import build_position_review
 from lifecycle.trade_objects import (
     ClosedPosition,
@@ -30,7 +35,10 @@ __all__ = [
     "LifecycleLedgerStore",
     "LifecycleStateError",
     "OpenPosition",
+    "PaperPortfolioSnapshot",
     "PositionReview",
+    "build_portfolio_snapshot_artifact",
     "default_lifecycle_root",
+    "select_entries",
     "update_position_mark_to_market",
 ]

@@ -15,9 +15,11 @@ def build_report(*, root: Path | None = None) -> dict[str, Any]:
     store = LifecycleLedgerStore(root=root)
     cycle = store.load_artifact("cycle_summary.json")
     reviews_payload = store.load_artifact("position_reviews.json")
+    portfolio_payload = store.load_artifact("portfolio_snapshot.json")
     open_positions = store.load_open_positions()
     closed_positions = store.load_closed_positions()
     reviews = list(reviews_payload.get("reviews", []) or [])
+    portfolio_snapshot = dict(portfolio_payload.get("snapshot", {}) or {})
     summary = dict(cycle.get("summary", {}) or {})
     return {
         "artifact_family": "trade_lifecycle_report",
@@ -27,6 +29,7 @@ def build_report(*, root: Path | None = None) -> dict[str, Any]:
             "open_count": len(open_positions),
             "closed_total_count": len(closed_positions),
         },
+        "portfolio_snapshot": portfolio_snapshot,
         "open_positions": [position.to_dict() for position in open_positions],
         "closed_positions": [position.to_dict() for position in closed_positions[-5:]],
         "reviews": reviews[-5:],
@@ -47,6 +50,16 @@ def render_report(report: dict[str, Any]) -> str:
         ),
     ]
 
+    portfolio_snapshot = dict(report.get("portfolio_snapshot", {}) or {})
+    if portfolio_snapshot:
+        lines.extend(
+            [
+                f"- Portfolio available capital ${float(portfolio_snapshot.get('available_capital', 0.0)):,.0f} | "
+                f"gross exposure {float(portfolio_snapshot.get('gross_exposure_pct', 0.0)):.1f}% | "
+                f"pending {int(portfolio_snapshot.get('pending_entry_count', 0) or 0)}",
+            ]
+        )
+
     open_positions = list(report.get("open_positions", []) or [])
     lines.extend(["", "Open positions"])
     if not open_positions:
@@ -61,7 +74,8 @@ def render_report(report: dict[str, Any]) -> str:
             )
             lines.append(
                 f"- {position.get('symbol')} | {position.get('strategy')} | "
-                f"{position.get('size_tier') or 'unsized'} | {unrealized_text}"
+                f"{position.get('size_tier') or 'unsized'} | "
+                f"${float(position.get('capital_allocated') or 0.0):,.0f} | {unrealized_text}"
             )
 
     closed_positions = list(report.get("closed_positions", []) or [])

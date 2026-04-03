@@ -64,6 +64,8 @@ def test_cycle_opens_and_closes_positions_from_alerts(tmp_path):
     )
     assert first["summary"]["opened_count"] == 1
     assert first["summary"]["open_count"] == 1
+    assert first["portfolio_snapshot"]["pending_entry_count"] == 1
+    assert first["opened_positions"][0]["size_tier"] in {"starter", "half", "full"}
 
     _write_alert(
         canslim_path,
@@ -132,6 +134,7 @@ def test_report_renders_lifecycle_summary(tmp_path):
     rendered = render_report(report)
 
     assert report["summary"]["open_count"] == 1
+    assert report["portfolio_snapshot"]["pending_entry_count"] == 1
     assert "Trade lifecycle" in rendered
     assert "Open 1" in rendered
     assert "NVDA" in rendered
