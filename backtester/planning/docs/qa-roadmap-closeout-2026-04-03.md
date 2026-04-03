@@ -144,10 +144,32 @@ That means this QA pass tested both:
 
 Findings are ordered by severity.
 
+## Remediation Update
+
+The findings below were retested on the same branch after fixes were applied.
+
+Current status:
+
+- [x] `P1` formatter import-path regression fixed
+- [x] `P2` runtime-health incident reporting improved
+- [x] `P2` market-brief cached-age wording fixed
+- [x] `P2` prediction-accuracy report now completes within a bounded timeout
+
+Retest commands:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+uv run python /Users/hd/Developer/cortana-external/backtester/scripts/local_output_formatter.py --mode market-data-ops </dev/null
+RUN_MARKET_INTEL=0 RUN_DYNAMIC_WATCHLIST_REFRESH=0 RUN_DEEP_DIVE=0 QUICK_CHECK_SYMBOL=SPY ./scripts/daytime_flow.sh
+uv run python runtime_health_snapshot.py --pretty
+uv run python market_brief_snapshot.py --operator
+timeout 20s bash -lc 'uv run python prediction_accuracy_report.py'
+```
+
 ### P1 - Daytime wrapper is currently broken by formatter import path
 
 **Severity:** blocker  
-**Status:** open  
+**Status:** fixed in this branch  
 **Area:** operator surfaces / wrappers
 
 #### What happened
@@ -194,12 +216,24 @@ uv run python /Users/hd/Developer/cortana-external/backtester/scripts/local_outp
   - set `PYTHONPATH`/module path explicitly in the wrapper call, or
   - make the script import path resilient when launched via absolute path
 
+#### Retest result
+
+- direct formatter command now runs successfully
+- `daytime_flow.sh` now progresses through:
+  - market-data ops
+  - market regime
+  - leader buckets
+  - CANSLIM
+  - Dip Buyer
+
+So the primary `cday` blocker is resolved.
+
 ---
 
 ### P2 - Runtime health snapshot underreports live provider-cooldown incidents
 
 **Severity:** medium  
-**Status:** open  
+**Status:** fixed in this branch  
 **Area:** runtime health / ops highway
 
 #### What happened
@@ -244,12 +278,22 @@ It does **not** currently surface:
   - `warnings`
   - and possibly `service_health.status = "degraded"`
 
+#### Retest result
+
+`runtime_health_snapshot.py --pretty` now surfaces:
+
+- `incident_type = provider_cooldown`
+- `service_health.operator_state = provider_cooldown`
+- top-level `warnings = ["provider_cooldown"]`
+
+So the runtime-health surface now reflects the live degraded condition much more truthfully.
+
 ---
 
 ### P2 - Market brief regime freshness wording is still misleading on cached degraded paths
 
 **Severity:** medium  
-**Status:** open  
+**Status:** fixed in this branch  
 **Area:** operator wording / market brief
 
 #### What happened
@@ -298,12 +342,22 @@ not:
 
 - `Market regime is CORRECTION (1m old).`
 
+#### Retest result
+
+`market_brief_snapshot.py --operator` now says:
+
+```text
+Regime: Market regime is CORRECTION using cached history (underlying inputs ~97.3h old).
+```
+
+That wording now matches the underlying degraded input age instead of implying a fresh live regime read.
+
 ---
 
 ### P2 - Prediction accuracy report is too slow / hangs under live degraded conditions
 
 **Severity:** medium  
-**Status:** open  
+**Status:** fixed in this branch  
 **Area:** reporting / measurement
 
 #### What happened
@@ -345,6 +399,25 @@ Possible causes:
 - add bounded timing logs
 - prefer stale-safe summary fallback over open-ended waits in operator/report mode
 
+#### Retest result
+
+The report now completes successfully within the bounded QA timeout:
+
+```bash
+timeout 20s bash -lc 'cd /Users/hd/Developer/cortana-external/backtester && uv run python prediction_accuracy_report.py'
+```
+
+Observed behavior after the fix:
+
+- the command completed successfully
+- it emitted a real summary
+- it no longer hung waiting on live settlement during provider cooldown
+
+The fix strategy was:
+
+- incremental settlement instead of brute-force re-settling the full backlog every run
+- no fresh settlement attempts while the market-data service is clearly unavailable for safe settlement
+
 ---
 
 ## Behaviors That Look Okay
@@ -373,20 +446,24 @@ These were degraded during QA, but they behaved correctly enough that they shoul
 - runtime degraded handling: mostly good
 - wrapper/operator reliability: **not yet bulletproof**
 
-### Ship blockers before Monday
+### Monday read after remediation
 
-1. Fix the `local_output_formatter.py` import-path regression.
-2. Improve `runtime_health_snapshot.py` so live service cooldown and quote-failure conditions become explicit incident markers.
-3. Fix the misleading cached-regime freshness wording in the market brief.
-4. Triage and bound the runtime of `prediction_accuracy_report.py`.
+- the original blocker is fixed
+- the degraded runtime reporting is more truthful
+- the market brief wording is more honest
+- prediction-accuracy reporting is now bounded enough for operator use
 
-If only one thing gets fixed first, it should be the `cday` / shared formatter regression because it directly breaks a primary operator command.
+Current recommendation:
+
+- proceed with another real-market smoke on Monday morning
+- keep watching live Schwab/provider stability
+- treat provider cooldown frequency as an operational watch item, not a code blocker from this branch
 
 ---
 
 ## Suggested Next QA Step After Fixes
 
-After the fixes above land, rerun this exact subset first:
+After these fixes, rerun this exact subset first:
 
 ```bash
 cd /Users/hd/Developer/cortana-external/backtester
