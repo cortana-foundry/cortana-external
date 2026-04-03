@@ -137,9 +137,9 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create lightweight baseline comparison helpers under `backtester/evaluation/benchmark_models.py`.
-- Sub-task 2: Add benchmark comparisons to measurement rollups without breaking current report readers.
-- Sub-task 3: Persist the benchmark comparison outputs for later governance and promotion work.
+- [x] Sub-task 1: Create lightweight baseline comparison helpers under `backtester/evaluation/benchmark_models.py`.
+- [x] Sub-task 2: Add benchmark comparisons to measurement rollups without breaking current report readers.
+- [x] Sub-task 3: Persist the benchmark comparison outputs for later governance and promotion work.
 
 #### Testing
 
