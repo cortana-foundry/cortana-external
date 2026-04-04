@@ -35,10 +35,35 @@ describe("GET /api/services/workspace", () => {
     delete process.env.MISSION_CONTROL_API_TOKEN;
 
     const { GET } = await import("@/app/api/services/workspace/route");
-    const response = await GET(new Request("http://localhost/api/services/workspace"));
+    const response = await GET(
+      new Request("http://remote.test/api/services/workspace", {
+        headers: { host: "100.120.198.12:3000" },
+      }),
+    );
 
     expect(response.status).toBe(503);
     expect(getServicesWorkspaceDataMock).not.toHaveBeenCalled();
+  });
+
+  it("allows loopback bootstrap reads when no token is configured", async () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    getServicesWorkspaceDataMock.mockResolvedValueOnce({
+      generatedAt: "2026-04-03T00:00:00.000Z",
+      files: [],
+      sections: [],
+      health: [],
+      openclawDocsPath: "/tmp/docs/mission-control.md",
+    });
+
+    const { GET } = await import("@/app/api/services/workspace/route");
+    const response = await GET(
+      new Request("http://127.0.0.1:3000/api/services/workspace", {
+        headers: { host: "127.0.0.1:3000" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getServicesWorkspaceDataMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns workspace data when the bearer token matches", async () => {

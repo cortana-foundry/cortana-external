@@ -67,7 +67,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ action: string }> },
 ) {
-  const auth = requireApiAuth(request, { requireConfiguredToken: true });
+  const auth = requireApiAuth(request, {
+    requireConfiguredToken: true,
+    allowLoopbackWithoutToken: true,
+  });
   if (!auth.ok) {
     return auth.response;
   }

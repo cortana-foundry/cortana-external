@@ -17,7 +17,10 @@ type PatchPayload = {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const auth = requireApiAuth(request, { requireConfiguredToken: true });
+  const auth = requireApiAuth(request, {
+    requireConfiguredToken: true,
+    allowLoopbackWithoutToken: true,
+  });
   if (!auth.ok) {
     return auth.response;
   }
@@ -37,7 +40,10 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = requireApiAuth(request, { requireConfiguredToken: true });
+  const auth = requireApiAuth(request, {
+    requireConfiguredToken: true,
+    allowLoopbackWithoutToken: true,
+  });
   if (!auth.ok) {
     return auth.response;
   }

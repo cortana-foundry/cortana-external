@@ -43,6 +43,7 @@ export function middleware(request: NextRequest) {
     const auth = requireApiAuth(request, {
       additionalTokens,
       requireConfiguredToken: pathname.startsWith("/api/services/"),
+      allowLoopbackWithoutToken: pathname.startsWith("/api/services/"),
     });
     if (!auth.ok) {
       return auth.response;

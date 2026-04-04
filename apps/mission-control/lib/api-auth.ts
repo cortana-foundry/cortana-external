@@ -59,6 +59,24 @@ const resolveExpectedTokens = (additionalTokens?: Array<string | null | undefine
 const isSafeMethod = (method: string) =>
   method === "GET" || method === "HEAD" || method === "OPTIONS";
 
+const normalizeHost = (value?: string | null) => {
+  const trimmed = normalizeToken(value);
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("[")) {
+    const closingIndex = trimmed.indexOf("]");
+    if (closingIndex === -1) return trimmed;
+    return trimmed.slice(1, closingIndex);
+  }
+
+  return trimmed.split(":")[0] ?? trimmed;
+};
+
+const isLoopbackHost = (value?: string | null) => {
+  const host = normalizeHost(value);
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+};
+
 const isSameOrigin = (request: Request) => {
   const originHeader = normalizeToken(request.headers.get("origin"));
   const refererHeader = normalizeToken(request.headers.get("referer"));
@@ -82,6 +100,13 @@ const isSameOrigin = (request: Request) => {
   return false;
 };
 
+const isLoopbackBootstrapRequest = (request: Request) => {
+  const hostHeader = request.headers.get("host");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+
+  return isLoopbackHost(hostHeader) || isLoopbackHost(forwardedHost);
+};
+
 type AuthResult =
   | { ok: true; tokenConfigured: boolean }
   | { ok: false; response: NextResponse };
@@ -91,11 +116,16 @@ export const requireApiAuth = (
   options?: {
     additionalTokens?: Array<string | null | undefined>;
     requireConfiguredToken?: boolean;
+    allowLoopbackWithoutToken?: boolean;
   },
 ): AuthResult => {
   const expectedTokens = resolveExpectedTokens(options?.additionalTokens);
 
   if (expectedTokens.length === 0) {
+    if (options?.allowLoopbackWithoutToken && isLoopbackBootstrapRequest(request)) {
+      return { ok: true, tokenConfigured: false };
+    }
+
     if (options?.requireConfiguredToken) {
       return {
         ok: false,

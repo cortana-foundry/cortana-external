@@ -33,11 +33,34 @@ describe("GET /api/services/actions/[action]", () => {
 
     const { GET } = await import("@/app/api/services/actions/[action]/route");
     const response = await GET(
-      new Request("http://localhost/api/services/actions/whoop-auth-url"),
+      new Request("http://remote.test/api/services/actions/whoop-auth-url", {
+        headers: { host: "100.120.198.12:3000" },
+      }),
       { params: Promise.resolve({ action: "whoop-auth-url" }) },
     );
 
     expect(response.status).toBe(503);
+  });
+
+  it("allows loopback bootstrap actions when no token is configured", async () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ url: "https://whoop.test/oauth" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const { GET } = await import("@/app/api/services/actions/[action]/route");
+    const response = await GET(
+      new Request("http://127.0.0.1:3000/api/services/actions/whoop-auth-url", {
+        headers: { host: "127.0.0.1:3000" },
+      }),
+      { params: Promise.resolve({ action: "whoop-auth-url" }) },
+    );
+
+    expect(response.status).toBe(200);
   });
 
   it("returns the OAuth URL when the request is authorized", async () => {
