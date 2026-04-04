@@ -28,6 +28,15 @@ describe("requireApiAuth", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("rejects strict endpoints when no token is configured", () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    const result = requireApiAuth(buildRequest(), { requireConfiguredToken: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(503);
+    }
+  });
+
   it("rejects requests without credentials when token is configured", () => {
     process.env.MISSION_CONTROL_API_TOKEN = "secret";
     const result = requireApiAuth(buildRequest());

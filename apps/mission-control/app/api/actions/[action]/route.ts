@@ -62,6 +62,19 @@ const parseBudgetFromTracker = (raw: Record<string, unknown>): Omit<BudgetSummar
   };
 };
 
+const readObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const tryParseJson = (value: string): unknown => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
 const runChaosTest = async () => {
   const checks: HealthCheckResult[] = [];
   const client = getTaskClient();
@@ -82,16 +95,21 @@ const runChaosTest = async () => {
   }
 
   try {
-    const output = execSync("curl -s http://localhost:3033/health", {
-      encoding: "utf8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    const response = await fetch("http://127.0.0.1:3033/health", { cache: "no-store" });
+    const output = await response.text();
+    const body = readObject(tryParseJson(output));
+    const status = typeof body.status === "string" ? body.status.toLowerCase() : null;
+    const passed =
+      response.ok &&
+      (status == null || status === "ok" || status === "healthy" || status === "degraded");
 
     checks.push({
       name: "Fitness service",
-      passed: output.length > 0,
-      details: output || "No output returned",
+      passed,
+      details:
+        output.trim().length > 0
+          ? output.trim()
+          : `HTTP ${response.status}${status ? ` (${status})` : ""}`,
     });
   } catch (error) {
     checks.push({

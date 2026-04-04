@@ -24,7 +24,7 @@ vi.mock("@/lib/prisma", () => ({
 describe("lib/feedback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getTaskPrisma).mockReturnValue(undefined);
+    vi.mocked(getTaskPrisma).mockReturnValue(null);
   });
 
   it("getFeedbackItems returns filtered listing", async () => {

@@ -8,6 +8,10 @@ const WEBHOOK_PATHS = new Set([
 ]);
 
 const resolveWebhookTokens = (pathname: string) => {
+  if (!WEBHOOK_PATHS.has(pathname)) {
+    return [];
+  }
+
   if (pathname === "/api/openclaw/subagent-events") {
     return [process.env.OPENCLAW_EVENT_TOKEN];
   }
@@ -35,10 +39,11 @@ export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (pathname.startsWith("/api")) {
-    // NOTE: If MISSION_CONTROL_API_TOKEN is unset, API auth is intentionally disabled
-    // (expected to be protected by network ACLs like Tailscale or a reverse proxy).
     const additionalTokens = resolveWebhookTokens(pathname);
-    const auth = requireApiAuth(request, { additionalTokens });
+    const auth = requireApiAuth(request, {
+      additionalTokens,
+      requireConfiguredToken: pathname.startsWith("/api/services/"),
+    });
     if (!auth.ok) {
       return auth.response;
     }

@@ -24,7 +24,7 @@ vi.mock("@/lib/prisma", () => ({
 describe("lib/council", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getTaskPrisma).mockReturnValue(undefined);
+    vi.mocked(getTaskPrisma).mockReturnValue(null);
   });
 
   it("getCouncilSessions returns filtered list", async () => {

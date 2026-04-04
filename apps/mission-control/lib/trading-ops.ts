@@ -202,7 +202,6 @@ export function formatMoney(value: number | null | undefined): string {
 
 async function loadMarketOverview(repoPath: string): Promise<ArtifactState<MarketOverview>> {
   const regimePath = path.join(repoPath, ".cache", "market_regime_snapshot_SPY.json");
-  const leaderPath = path.join(repoPath, "var", "local-workflows");
   const regime = await readJsonFile<Record<string, unknown>>(regimePath);
   const workflow = await findLatestWorkflow(repoPath);
   const latestAlert = workflow

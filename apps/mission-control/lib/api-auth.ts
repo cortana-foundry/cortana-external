@@ -88,11 +88,24 @@ type AuthResult =
 
 export const requireApiAuth = (
   request: Request,
-  options?: { additionalTokens?: Array<string | null | undefined> },
+  options?: {
+    additionalTokens?: Array<string | null | undefined>;
+    requireConfiguredToken?: boolean;
+  },
 ): AuthResult => {
   const expectedTokens = resolveExpectedTokens(options?.additionalTokens);
 
   if (expectedTokens.length === 0) {
+    if (options?.requireConfiguredToken) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "MISSION_CONTROL_API_TOKEN must be configured for this endpoint" },
+          { status: 503 },
+        ),
+      };
+    }
+
     return { ok: true, tokenConfigured: false };
   }
 

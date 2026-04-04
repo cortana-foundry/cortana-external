@@ -164,8 +164,9 @@ export async function PATCH(
       results.push({ action: body.enabled ? "enable" : "disable", result: parseJson(raw) ?? raw });
     }
 
-    const { enabled: _enabled, ...rest } = body;
-    const flags = buildFlags(rest);
+    const flags = buildFlags(
+      Object.fromEntries(Object.entries(body).filter(([key]) => key !== "enabled"))
+    );
 
     if (flags.length > 0) {
       const command = `openclaw cron edit --id ${quote(id)} ${flags.join(" ")}`;

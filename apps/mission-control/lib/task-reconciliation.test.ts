@@ -24,6 +24,15 @@ const makePreferredClient = () => ({
   cortanaEpic: { findMany: vi.fn() },
 });
 
+type TransactionClientMock = {
+  cortanaTask: {
+    deleteMany: ReturnType<typeof vi.fn>;
+  };
+  cortanaEpic: {
+    deleteMany: ReturnType<typeof vi.fn>;
+  };
+};
+
 let now = new Date("2026-02-27T12:00:00.000Z").valueOf();
 
 describe("lib/task-reconciliation", () => {
@@ -54,7 +63,7 @@ describe("lib/task-reconciliation", () => {
       { id: 4 },
     ]);
 
-    const tx = {
+    const tx: TransactionClientMock = {
       cortanaTask: {
         deleteMany: vi.fn().mockResolvedValueOnce({ count: 2 }),
       },
@@ -63,7 +72,12 @@ describe("lib/task-reconciliation", () => {
       },
     };
 
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => fn(tx));
+    vi.mocked(prisma.$transaction).mockImplementation(async (input) => {
+      if (typeof input === "function") {
+        return input(tx as never);
+      }
+      return [] as never;
+    });
 
     const { reconcileTaskBoardSources } = await import("@/lib/task-reconciliation");
     const report = await reconcileTaskBoardSources();

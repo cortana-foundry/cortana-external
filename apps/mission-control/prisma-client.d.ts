@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module "@prisma/client" {
   type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 

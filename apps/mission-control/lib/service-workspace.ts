@@ -85,6 +85,26 @@ type FieldChange = {
   value: string | null;
 };
 
+type WorkspaceOptions = {
+  rootDir?: string;
+};
+
+type EnvAssignmentLine = {
+  leading: string;
+  exportPrefix: string;
+  key: string;
+  separator: string;
+  valueSource: string;
+  trailingComment: string;
+};
+
+export class ServicesWorkspaceValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServicesWorkspaceValidationError";
+  }
+}
+
 const WORKSPACE_FILES: Record<WorkspaceFileId, { label: string; relativePath: string }> = {
   external: { label: "External Service", relativePath: ".env" },
   missionControl: { label: "Mission Control", relativePath: path.join("apps", "mission-control", ".env.local") },
@@ -551,11 +571,7 @@ const WORKSPACE_FIELD_LOOKUP = new Map(
   WORKSPACE_FIELDS.map((field) => [`${field.fileId}:${field.key}`, field] as const),
 );
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function findWorkspaceRoot(start = process.cwd()): string {
+export function findWorkspaceRoot(start = process.cwd()): string {
   let current = path.resolve(start);
 
   while (true) {
@@ -575,28 +591,100 @@ function getFilePath(root: string, fileId: WorkspaceFileId): string {
   return path.join(root, WORKSPACE_FILES[fileId].relativePath);
 }
 
-function parseEnvFileContent(content: string): Record<string, string> {
+function splitEnvValueComment(rawValue: string): { valueSource: string; trailingComment: string } {
+  const leadingTrimmed = rawValue.trimStart();
+
+  if (leadingTrimmed.startsWith('"') || leadingTrimmed.startsWith("'")) {
+    const quote = leadingTrimmed[0];
+    let escaped = false;
+
+    for (let index = 1; index < leadingTrimmed.length; index += 1) {
+      const char = leadingTrimmed[index];
+
+      if (quote === '"' && char === "\\" && !escaped) {
+        escaped = true;
+        continue;
+      }
+
+      if (char === quote && !escaped) {
+        const closingIndex = index + 1;
+        return {
+          valueSource: rawValue.slice(0, rawValue.length - leadingTrimmed.length + closingIndex),
+          trailingComment: leadingTrimmed.slice(closingIndex),
+        };
+      }
+
+      escaped = false;
+    }
+  }
+
+  const commentMatch = rawValue.match(/^([\s\S]*?)(\s+#.*)$/);
+  if (!commentMatch) {
+    return { valueSource: rawValue, trailingComment: "" };
+  }
+
+  return {
+    valueSource: commentMatch[1] ?? rawValue,
+    trailingComment: commentMatch[2] ?? "",
+  };
+}
+
+function parseEnvAssignmentLine(rawLine: string): EnvAssignmentLine | null {
+  const match = rawLine.match(/^(\s*)(export\s+)?([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
+  if (!match) return null;
+
+  const [, leading = "", exportPrefix = "", key = "", separator = "=", rawValue = ""] = match;
+  const { valueSource, trailingComment } = splitEnvValueComment(rawValue);
+
+  return {
+    leading,
+    exportPrefix,
+    key,
+    separator,
+    valueSource,
+    trailingComment,
+  };
+}
+
+function parseEnvValue(valueSource: string): string {
+  const value = valueSource.trim();
+
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    if (value.startsWith('"')) {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        return typeof parsed === "string" ? parsed : String(parsed);
+      } catch {
+        return value.slice(1, -1);
+      }
+    }
+
+    return value.slice(1, -1);
+  }
+
+  return value;
+}
+
+export function parseEnvFileContent(content: string): Record<string, string> {
   const values: Record<string, string> = {};
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
 
-    const match = rawLine.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!match) continue;
+    const assignment = parseEnvAssignmentLine(rawLine);
+    if (!assignment) continue;
 
-    const [, key, rawValue] = match;
-    const value = rawValue.trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      values[key] = value.slice(1, -1);
+    const value = parseEnvValue(assignment.valueSource);
+    if (value.length > 0 || assignment.valueSource.trim() === '""' || assignment.valueSource.trim() === "''") {
+      values[assignment.key] = value;
       continue;
     }
 
-    values[key] = value;
+    values[assignment.key] = value;
   }
 
   return values;
@@ -631,20 +719,23 @@ function serializeEnvValue(value: string): string {
   return JSON.stringify(value);
 }
 
-function updateEnvContent(content: string, key: string, value: string | null): string {
+export function updateEnvContent(content: string, key: string, value: string | null): string {
   const lines = content.length > 0 ? content.split(/\r?\n/) : [];
-  const pattern = new RegExp(`^\\s*(?:export\\s+)?${escapeRegExp(key)}\\s*=`);
   const nextLines: string[] = [];
   let wroteReplacement = false;
 
   for (const line of lines) {
-    if (!pattern.test(line)) {
+    const assignment = parseEnvAssignmentLine(line);
+
+    if (!assignment || assignment.key !== key) {
       nextLines.push(line);
       continue;
     }
 
     if (!wroteReplacement && value != null) {
-      nextLines.push(`${key}=${serializeEnvValue(value)}`);
+      nextLines.push(
+        `${assignment.leading}${assignment.exportPrefix}${key}${assignment.separator}${serializeEnvValue(value)}${assignment.trailingComment}`,
+      );
       wroteReplacement = true;
     }
   }
@@ -658,6 +749,22 @@ function updateEnvContent(content: string, key: string, value: string | null): s
 
   const normalized = nextLines.join("\n").replace(/\n{3,}/g, "\n\n");
   return normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+}
+
+export function writeEnvFileAtomically(filePath: string, content: string) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, content, "utf8");
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+    throw error;
+  }
 }
 
 function maskSecretPreview(value: string): string {
@@ -974,8 +1081,8 @@ function createEnvFiles(root: string) {
   return { parsed, files };
 }
 
-export async function getServicesWorkspaceData(): Promise<WorkspaceData> {
-  const root = findWorkspaceRoot();
+export async function getServicesWorkspaceData(options: WorkspaceOptions = {}): Promise<WorkspaceData> {
+  const root = options.rootDir ? path.resolve(options.rootDir) : findWorkspaceRoot();
   const { parsed, files } = createEnvFiles(root);
   const externalPort = readTrimmedValue(parsed.external.values, "PORT") || "3033";
   const baseUrl = `http://127.0.0.1:${externalPort}`;
@@ -1013,14 +1120,19 @@ function normalizeIncomingValue(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-export async function updateServicesWorkspaceData(changes: FieldChange[]): Promise<WorkspaceData> {
-  const root = findWorkspaceRoot();
+export async function updateServicesWorkspaceData(
+  changes: FieldChange[],
+  options: WorkspaceOptions = {},
+): Promise<WorkspaceData> {
+  const root = options.rootDir ? path.resolve(options.rootDir) : findWorkspaceRoot();
   const grouped = new Map<WorkspaceFileId, FieldChange[]>();
 
   for (const change of changes) {
     const definition = WORKSPACE_FIELD_LOOKUP.get(`${change.fileId}:${change.key}`);
     if (!definition) {
-      throw new Error(`Unknown workspace field: ${change.fileId}:${change.key}`);
+      throw new ServicesWorkspaceValidationError(
+        `Unknown workspace field: ${change.fileId}:${change.key}`,
+      );
     }
 
     const next = grouped.get(change.fileId) ?? [];
@@ -1040,9 +1152,8 @@ export async function updateServicesWorkspaceData(changes: FieldChange[]): Promi
       content = updateEnvContent(content, change.key, change.value);
     }
 
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, content, "utf8");
+    writeEnvFileAtomically(filePath, content);
   }
 
-  return getServicesWorkspaceData();
+  return getServicesWorkspaceData({ rootDir: root });
 }

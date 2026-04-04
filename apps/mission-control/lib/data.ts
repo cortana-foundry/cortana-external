@@ -18,8 +18,66 @@ type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 type Severity = "info" | "warning" | "critical";
 
 type JsonValue = unknown;
-type RunWithAgent = any;
-type CortanaTaskWithEpic = any;
+type AgentSummary = {
+  id: string;
+  name: string;
+  role: string;
+  model: string | null;
+  status: string;
+  description: string | null;
+  capabilities: string | null;
+  healthScore: number | null;
+  lastSeen: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type RunWithAgent = {
+  id: string;
+  agentId: string | null;
+  agent: Pick<AgentSummary, "id" | "name" | "model"> | null;
+  jobType: string;
+  status: string;
+  summary: string | null;
+  payload: JsonValue | null;
+  startedAt: Date;
+  completedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  externalStatus: string | null;
+  [key: string]: unknown;
+};
+
+type CortanaTaskWithEpic = {
+  id: number;
+  title: string;
+  description: string | null;
+  priority: number;
+  status: string;
+  dueAt: Date | null;
+  remindAt: Date | null;
+  executeAt: Date | null;
+  autoExecutable: boolean;
+  executionPlan: string | null;
+  dependsOn: number[];
+  completedAt: Date | null;
+  outcome: string | null;
+  metadata: JsonValue | null;
+  epicId: number | null;
+  parentId: number | null;
+  assignedTo: string | null;
+  source: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  epic?: {
+    id: number;
+    title: string;
+    status: string;
+    deadline: Date | null;
+    metadata: JsonValue | null;
+  } | null;
+  [key: string]: unknown;
+};
 
 const normalizeIdentity = (value?: string | null) =>
   (value || "").trim().toLowerCase();
@@ -57,60 +115,15 @@ const deriveAssignmentLabel = (run: {
   return candidates.find(Boolean) ?? null;
 };
 
-const STALE_RUNNING_RECONCILE_MS = 1000 * 60 * 60 * 2;
-const STALE_RUNNING_RECONCILE_NOTE = "auto-reconciled: stale running state";
-let lastStaleRunReconcileAt = 0;
-
-const appendReconcileNote = (summary: string | null) => {
-  if (!summary || summary.trim().length === 0) return STALE_RUNNING_RECONCILE_NOTE;
-  return summary.includes(STALE_RUNNING_RECONCILE_NOTE)
-    ? summary
-    : `${summary} | ${STALE_RUNNING_RECONCILE_NOTE}`;
-};
-
-const reconcileStaleRunningRuns = async () => {
-  const now = Date.now();
-  if (now - lastStaleRunReconcileAt < 60_000) return 0;
-
-  const staleBefore = new Date(now - STALE_RUNNING_RECONCILE_MS);
-  const staleRuns = await prisma.run.findMany({
-    where: {
-      status: "running",
-      updatedAt: { lt: staleBefore },
-    },
-    select: {
-      id: true,
-      summary: true,
-    },
-  });
-
-  if (staleRuns.length === 0) {
-    lastStaleRunReconcileAt = now;
-    return 0;
-  }
-
-  await prisma.$transaction(
-    staleRuns.map((run) =>
-      prisma.run.update({
-        where: { id: run.id },
-        data: {
-          status: "failed",
-          summary: appendReconcileNote(run.summary),
-          completedAt: new Date(),
-          externalStatus: "failed",
-        },
-      })
-    )
-  );
-
-  lastStaleRunReconcileAt = now;
-  return staleRuns.length;
-};
-
-export const getAgents = async () => {
-  noStore();
+const refreshOpenClawState = async () => {
   await syncOpenClawRunsFromStore();
-  await reconcileStaleRunningRuns();
+};
+
+export const getAgents = async (options?: { refreshRuns?: boolean }) => {
+  noStore();
+  if (options?.refreshRuns !== false) {
+    await refreshOpenClawState();
+  }
 
   const taskPrisma = getTaskPrisma();
 
@@ -275,7 +288,7 @@ export type RunsPage = {
 
 export const getRuns = async ({ take = 20, cursor, agentId }: GetRunsInput = {}): Promise<RunsPage> => {
   noStore();
-  await syncOpenClawRunsFromStore();
+  await refreshOpenClawState();
 
   const normalizedTake = Math.max(1, Math.min(take, 100));
 
@@ -318,7 +331,7 @@ export const getRuns = async ({ take = 20, cursor, agentId }: GetRunsInput = {})
 
 export const getEvents = async () => {
   noStore();
-  await syncOpenClawRunsFromStore();
+  await refreshOpenClawState();
   return prisma.event.findMany({
     include: { agent: true, run: true },
     orderBy: { createdAt: "desc" },
@@ -328,9 +341,9 @@ export const getEvents = async () => {
 
 export const getDashboardSummary = async () => {
   noStore();
-  await syncOpenClawRunsFromStore();
+  await refreshOpenClawState();
   const [agents, runs, events] = await Promise.all([
-    getAgents(),
+    getAgents({ refreshRuns: false }),
     prisma.run.findMany({
       include: { agent: true },
       orderBy: latestRunOrder,
@@ -592,7 +605,7 @@ export const getTaskBoard = async ({
         return !COMPLETED_STATUSES.has(normalized);
       });
 
-    const blockedBy = blockers.map(({ id, task }: { id: string; task: TaskBoardTask | undefined }) =>
+    const blockedBy = blockers.map(({ id, task }: { id: number; task: CortanaTaskWithEpic | undefined }) =>
       task
         ? { id: task.id, title: task.title, status: task.status }
         : { id, title: "Unknown dependency", status: "missing" }
@@ -713,12 +726,12 @@ const durationLabel = (minutes: number) => {
 
 export const getAgentDetail = async (agentId: string) => {
   noStore();
-  await syncOpenClawRunsFromStore();
+  await refreshOpenClawState();
 
   const agent = await prisma.agent.findUnique({ where: { id: agentId } });
   if (!agent) return null;
 
-  const liveAgent = (await getAgents()).find((candidate) => candidate.id === agentId) ?? agent;
+  const liveAgent = (await getAgents({ refreshRuns: false })).find((candidate) => candidate.id === agentId) ?? agent;
 
   const [recentRuns, recentEvents] = await Promise.all([
     prisma.run.findMany({

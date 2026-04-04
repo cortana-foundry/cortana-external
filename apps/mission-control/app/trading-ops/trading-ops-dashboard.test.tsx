@@ -6,6 +6,7 @@ import type { TradingOpsDashboardData } from "@/lib/trading-ops";
 const fixture: TradingOpsDashboardData = {
   generatedAt: "2026-04-03T23:30:00.000Z",
   repoPath: "/Users/hd/Developer/cortana-external/backtester",
+  cortanaRepoPath: "/Users/hd/Developer/cortana",
   market: {
     state: "degraded",
     label: "CORRECTION",
