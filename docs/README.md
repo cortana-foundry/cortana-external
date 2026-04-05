@@ -11,6 +11,7 @@ This directory holds raw source docs for repo-wide systems that are not owned by
 
 ## Start Here
 
+- [Documentation authoring guide](./source/architecture/documentation-authoring-guide.md)
 - [Mission Control architecture](./source/architecture/mission-control.md)
 - [Trading cron enrichment decoupling PRD](./source/prd/prd-trading-cron-enrichment-decoupling.md)
 - [Gateway uptime recovery runbook](./source/runbook/gateway-uptime-recovery-v1.md)

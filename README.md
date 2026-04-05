@@ -6,6 +6,8 @@ Runtime edge for Cortana: services, apps, and reliability infrastructure that su
 
 If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime**.
 
+Documentation placement and authoring rules live in [`docs/source/architecture/documentation-authoring-guide.md`](docs/source/architecture/documentation-authoring-guide.md).
+
 ---
 
 ## 1) What this repo contains
@@ -17,6 +19,7 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 - Watchdog reliability service (`watchdog/`, launchd)
 - `packages/` – typed client libraries (`fitness-client`, `fitness-types`)
 - Supporting docs and stock-discovery scripts
+- canonical docs guidance for humans and LLMs
 
 ---
 

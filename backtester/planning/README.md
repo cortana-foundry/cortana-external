@@ -2,6 +2,9 @@
 
 This directory turns the roadmap into execution-ready planning artifacts.
 
+Before adding new planning docs, read the repo-wide placement guide:
+- [Documentation authoring guide](/Users/hd/Developer/cortana-external/docs/source/architecture/documentation-authoring-guide.md)
+
 Use the documents in this order:
 
 1. [Roadmap](/Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md)
@@ -124,6 +127,11 @@ For every workstream:
 - PRD explains why it matters and what success looks like
 - Tech Spec explains how it will be built
 - Implementation Plan breaks the work into verticals another LLM can execute
+
+Start from these templates:
+- [PRD template](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/template.md)
+- [Tech Spec template](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/template.md)
+- [Implementation template](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/template.md)
 
 All three documents should stay aligned on:
 - scope
