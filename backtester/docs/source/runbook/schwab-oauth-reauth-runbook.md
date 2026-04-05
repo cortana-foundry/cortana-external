@@ -283,9 +283,9 @@ Interpretation:
 If a new agent has to debug Schwab auth, tell it to start here:
 
 1. Read:
-   - `/Users/hd/Developer/cortana-external/backtester/docs/schwab-oauth-reauth-runbook.md`
-   - `/Users/hd/Developer/cortana-external/backtester/docs/market-data-service-reference.md`
-   - `/Users/hd/Developer/cortana-external/backtester/docs/session-handoff.md`
+   - `/Users/hd/Developer/cortana-external/backtester/docs/source/runbook/schwab-oauth-reauth-runbook.md`
+   - `/Users/hd/Developer/cortana-external/backtester/docs/source/reference/market-data-service-reference.md`
+   - `/Users/hd/Developer/cortana-external/backtester/docs/source/guide/session-handoff.md`
 2. Confirm:
    - `/auth/schwab/status`
    - local HTTPS callback on `8182`

@@ -668,10 +668,10 @@ Without explicit contracts and truth semantics, later features create ambiguity 
 
 #### Primary Files
 
-- `/Users/hd/Developer/cortana-external/backtester/docs/roadmap.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md`
 - `/Users/hd/Developer/cortana-external/backtester/README.md`
-- `/Users/hd/Developer/cortana-external/backtester/docs/backtester-study-guide.md`
-- `/Users/hd/Developer/cortana-external/backtester/docs/market-data-service-reference.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/guide/backtester-study-guide.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/reference/market-data-service-reference.md`
 
 #### Acceptance Criteria
 
@@ -806,7 +806,7 @@ Without measurement, every strategy tweak is just taste.
 - `/Users/hd/Developer/cortana-external/backtester/prediction_accuracy_report.py`
 - `/Users/hd/Developer/cortana-external/backtester/evaluation/decision_review.py`
 - `/Users/hd/Developer/cortana-external/backtester/data/confidence.py`
-- `/Users/hd/Developer/cortana-external/backtester/docs/scoring-prediction-accuracy-reference.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/reference/scoring-prediction-accuracy-reference.md`
 
 #### New Artifacts
 

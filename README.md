@@ -312,12 +312,12 @@ Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 - The backtester now ranks live candidates by final runtime action first, then by uncertainty-aware confidence quality, instead of letting a high raw score outrank a cleaner buyable setup.
 - In plain English: a `BUY` with solid evidence now surfaces ahead of a higher-score `WATCH` that is abstaining because the inputs are stale, degraded, or conflicted.
 - Phase 2 adds a bounded downside proxy (63-day drawdown + worst-loss blend) and clearer churn proxies so sketchier left-tail / flip-prone setups get smaller size and worse runtime ranking without weakening any veto gates.
-- Doc: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
+- Doc: [`backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md`](backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md)
 
 ### Start here
 - Operator workflow + output guide: [`backtester/README.md`](backtester/README.md)
-- Runtime wiring note: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
-- Calibration reference: [`backtester/docs/scoring-calibration.md`](backtester/docs/scoring-calibration.md)
+- Runtime wiring note: [`backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md`](backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md)
+- Calibration reference: [`backtester/docs/source/reference/scoring-calibration.md`](backtester/docs/source/reference/scoring-calibration.md)
 
 ### Core files
 - `advisor.py` (market/symbol analysis)

@@ -10,25 +10,25 @@ Python trading-analysis engine for:
 This README is the operator manual.
 
 Use the study guide when you want to understand the system conceptually:
-- [Backtester Study Guide](./docs/backtester-study-guide.md)
-- [Roadmap](./docs/roadmap.md)
-- [Session Handoff](./docs/session-handoff.md)
-- [Schwab OAuth Reauth Runbook](./docs/schwab-oauth-reauth-runbook.md)
-- [Streamer Failure Modes Runbook](./docs/streamer-failure-modes-runbook.md)
-- [Scoring and Prediction Accuracy Reference](./docs/scoring-prediction-accuracy-reference.md)
+- [Backtester Study Guide](./docs/source/guide/backtester-study-guide.md)
+- [Roadmap](./docs/source/roadmap/roadmap.md)
+- [Session Handoff](./docs/source/guide/session-handoff.md)
+- [Schwab OAuth Reauth Runbook](./docs/source/runbook/schwab-oauth-reauth-runbook.md)
+- [Streamer Failure Modes Runbook](./docs/source/runbook/streamer-failure-modes-runbook.md)
+- [Scoring and Prediction Accuracy Reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
 
 Other useful docs:
-- [Polymarket + backtester flow](./docs/polymarket-backtester-flow.md)
-- [Wave buildout overview](./docs/docs-wave-overview.md)
-- [Decision review loop](./docs/decision-review-loop.md)
-- [Scoring and calibration notes](./docs/scoring-calibration.md)
-- [Scoring and prediction accuracy reference](./docs/scoring-prediction-accuracy-reference.md)
-- [Intraday breadth override PRD](./docs/intraday-breadth-override-prd.md)
-- [Uncertainty/confidence PRD](./docs/uncertainty-confidence-prd.md)
-- [Uncertainty runtime wiring](./docs/uncertainty-confidence-runtime-wiring.md)
-- [Market-data service reference](./docs/market-data-service-reference.md)
-- [Schwab OAuth reauth runbook](./docs/schwab-oauth-reauth-runbook.md)
-- [Streamer failure modes runbook](./docs/streamer-failure-modes-runbook.md)
+- [Polymarket + backtester flow](./docs/source/architecture/polymarket-backtester-flow.md)
+- [Wave buildout overview](./docs/source/architecture/docs-wave-overview.md)
+- [Decision review loop](./docs/source/architecture/decision-review-loop.md)
+- [Scoring and calibration notes](./docs/source/reference/scoring-calibration.md)
+- [Scoring and prediction accuracy reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
+- [Intraday breadth override PRD](./docs/source/prd/intraday-breadth-override-prd.md)
+- [Uncertainty/confidence PRD](./docs/source/prd/uncertainty-confidence-prd.md)
+- [Uncertainty runtime wiring](./docs/source/reference/uncertainty-confidence-runtime-wiring.md)
+- [Market-data service reference](./docs/source/reference/market-data-service-reference.md)
+- [Schwab OAuth reauth runbook](./docs/source/runbook/schwab-oauth-reauth-runbook.md)
+- [Streamer failure modes runbook](./docs/source/runbook/streamer-failure-modes-runbook.md)
 
 ## Setup
 
@@ -86,7 +86,7 @@ curl http://127.0.0.1:3033/auth/schwab/status
 ```
 
 If Schwab auth breaks or needs to be rotated later, use:
-- [Schwab OAuth Reauth Runbook](./docs/schwab-oauth-reauth-runbook.md)
+- [Schwab OAuth Reauth Runbook](./docs/source/runbook/schwab-oauth-reauth-runbook.md)
 
 Notes:
 - Schwab requires an `https://` callback URL
@@ -205,7 +205,7 @@ It does not include:
 - full CANSLIM or Dip Buyer scans
 - Telegram delivery logic
 
-Typed consumer-field guidance lives in [consumer-contracts.md](/Users/hd/Developer/cortana-external/backtester/docs/consumer-contracts.md).
+Typed consumer-field guidance lives in [consumer-contracts.md](/Users/hd/Developer/cortana-external/backtester/docs/source/reference/consumer-contracts.md).
 
 ## Workflow Wrappers
 
@@ -656,7 +656,7 @@ Backtester-facing service endpoints:
 - `GET /market-data/risk/history`
 - `GET /market-data/risk/snapshot`
 
-See [Market-data service reference](./docs/market-data-service-reference.md) for compact endpoint notes, readiness semantics, and streamer recovery basics.
+See [Market-data service reference](./docs/source/reference/market-data-service-reference.md) for compact endpoint notes, readiness semantics, and streamer recovery basics.
 
 History route notes:
 - `GET /market-data/history/:symbol` now honors `interval=1d|1wk|1mo` instead of silently collapsing everything to daily bars

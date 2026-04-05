@@ -3,13 +3,13 @@
 This is a plain-English learning doc for understanding the backtester from the ground up.
 
 For the operating plan and next implementation phases, use:
-- [Roadmap](./roadmap.md)
+- [Roadmap](../roadmap/roadmap.md)
 - [Session Handoff](./session-handoff.md)
-- [Market-data service reference](./market-data-service-reference.md)
-- [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md)
-- [Streamer failure modes runbook](./streamer-failure-modes-runbook.md)
-- [Scoring and prediction accuracy reference](./scoring-prediction-accuracy-reference.md)
-- [Intraday breadth override PRD](./intraday-breadth-override-prd.md)
+- [Market-data service reference](../reference/market-data-service-reference.md)
+- [Schwab OAuth Reauth Runbook](../runbook/schwab-oauth-reauth-runbook.md)
+- [Streamer failure modes runbook](../runbook/streamer-failure-modes-runbook.md)
+- [Scoring and prediction accuracy reference](../reference/scoring-prediction-accuracy-reference.md)
+- [Intraday breadth override PRD](../prd/intraday-breadth-override-prd.md)
 
 The goal is to understand the system in the order it actually thinks:
 
@@ -542,7 +542,7 @@ Local Schwab OAuth note:
 - token state is visible from:
   - `GET /auth/schwab/status`
 - this uses a local HTTPS listener because Schwab requires an `https://` callback
-- use [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md) for full re-link and troubleshooting steps
+- use [Schwab OAuth Reauth Runbook](../runbook/schwab-oauth-reauth-runbook.md) for full re-link and troubleshooting steps
 
 ## Core Trading Flow
 
@@ -859,7 +859,7 @@ When you run the local scripts, you are mostly seeing the result of this service
 - streamer health and symbol-budget visibility
 - pre-market futures context from Schwab `LEVELONE_FUTURES` for `/ES` and `/NQ`
 
-The compact operator reference now lives in [Market-data service reference](./market-data-service-reference.md).
+The compact operator reference now lives in [Market-data service reference](../reference/market-data-service-reference.md).
 
 ##### 1. Price history
 
@@ -877,7 +877,7 @@ This is the basic question:
 Important clarification:
 - this now comes through the TS market-data service boundary described above
 - normal history requests now honor `interval=1d|1wk|1mo`
-- diagnostic and batch request shapes are documented in [Market-data service reference](./market-data-service-reference.md)
+- diagnostic and batch request shapes are documented in [Market-data service reference](../reference/market-data-service-reference.md)
 
 ##### 2. Fundamentals
 

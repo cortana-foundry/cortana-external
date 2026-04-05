@@ -4,7 +4,7 @@ This directory turns the roadmap into execution-ready planning artifacts.
 
 Use the documents in this order:
 
-1. [Roadmap](/Users/hd/Developer/cortana-external/backtester/planning/docs/roadmap.md)
+1. [Roadmap](/Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md)
 2. [Git Workflow Plan](/Users/hd/Developer/cortana-external/backtester/planning/docs/git-workflow.md)
 3. PRD for the workstream you are implementing
 4. Matching Tech Spec

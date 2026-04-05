@@ -6,9 +6,9 @@ Use this file if the original chat context is gone and a new agent needs to reco
 
 Read these files first:
 - `/Users/hd/Developer/cortana-external/backtester/README.md`
-- `/Users/hd/Developer/cortana-external/backtester/docs/backtester-study-guide.md`
-- `/Users/hd/Developer/cortana-external/backtester/docs/roadmap.md`
-- `/Users/hd/Developer/cortana-external/backtester/docs/schwab-oauth-reauth-runbook.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/guide/backtester-study-guide.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/source/runbook/schwab-oauth-reauth-runbook.md`
 
 ## Bootstrap Prompt
 
@@ -16,10 +16,10 @@ Read these files first:
 Read these first and use them as the source of truth before making changes:
 
 - /Users/hd/Developer/cortana-external/backtester/README.md
-- /Users/hd/Developer/cortana-external/backtester/docs/backtester-study-guide.md
-- /Users/hd/Developer/cortana-external/backtester/docs/roadmap.md
-- /Users/hd/Developer/cortana-external/backtester/docs/session-handoff.md
-- /Users/hd/Developer/cortana-external/backtester/docs/schwab-oauth-reauth-runbook.md
+- /Users/hd/Developer/cortana-external/backtester/docs/source/guide/backtester-study-guide.md
+- /Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md
+- /Users/hd/Developer/cortana-external/backtester/docs/source/guide/session-handoff.md
+- /Users/hd/Developer/cortana-external/backtester/docs/source/runbook/schwab-oauth-reauth-runbook.md
 
 Then inspect the latest local workflow artifacts and summarize:
 1. current system shape

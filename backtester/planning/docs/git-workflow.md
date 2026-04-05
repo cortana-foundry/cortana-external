@@ -45,7 +45,7 @@ Even in that case:
 
 Before starting any implementation, the implementer should read in this order:
 
-1. `/Users/hd/Developer/cortana-external/backtester/planning/docs/roadmap.md`
+1. `/Users/hd/Developer/cortana-external/backtester/docs/source/roadmap/roadmap.md`
 2. the relevant PRD under `/Users/hd/Developer/cortana-external/backtester/planning/PRDs/`
 3. the matching Tech Spec under `/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/`
 4. the matching Implementation Plan under `/Users/hd/Developer/cortana-external/backtester/planning/Implementation/`

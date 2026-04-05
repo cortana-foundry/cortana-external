@@ -89,7 +89,7 @@ def build_runtime_health_snapshot(
             {
                 "incident_type": "provider_cooldown",
                 "severity": "medium",
-                "runbook_ref": "backtester/docs/market-data-service-reference.md",
+                "runbook_ref": "backtester/docs/source/reference/market-data-service-reference.md",
                 "operator_action": operator_action,
             }
         )
