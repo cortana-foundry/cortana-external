@@ -156,7 +156,7 @@ def _incident_runbooks() -> list[dict[str, Any]]:
                 "http://127.0.0.1:3033/market-data/ready",
                 "http://127.0.0.1:3033/market-data/ops",
             ],
-            str(BACKTESTER_ROOT / "docs" / "market-data-service-reference.md"),
+            str(BACKTESTER_ROOT / "docs" / "source" / "reference" / "market-data-service-reference.md"),
         ),
         _incident(
             "schwab_auth_failure",
@@ -167,9 +167,9 @@ def _incident_runbooks() -> list[dict[str, Any]]:
             ],
             [
                 "http://127.0.0.1:3033/auth/schwab/status",
-                str(BACKTESTER_ROOT / "docs" / "schwab-oauth-reauth-runbook.md"),
+                str(BACKTESTER_ROOT / "docs" / "source" / "runbook" / "schwab-oauth-reauth-runbook.md"),
             ],
-            str(BACKTESTER_ROOT / "docs" / "schwab-oauth-reauth-runbook.md"),
+            str(BACKTESTER_ROOT / "docs" / "source" / "runbook" / "schwab-oauth-reauth-runbook.md"),
         ),
         _incident(
             "pre_open_gate_failed",

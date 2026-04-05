@@ -1,0 +1,15 @@
+# Mission Control Overview
+
+Mission Control is the operational dashboard and execution-plane UI in `cortana-external`.
+
+Use these pages in order:
+
+1. [Current state](./current-state.md)
+2. [Roadmap](./roadmap.md)
+3. [Architecture source](../../../docs/source/architecture/mission-control.md)
+
+Primary source docs:
+
+- [Mission Control architecture](../../../docs/source/architecture/mission-control.md)
+- [Council background jobs](../../../apps/mission-control/docs/source/architecture/council-background-jobs.md)
+- [Mission Control next ideas](../../../apps/mission-control/docs/source/notes/mission-control-next-ideas.md)

@@ -134,7 +134,7 @@ Practical meaning:
 Use this flow when you need to create or rotate the local Schwab refresh token.
 
 Full recovery/debugging instructions live in:
-- [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md)
+- [Schwab OAuth Reauth Runbook](../runbook/schwab-oauth-reauth-runbook.md)
 
 Portal callback to register:
 
