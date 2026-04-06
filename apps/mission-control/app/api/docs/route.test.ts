@@ -1,3 +1,4 @@
+import path from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fsMocks = vi.hoisted(() => ({
@@ -17,10 +18,10 @@ vi.mock("fs/promises", () => ({
 import { GET } from "@/app/api/docs/route";
 
 const makeRequest = (query = "") => new Request(`http://localhost/api/docs${query}`);
-const repoRoot = "/Users/hd/Developer/cortana-external";
-const externalDocsRoot = `${repoRoot}/docs`;
-const backtesterRoot = `${repoRoot}/backtester`;
-const backtesterDocsRoot = `${backtesterRoot}/docs`;
+const repoRoot = path.resolve(process.cwd(), "..", "..");
+const externalDocsRoot = path.join(repoRoot, "docs");
+const backtesterRoot = path.join(repoRoot, "backtester");
+const backtesterDocsRoot = path.join(backtesterRoot, "docs");
 const openClawDocsRoot = "/Users/hd/Developer/cortana/docs";
 
 const fileEntry = (name: string) => ({
@@ -76,13 +77,13 @@ describe("GET /api/docs", () => {
         {
           id: "External Docs:README.md",
           name: "README.md",
-          path: "/Users/hd/Developer/cortana-external/docs/README.md",
+          path: path.join(externalDocsRoot, "README.md"),
           section: "External Docs",
         },
         {
           id: "External Docs:source/architecture/mission-control.md",
           name: "source/architecture/mission-control.md",
-          path: "/Users/hd/Developer/cortana-external/docs/source/architecture/mission-control.md",
+          path: path.join(externalDocsRoot, "source", "architecture", "mission-control.md"),
           section: "External Docs",
         },
         {
@@ -219,13 +220,13 @@ describe("GET /api/docs", () => {
       {
         id: "Backtester Docs:docs/README.md",
         name: "docs/README.md",
-        path: "/Users/hd/Developer/cortana-external/backtester/docs/README.md",
+        path: path.join(backtesterDocsRoot, "README.md"),
         section: "Backtester Docs",
       },
       {
         id: "Backtester Docs:README.md",
         name: "README.md",
-        path: "/Users/hd/Developer/cortana-external/backtester/README.md",
+        path: path.join(backtesterRoot, "README.md"),
         section: "Backtester Docs",
       },
     ]);
