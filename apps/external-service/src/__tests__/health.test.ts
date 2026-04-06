@@ -29,7 +29,7 @@ describe("buildAggregateHealth", () => {
 
   it("returns unhealthy when no providers are healthy", () => {
     const result = buildAggregateHealth({
-      whoop: { status: "ok" },
+      whoop: { status: "unhealthy" },
       tonal: { status: "unhealthy" },
       alpaca: { status: "unhealthy" },
       appleHealth: { status: "unhealthy" },
@@ -38,5 +38,18 @@ describe("buildAggregateHealth", () => {
 
     expect(result.status).toBe("unhealthy");
     expect(result.statusCode).toBe(503);
+  });
+
+  it("does not degrade aggregate health when apple health is unconfigured", () => {
+    const result = buildAggregateHealth({
+      whoop: { status: "healthy" },
+      tonal: { status: "healthy" },
+      alpaca: { status: "healthy" },
+      appleHealth: { status: "unconfigured" },
+      marketData: { status: "healthy" },
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.statusCode).toBe(200);
   });
 });

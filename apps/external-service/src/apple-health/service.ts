@@ -63,6 +63,16 @@ export class AppleHealthService {
       }
       return { status: 200, body };
     } catch (error) {
+      if (this.isMissingFileError(error) || this.isConfiguredMissingExportError(error)) {
+        return {
+          status: 200,
+          body: {
+            status: "unconfigured",
+            data_path: this.dataPath,
+            note: "apple health export not configured",
+          },
+        };
+      }
       return this.toErrorResponse(error);
     }
   }
@@ -82,6 +92,20 @@ export class AppleHealthService {
         },
       };
     } catch (error) {
+      if (this.isMissingFileError(error) || this.isConfiguredMissingExportError(error)) {
+        return {
+          status: 200,
+          body: {
+            status: "unconfigured",
+            data_path: this.dataPath,
+            generated_at: null,
+            age_seconds: null,
+            max_age_seconds: Math.trunc(this.maxAgeMs / 1000),
+            is_stale: false,
+            note: "apple health export not configured",
+          },
+        };
+      }
       const message = error instanceof Error ? error.message : String(error);
       return {
         status: 503,
@@ -145,6 +169,10 @@ export class AppleHealthService {
         "code" in error &&
         (error as { code?: unknown }).code === "ENOENT",
     );
+  }
+
+  private isConfiguredMissingExportError(error: unknown): boolean {
+    return error instanceof Error && /apple health export not found at /.test(error.message);
   }
 
   private toErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
