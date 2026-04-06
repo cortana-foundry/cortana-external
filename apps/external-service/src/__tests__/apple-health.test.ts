@@ -136,4 +136,30 @@ describe("apple health service", () => {
     expect(healthBody.status).toBe("unhealthy");
     expect(healthBody.error).toContain("invalid apple health export schema");
   });
+
+  it("reports unconfigured instead of unhealthy when the export is missing", async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    const dataPath = path.join(dir, "missing", "latest.json");
+
+    const service = new AppleHealthService({
+      dataPath,
+      maxAgeMs: 12 * 60 * 60 * 1000,
+      now: () => fixedNow,
+    });
+    const app = new Hono();
+    app.route("/", createAppleHealthRouter(service));
+
+    const dataResponse = await app.request("/apple-health/data");
+    const dataBody = (await dataResponse.json()) as { status: string; note: string };
+    expect(dataResponse.status).toBe(200);
+    expect(dataBody.status).toBe("unconfigured");
+    expect(dataBody.note).toContain("not configured");
+
+    const healthResponse = await app.request("/apple-health/health");
+    const healthBody = (await healthResponse.json()) as { status: string; note: string };
+    expect(healthResponse.status).toBe(200);
+    expect(healthBody.status).toBe("unconfigured");
+    expect(healthBody.note).toContain("not configured");
+  });
 });

@@ -19,13 +19,14 @@ export const AppleHealthExportSchema = z
 export type AppleHealthExport = z.infer<typeof AppleHealthExportSchema>;
 
 export const AppleHealthHealthSchema = z.object({
-  status: z.enum(["healthy", "degraded", "unhealthy"]),
+  status: z.enum(["healthy", "degraded", "unhealthy", "unconfigured"]),
   data_path: z.string(),
   generated_at: z.string().datetime().nullable(),
   age_seconds: z.number().nonnegative().nullable(),
   max_age_seconds: z.number().positive(),
   is_stale: z.boolean(),
   error: z.string().optional(),
+  note: z.string().optional(),
 });
 
 export type AppleHealthHealthResponse = z.infer<typeof AppleHealthHealthSchema>;
