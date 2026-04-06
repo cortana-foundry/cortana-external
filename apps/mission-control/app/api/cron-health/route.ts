@@ -60,7 +60,7 @@ const CRON_LATE_MULTIPLIER = 1;
 export const parseCronIntervalMs = (expr?: string | null) => {
   if (!expr) return null;
 
-  const [minute = "*", hour = "*", dayOfMonth = "*", _month = "*", dayOfWeek = "*"] =
+  const [minute = "*", hour = "*", dayOfMonth = "*", , dayOfWeek = "*"] =
     expr.trim().split(/\s+/);
 
   const stepValue = (field: string) => {

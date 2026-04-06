@@ -28,6 +28,36 @@ describe("requireApiAuth", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("rejects strict endpoints when no token is configured", () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    const result = requireApiAuth(buildRequest(), { requireConfiguredToken: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(503);
+    }
+  });
+
+  it("allows loopback bootstrap when strict auth is enabled without a token", () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    const result = requireApiAuth(buildRequest({ host: "127.0.0.1:3000" }), {
+      requireConfiguredToken: true,
+      allowLoopbackWithoutToken: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("still rejects non-loopback requests without a token during bootstrap mode", () => {
+    delete process.env.MISSION_CONTROL_API_TOKEN;
+    const result = requireApiAuth(buildRequest({ host: "100.120.198.12:3000" }), {
+      requireConfiguredToken: true,
+      allowLoopbackWithoutToken: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(503);
+    }
+  });
+
   it("rejects requests without credentials when token is configured", () => {
     process.env.MISSION_CONTROL_API_TOKEN = "secret";
     const result = requireApiAuth(buildRequest());

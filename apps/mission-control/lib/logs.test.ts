@@ -16,7 +16,7 @@ vi.mock("@/lib/prisma", () => ({
 describe("lib/logs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getTaskPrisma).mockReturnValue(undefined);
+    vi.mocked(getTaskPrisma).mockReturnValue(null);
   });
 
   it("returns log entries with filters", async () => {

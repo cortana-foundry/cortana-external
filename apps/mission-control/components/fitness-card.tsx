@@ -73,6 +73,7 @@ type FitnessResponse =
     };
 
 const POLL_MS = 5 * 60 * 1000;
+const EMPTY_ALERTS: FitnessAlert[] = [];
 
 const recoveryTone: Record<
   FitnessSummary["recovery"]["status"],
@@ -182,7 +183,7 @@ export function FitnessCard() {
       .length;
   }, [data]);
 
-  const alerts = data?.alerts ?? [];
+  const alerts = data?.alerts ?? EMPTY_ALERTS;
   const activeAlerts = alerts.length;
 
   const topSeverity = useMemo(() => {

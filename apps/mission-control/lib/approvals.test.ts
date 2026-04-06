@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
 describe("lib/approvals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getTaskPrisma).mockReturnValue(undefined);
+    vi.mocked(getTaskPrisma).mockReturnValue(null);
   });
 
   it("getApprovals returns mapped rows and applies filters", async () => {

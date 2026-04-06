@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeRawMock = vi.fn();
+const queryRawMock = vi.fn();
 const readFileSyncMock = vi.fn();
 const existsSyncMock = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   default: {
     $executeRawUnsafe: executeRawMock,
+    $queryRawUnsafe: queryRawMock,
   },
 }));
 
@@ -30,11 +32,16 @@ vi.mock("node:fs", () => ({
   },
 }));
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("POST /api/actions/[action] force-heartbeat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.CORTANA_SOURCE_REPO;
     delete process.env.TELEGRAM_USAGE_HANDLER_PATH;
+    vi.stubGlobal("fetch", vi.fn() as typeof fetch);
   });
 
   it("inserts DB event and triggers openclaw system event", async () => {
@@ -64,6 +71,7 @@ describe("POST /api/actions/[action] check-budget", () => {
     vi.clearAllMocks();
     delete process.env.CORTANA_SOURCE_REPO;
     delete process.env.TELEGRAM_USAGE_HANDLER_PATH;
+    vi.stubGlobal("fetch", vi.fn() as typeof fetch);
   });
 
   it("uses the canonical Cortana telegram usage handler when quota tracker is absent", async () => {
@@ -108,6 +116,70 @@ describe("POST /api/actions/[action] check-budget", () => {
     expect(execSyncMock).toHaveBeenCalledWith(
       expect.stringContaining("/tmp/custom-telegram-usage.ts"),
       expect.objectContaining({ timeout: 10000 })
+    );
+  });
+});
+
+describe("POST /api/actions/[action] chaos-test", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryRawMock.mockResolvedValueOnce([{ ok: 1 }]);
+  });
+
+  it("fails the fitness-service check when /health returns 503 unhealthy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "unhealthy", error: "boom" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        })
+      ) as typeof fetch,
+    );
+    execSyncMock.mockReturnValueOnce("gateway running");
+
+    const { POST } = await import("@/app/api/actions/[action]/route");
+    const res = await POST(new Request("http://localhost/api/actions/chaos-test", { method: "POST" }), {
+      params: Promise.resolve({ action: "chaos-test" }),
+    });
+    const body = await res.json();
+
+    expect(body.ok).toBe(false);
+    expect(body.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Fitness service",
+          passed: false,
+        }),
+      ]),
+    );
+  });
+
+  it("treats degraded but reachable health as a passing fitness-service check", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "degraded", whoop: { status: "unhealthy" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      ) as typeof fetch,
+    );
+    execSyncMock.mockReturnValueOnce("gateway active");
+
+    const { POST } = await import("@/app/api/actions/[action]/route");
+    const res = await POST(new Request("http://localhost/api/actions/chaos-test", { method: "POST" }), {
+      params: Promise.resolve({ action: "chaos-test" }),
+    });
+    const body = await res.json();
+
+    expect(body.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Fitness service",
+          passed: true,
+        }),
+      ]),
     );
   });
 });
