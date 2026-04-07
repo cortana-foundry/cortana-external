@@ -88,19 +88,20 @@ def test_default_market_regime_fallback_window_covers_multi_day_snapshot(tmp_pat
     assert status.snapshot_age_seconds >= 48 * 3600 - 60
 
 
-def test_too_stale_cache_still_raises_with_staleness_message(tmp_path):
+def test_too_stale_cache_uses_conservative_emergency_status(tmp_path):
     cache_path = tmp_path / "market_snapshot.json"
     _write_snapshot(cache_path, generated_at=datetime.now(timezone.utc) - timedelta(hours=200))
 
     detector = MarketRegimeDetector(cache_path=str(cache_path), cache_ttl_seconds=60)
     detector.data_provider.get_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("rate limit", transient=True))  # type: ignore[method-assign]
 
-    with pytest.raises(MarketDataFetchError) as exc_info:
-        detector.get_status()
+    status = detector.get_status()
 
-    msg = str(exc_info.value).lower()
-    assert "stale" in msg
-    assert "max_fallback=168.0h" in msg
+    assert status.status == "degraded"
+    assert status.regime == MarketRegime.CORRECTION
+    assert status.data_source == "unknown"
+    assert status.position_sizing == 0.0
+    assert "cached snapshot is stale" in status.degraded_reason.lower()
 
 
 def test_missing_cache_uses_conservative_emergency_status(tmp_path):

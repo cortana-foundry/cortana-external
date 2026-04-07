@@ -507,7 +507,9 @@ class MarketRegimeDetector:
                     degraded_message = str(degraded_exc)
                     if "No usable market snapshot cache" in degraded_message:
                         return self._build_emergency_status(str(last_exc))
-                    if "transient error 404" in str(last_exc) and "Cached snapshot is stale" in degraded_message:
+                    if "Cached snapshot is stale" in degraded_message:
+                        return self._build_emergency_status(str(degraded_exc))
+                    if "transient error 404" in str(last_exc):
                         return self._build_emergency_status(str(last_exc))
                     raise
             raise last_exc
