@@ -147,6 +147,8 @@ const fixture: TradingOpsDashboardData = {
     data: {
       runId: "20260403-163103",
       runLabel: "Apr 3, 12:38 PM",
+      status: "success",
+      deliveryStatus: "notified",
       decision: "WATCH",
       focusTicker: "ABBV",
       focusAction: "WATCH",
@@ -164,6 +166,8 @@ const fixture: TradingOpsDashboardData = {
       completedAt: "2026-04-03T16:38:59.979Z",
       notifiedAt: "2026-04-03T16:40:00.000Z",
       correctionMode: false,
+      lastError: null,
+      sourceType: "artifact",
     },
   },
 };
@@ -184,6 +188,8 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
     expect(container).toHaveTextContent("Apr 3, 12:38 PM");
     expect(container).toHaveTextContent("Apr 3, 12:40 PM");
+    expect(container).toHaveTextContent("success");
+    expect(container).toHaveTextContent("Direct artifact read");
     expect(container).toHaveTextContent("Internal id 20260403-163103");
     expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
     expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
@@ -243,11 +249,23 @@ describe("TradingOpsDashboard", () => {
         warnings: [],
         message: "No operator action required.",
       },
+      tradingRun: {
+        ...fixture.tradingRun,
+        badgeText: "fallback",
+        state: "degraded",
+        data: fixture.tradingRun.data
+          ? {
+              ...fixture.tradingRun.data,
+              sourceType: "file_fallback",
+            }
+          : fixture.tradingRun.data,
+      },
     };
 
     const { container } = render(<TradingOpsDashboard data={staleFixture} />);
     expect(container).toHaveTextContent("stale");
     expect(container).toHaveTextContent("Canary not available");
     expect(container).toHaveTextContent("Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.");
+    expect(container).toHaveTextContent("File artifact fallback");
   });
 });

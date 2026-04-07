@@ -76,6 +76,51 @@ model Event {
   acknowledged Boolean  @default(false)
 }
 
+model TradingRunState {
+  id                  String   @id @default(uuid())
+  runId               String   @unique @map("run_id")
+  schemaVersion       Int      @default(1) @map("schema_version")
+  strategy            String
+  status              String
+  createdAt           DateTime @map("created_at")
+  startedAt           DateTime? @map("started_at")
+  completedAt         DateTime? @map("completed_at")
+  notifiedAt          DateTime? @map("notified_at")
+  deliveryStatus      String?  @map("delivery_status")
+  decision            String?
+  confidence          Float?
+  risk                String?
+  correctionMode      Boolean? @map("correction_mode")
+  buyCount            Int?     @map("buy_count")
+  watchCount          Int?     @map("watch_count")
+  noBuyCount          Int?     @map("no_buy_count")
+  symbolsScanned      Int?     @map("symbols_scanned")
+  candidatesEvaluated Int?     @map("candidates_evaluated")
+  focusTicker         String?  @map("focus_ticker")
+  focusAction         String?  @map("focus_action")
+  focusStrategy       String?  @map("focus_strategy")
+  dipBuyerBuy         String[] @default([]) @map("dip_buyer_buy")
+  dipBuyerWatch       String[] @default([]) @map("dip_buyer_watch")
+  dipBuyerNoBuy       String[] @default([]) @map("dip_buyer_no_buy")
+  canslimBuy          String[] @default([]) @map("canslim_buy")
+  canslimWatch        String[] @default([]) @map("canslim_watch")
+  canslimNoBuy        String[] @default([]) @map("canslim_no_buy")
+  artifactDirectory   String?  @map("artifact_directory")
+  summaryPath         String?  @map("summary_path")
+  messagePath         String?  @map("message_path")
+  watchlistPath       String?  @map("watchlist_path")
+  messagePreview      String?  @map("message_preview")
+  metrics             Json?
+  lastError           String?  @map("last_error")
+  sourceHost          String?  @map("source_host")
+  insertedAt          DateTime @default(now()) @map("inserted_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([completedAt(sort: Desc)])
+  @@map("mc_trading_runs")
+}
+
 model CortanaEpic {
   id          Int           @id @default(autoincrement())
   title       String

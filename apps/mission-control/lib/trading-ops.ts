@@ -4,6 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { formatOperatorTimestamp } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
+import {
+  prismaTradingRunStateStore,
+  type TradingRunStateRecord,
+  type TradingRunStateStore,
+} from "@/lib/trading-run-state";
 
 const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
@@ -95,6 +100,8 @@ export type OpsHighwayOverview = {
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
+  status: string;
+  deliveryStatus: string | null;
   decision: string;
   focusTicker: string | null;
   focusAction: string | null;
@@ -112,6 +119,8 @@ export type TradingRunOverview = {
   completedAt: string | null;
   notifiedAt: string | null;
   correctionMode: boolean | null;
+  lastError: string | null;
+  sourceType: "db" | "file_fallback" | "artifact";
 };
 
 type TradingRunSignal = {
@@ -145,6 +154,7 @@ type LoaderOptions = {
   backtesterRepoPath?: string;
   cortanaRepoPath?: string;
   runJsonCommand?: (scriptPath: string, args?: string[]) => Promise<unknown>;
+  tradingRunStateStore?: TradingRunStateStore | null;
 };
 
 export async function loadTradingOpsDashboardData(
@@ -154,7 +164,7 @@ export async function loadTradingOpsDashboardData(
   const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const runJsonCommand = options.runJsonCommand ?? ((scriptPath: string, args: string[] = ["--pretty"]) =>
     runBacktesterJsonScript(repoPath, scriptPath, args));
-  const tradingRun = await loadTradingRunOverview(cortanaRepoPath);
+  const tradingRun = await loadTradingRunOverview(cortanaRepoPath, options.tradingRunStateStore);
   const tradingRunSignal = asTradingRunSignal(tradingRun);
 
   const [
@@ -639,7 +649,73 @@ async function loadOpsHighwayOverview(
   }
 }
 
-async function loadTradingRunOverview(cortanaRepoPath: string): Promise<ArtifactState<TradingRunOverview>> {
+async function loadTradingRunOverview(
+  cortanaRepoPath: string,
+  tradingRunStateStore: TradingRunStateStore | null | undefined,
+): Promise<ArtifactState<TradingRunOverview>> {
+  const artifactOverview = await loadTradingRunArtifactOverview(cortanaRepoPath);
+  const store = tradingRunStateStore === undefined ? prismaTradingRunStateStore : tradingRunStateStore;
+
+  if (!store) {
+    return artifactOverview;
+  }
+
+  let dbWarnings: string[] = [];
+  let dbRecord: TradingRunStateRecord | null = null;
+  let dbError: string | null = null;
+
+  try {
+    dbWarnings = await store.syncFromArtifacts(cortanaRepoPath);
+    dbRecord = await store.loadLatest();
+  } catch (error) {
+    dbError = formatError(error);
+  }
+
+  const compareWarning = compareTradingRunState(dbRecord, artifactOverview.data);
+  if (dbRecord && !compareWarning) {
+    const dbOverview = tradingRunOverviewFromStateRecord(dbRecord, dbWarnings);
+    return artifactOverview.data
+      ? { ...dbOverview, warnings: compactStrings([...dbOverview.warnings, ...artifactOverview.warnings]) }
+      : dbOverview;
+  }
+
+  if (artifactOverview.data) {
+    const fallbackReason =
+      compareWarning
+        ? "DB-backed trading run state disagrees with the latest artifact."
+        : dbError
+          ? `DB-backed trading run state is unavailable: ${dbError}`
+          : "DB-backed trading run state is not populated yet.";
+    return {
+      ...artifactOverview,
+      state: "degraded",
+      badgeText: "fallback",
+      message: `${artifactOverview.message} Using file fallback because ${fallbackReason}`,
+      warnings: compactStrings([
+        ...artifactOverview.warnings,
+        ...dbWarnings,
+        compareWarning,
+        dbError ? `DB-backed trading run state unavailable: ${dbError}` : null,
+      ]),
+      data: {
+        ...artifactOverview.data,
+        sourceType: "file_fallback",
+      },
+    };
+  }
+
+  return {
+    ...artifactOverview,
+    warnings: compactStrings([
+      ...artifactOverview.warnings,
+      ...dbWarnings,
+      compareWarning,
+      dbError ? `DB-backed trading run state unavailable: ${dbError}` : null,
+    ]),
+  };
+}
+
+async function loadTradingRunArtifactOverview(cortanaRepoPath: string): Promise<ArtifactState<TradingRunOverview>> {
   const runsRoot = path.join(cortanaRepoPath, "var", "backtests", "runs");
   const latestRun = await findLatestRunDirectory(runsRoot);
 
@@ -654,35 +730,58 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
     };
   }
 
-  const [summary, watchlist, message] = await Promise.all([
+  const [summary, watchlist, message, stderr] = await Promise.all([
     readJsonFile<Record<string, unknown>>(path.join(latestRun.path, "summary.json")),
     readJsonFile<Record<string, unknown>>(path.join(latestRun.path, "watchlist-full.json")),
     readTextIfExists(path.join(latestRun.path, "message.txt")),
+    readTextIfExists(path.join(latestRun.path, "stderr.txt")),
   ]);
 
   const summaryData = summary.data;
-  const watchlistData = watchlist.data;
-  const completedAt =
-    stringValue(summaryData?.completedAt) ??
-    stringValue(summaryData?.completed_at) ??
-    stringValue(summaryData?.finalizedAt) ??
-    null;
-  const runLabel = formatRunLabel(completedAt, latestRun.runId);
-  const notifiedAt = stringValue(summaryData?.notifiedAt) ?? stringValue(summaryData?.notified_at) ?? null;
-  if (!summaryData || !watchlistData) {
+  if (!summaryData) {
     return {
       state: "degraded",
-      label: runLabel,
-      message: "Latest run is missing summary or watchlist artifacts.",
+      label: latestRun.runId,
+      message: "Latest run is missing summary.json.",
       data: null,
       source: latestRun.path,
-      updatedAt: completedAt,
-      warnings: compactStrings([summary.message, watchlist.message]),
+      warnings: compactStrings([summary.message]),
     };
   }
 
-  const focus = asRecord(watchlistData.focus);
-  const strategies = asRecord(watchlistData.strategies);
+  const watchlistData = watchlist.data;
+  const metrics = asRecord(summaryData.metrics);
+  const completedAt =
+    stringValue(summaryData.completedAt) ??
+    stringValue(summaryData.completed_at) ??
+    stringValue(summaryData.finalizedAt) ??
+    null;
+  const startedAt = stringValue(summaryData.startedAt) ?? stringValue(summaryData.started_at) ?? null;
+  const createdAt = stringValue(summaryData.createdAt) ?? stringValue(summaryData.created_at) ?? startedAt ?? completedAt;
+  const effectiveTimestamp = completedAt ?? startedAt ?? createdAt;
+  const runLabel = formatRunLabel(effectiveTimestamp, latestRun.runId);
+  const status = stringValue(summaryData.status) ?? (completedAt ? "success" : "unknown");
+  const notifiedAt = stringValue(summaryData.notifiedAt) ?? stringValue(summaryData.notified_at) ?? null;
+  const deliveryStatus =
+    notifiedAt
+      ? "notified"
+      : status === "failed" || status === "cancelled"
+        ? "failed"
+        : status === "success" || status === "running" || status === "queued"
+          ? "pending"
+          : null;
+  const lastError =
+    stringValue(summaryData.lastError) ??
+    stringValue(summaryData.last_error) ??
+    stringValue(summaryData.error) ??
+    stderr
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ??
+    null;
+
+  const focus = asRecord(watchlistData?.focus);
+  const strategies = asRecord(watchlistData?.strategies);
   const dipBuyer = asRecord(strategies?.dipBuyer);
   const canslim = asRecord(strategies?.canslim);
   const dipBuyerWatch = extractTickers(dipBuyer?.watch);
@@ -691,27 +790,42 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
   const canslimWatch = extractTickers(canslim?.watch);
   const canslimBuy = extractTickers(canslim?.buy);
   const canslimNoBuy = extractTickers(canslim?.noBuy);
+  const decision = stringValue(watchlistData?.decision) ?? stringValue(metrics?.decision) ?? "unknown";
+  const watchCount = numberValue(asRecord(watchlistData?.summary)?.watch) ?? numberValue(metrics?.watch) ?? 0;
+  const buyCount = numberValue(asRecord(watchlistData?.summary)?.buy) ?? numberValue(metrics?.buy) ?? 0;
+  const noBuyCount = numberValue(asRecord(watchlistData?.summary)?.noBuy) ?? numberValue(metrics?.noBuy) ?? 0;
 
   return {
-    state: "ok",
+    state: status === "failed" || status === "cancelled" || !watchlistData ? "degraded" : "ok",
     label: runLabel,
-    message: [
-      `Completed ${runLabel} with ${stringValue(watchlistData.decision) ?? "unknown"} and ${numberValue(asRecord(watchlistData.summary)?.watch) ?? 0} watch names.`,
-      notifiedAt ? `Delivered ${formatOperatorTimestamp(notifiedAt)}.` : "Notification pending.",
-    ].join(" "),
+    message: compactStrings([
+      status === "failed" || status === "cancelled"
+        ? `Run ${status} ${runLabel}.${lastError ? ` ${lastError}` : ""}`.trim()
+        : `Completed ${runLabel} with ${decision} and ${watchCount} watch names.`,
+      notifiedAt
+        ? `Delivered ${formatOperatorTimestamp(notifiedAt)}.`
+        : deliveryStatus === "pending"
+          ? "Notification pending."
+          : deliveryStatus === "failed"
+            ? "Notification unavailable because the run did not complete cleanly."
+            : null,
+      !watchlistData ? "watchlist-full.json is missing; counts fall back to summary metrics." : null,
+    ]).join(" "),
     source: latestRun.path,
-    updatedAt: completedAt,
-    warnings: [],
+    updatedAt: effectiveTimestamp,
+    warnings: compactStrings([summary.message, watchlist.message, lastError]),
     data: {
       runId: latestRun.runId,
       runLabel,
-      decision: stringValue(watchlistData.decision) ?? "unknown",
+      status,
+      deliveryStatus,
+      decision,
       focusTicker: stringValue(focus?.ticker),
       focusAction: stringValue(focus?.action),
       focusStrategy: stringValue(focus?.strategy),
-      watchCount: numberValue(asRecord(watchlistData.summary)?.watch) ?? 0,
-      buyCount: numberValue(asRecord(watchlistData.summary)?.buy) ?? 0,
-      noBuyCount: numberValue(asRecord(watchlistData.summary)?.noBuy) ?? 0,
+      watchCount,
+      buyCount,
+      noBuyCount,
       dipBuyerWatch,
       dipBuyerBuy,
       dipBuyerNoBuy,
@@ -721,9 +835,82 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
       messagePreview: message ? message.split(/\r?\n/).slice(0, 6).join("\n") : null,
       completedAt,
       notifiedAt,
-      correctionMode: booleanValue(asRecord(summaryData.metrics)?.correctionMode),
+      correctionMode: booleanValue(watchlistData?.correctionMode) ?? booleanValue(metrics?.correctionMode),
+      lastError,
+      sourceType: "artifact",
     },
   };
+}
+
+function tradingRunOverviewFromStateRecord(
+  record: TradingRunStateRecord,
+  warnings: string[],
+): ArtifactState<TradingRunOverview> {
+  const effectiveTimestamp = record.completedAt ?? record.startedAt ?? record.createdAt;
+  const runLabel = formatRunLabel(effectiveTimestamp, record.runId);
+  const state: LoadState = record.status === "failed" || record.status === "cancelled" ? "degraded" : "ok";
+
+  return {
+    state,
+    label: runLabel,
+    message:
+      record.status === "failed" || record.status === "cancelled"
+        ? `DB-backed latest run ${record.status} ${runLabel}.${record.lastError ? ` ${record.lastError}` : ""}`.trim()
+        : compactStrings([
+            `DB-backed latest run ${runLabel} finished ${record.decision ?? "unknown"}.`,
+            record.notifiedAt
+              ? `Delivered ${formatOperatorTimestamp(record.notifiedAt)}.`
+              : record.deliveryStatus === "pending"
+                ? "Notification pending."
+                : null,
+          ]).join(" "),
+    source: "Mission Control Postgres · mc_trading_runs",
+    updatedAt: effectiveTimestamp,
+    warnings,
+    data: {
+      runId: record.runId,
+      runLabel,
+      status: record.status,
+      deliveryStatus: record.deliveryStatus,
+      decision: record.decision ?? "unknown",
+      focusTicker: record.focusTicker,
+      focusAction: record.focusAction,
+      focusStrategy: record.focusStrategy,
+      watchCount: record.watchCount ?? 0,
+      buyCount: record.buyCount ?? 0,
+      noBuyCount: record.noBuyCount ?? 0,
+      dipBuyerWatch: record.dipBuyerWatch,
+      dipBuyerBuy: record.dipBuyerBuy,
+      dipBuyerNoBuy: record.dipBuyerNoBuy,
+      canslimWatch: record.canslimWatch,
+      canslimBuy: record.canslimBuy,
+      canslimNoBuy: record.canslimNoBuy,
+      messagePreview: record.messagePreview,
+      completedAt: record.completedAt,
+      notifiedAt: record.notifiedAt,
+      correctionMode: record.correctionMode,
+      lastError: record.lastError,
+      sourceType: "db",
+    },
+  };
+}
+
+function compareTradingRunState(
+  dbRecord: TradingRunStateRecord | null,
+  artifactData: TradingRunOverview | null,
+): string | null {
+  if (!dbRecord || !artifactData) return null;
+  if (dbRecord.runId !== artifactData.runId) return `DB latest run ${dbRecord.runId} does not match file latest run ${artifactData.runId}.`;
+  if (dbRecord.status !== artifactData.status) return `DB status ${dbRecord.status} does not match file status ${artifactData.status} for ${artifactData.runId}.`;
+  if ((dbRecord.decision ?? "unknown") !== artifactData.decision) {
+    return `DB decision ${(dbRecord.decision ?? "unknown")} does not match file decision ${artifactData.decision} for ${artifactData.runId}.`;
+  }
+  if ((dbRecord.buyCount ?? 0) !== artifactData.buyCount || (dbRecord.watchCount ?? 0) !== artifactData.watchCount || (dbRecord.noBuyCount ?? 0) !== artifactData.noBuyCount) {
+    return `DB counts do not match file counts for ${artifactData.runId}.`;
+  }
+  if ((dbRecord.completedAt ?? null) !== artifactData.completedAt) return `DB completedAt does not match file completedAt for ${artifactData.runId}.`;
+  if ((dbRecord.notifiedAt ?? null) !== artifactData.notifiedAt) return `DB notifiedAt does not match file notifiedAt for ${artifactData.runId}.`;
+  return null;
 }
 
 async function runBacktesterJsonScript(
@@ -866,6 +1053,7 @@ function positionSizingPctFromTradingDecision(decision: string | null | undefine
 function normalizePreOpenGateStatus(status: string | null): string | null {
   if (!status) return null;
   if (status === "not_available") return "Canary not available";
+  if (status === "unknown" || status === "not_reported") return "Not reported";
   if (status === "warn") return "Warn";
   if (status === "fail") return "Fail";
   if (status === "pass") return "Pass";

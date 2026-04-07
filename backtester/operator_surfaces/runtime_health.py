@@ -43,10 +43,14 @@ def build_runtime_health_snapshot(
         "ops_error": ops_error,
         "ops_payload": ops_payload,
     }
+    canary_result = str((readiness or {}).get("result") or "not_available")
+    if canary_result == "unknown":
+        canary_result = "not_reported"
+
     cron_health = {
         "status": "ok" if readiness else "degraded",
         "pre_open_canary_present": bool(readiness),
-        "pre_open_canary_result": str((readiness or {}).get("result") or "not_available"),
+        "pre_open_canary_result": canary_result,
         "pre_open_canary_checked_at": (readiness or {}).get("checked_at"),
     }
     watchdog_health = {
@@ -109,7 +113,7 @@ def build_runtime_health_snapshot(
     if operator_action:
         service_health["operator_action"] = operator_action
 
-    pre_open_gate_status = str((readiness or {}).get("result") or "not_available")
+    pre_open_gate_status = canary_result
     pre_open_gate_detail = (
         None
         if readiness
