@@ -62,42 +62,50 @@ const QUERY = `
 `;
 
 export async function GET() {
-  const taskPrisma = getTaskPrisma();
-  const client = taskPrisma ?? prisma;
-
-  const fetchRows = async (db: typeof prisma) =>
-    db.$queryRawUnsafe<AgentStatusRow[]>(QUERY);
-
-  let rows: AgentStatusRow[] = [];
-  let source: "cortana" | "app" = taskPrisma ? "cortana" : "app";
-
   try {
-    rows = await fetchRows(client);
-  } catch (error) {
-    if (!taskPrisma) throw error;
-    source = "app";
-    rows = await fetchRows(prisma);
-  }
+    const taskPrisma = getTaskPrisma();
+    const client = taskPrisma ?? prisma;
 
-  const byName = new Map(rows.map((row) => [row.name, row]));
-  const agents = COVENANT_AGENTS.map(({ name, role }) => {
-    const row = byName.get(name);
-    const lastActive = row?.last_active ?? null;
+    const fetchRows = async (db: typeof prisma) =>
+      db.$queryRawUnsafe<AgentStatusRow[]>(QUERY);
 
-    return {
-      name,
-      role,
-      lastActive: lastActive ? lastActive.toISOString() : null,
-      relativeTime: toRelativeTime(lastActive),
-    };
-  });
+    let rows: AgentStatusRow[] = [];
+    let source: "cortana" | "app" = taskPrisma ? "cortana" : "app";
 
-  return NextResponse.json(
-    { source, agents },
-    {
-      headers: {
-        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      },
+    try {
+      rows = await fetchRows(client);
+    } catch (error) {
+      if (!taskPrisma) throw error;
+      source = "app";
+      rows = await fetchRows(prisma);
     }
-  );
+
+    const byName = new Map(rows.map((row) => [row.name, row]));
+    const agents = COVENANT_AGENTS.map(({ name, role }) => {
+      const row = byName.get(name);
+      const lastActive = row?.last_active ?? null;
+
+      return {
+        name,
+        role,
+        lastActive: lastActive ? lastActive.toISOString() : null,
+        relativeTime: toRelativeTime(lastActive),
+      };
+    });
+
+    return NextResponse.json(
+      { source, agents },
+      {
+        headers: {
+          "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
 }

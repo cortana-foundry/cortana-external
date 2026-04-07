@@ -30,7 +30,28 @@ export default async function DecisionsPage({
     limit: parseNum(params.limit) ?? 120,
   };
 
-  const data = await getDecisionTraces(filters);
+  let data: Awaited<ReturnType<typeof getDecisionTraces>> | null = null;
+  let fetchError: string | null = null;
+  try {
+    data = await getDecisionTraces(filters);
+  } catch (err) {
+    console.error("Failed to load decision traces", err);
+    fetchError = "Could not load decision traces. The database may be unreachable.";
+  }
+
+  if (!data) {
+    return (
+      <Card className="border-destructive/40 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-lg">Decision Traces unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{fetchError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value) search.set(key, value);
