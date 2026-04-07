@@ -119,6 +119,10 @@ const asNullableObject = (value: unknown): Record<string, unknown> | null => {
 
 const escapeLiteral = (value: string) => value.replaceAll("'", "''");
 const asJsonbLiteral = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
+const clampApprovalRangeHours = (rangeHours?: number) =>
+  Math.max(1, Math.min(rangeHours ?? 24 * 90, 24 * 90));
+const approvalStatusSql = (alias = "r") =>
+  `CASE WHEN ${alias}.status = 'pending' AND ${alias}.expires_at IS NOT NULL AND ${alias}.expires_at < NOW() THEN 'expired' ELSE ${alias}.status END`;
 
 const mapApproval = (row: ApprovalRow): ApprovalRequest => ({
   id: row.id,
@@ -166,14 +170,15 @@ export async function getApprovals(filters: ApprovalFilters = {}): Promise<Appro
   const preferred = taskPrisma ?? prisma;
 
   const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
-  const rangeHours = Math.max(1, Math.min(filters.rangeHours ?? 168, 24 * 30));
+  const rangeHours = clampApprovalRangeHours(filters.rangeHours);
+  const statusSql = approvalStatusSql("r");
 
   const conditions: string[] = [
     `r.created_at >= NOW() - INTERVAL '${rangeHours} hours'`,
   ];
 
   if (filters.status && filters.status !== "all") {
-    conditions.push(`r.status = '${escapeLiteral(filters.status)}'`);
+    conditions.push(`${statusSql} = '${escapeLiteral(filters.status)}'`);
   }
 
   if (filters.risk_level) {
@@ -199,7 +204,7 @@ export async function getApprovals(filters: ApprovalFilters = {}): Promise<Appro
       r.blast_radius,
       r.auto_approvable,
       r.policy_version,
-      r.status,
+      ${statusSql} AS status,
       r.decision,
       r.approved_by,
       r.approved_at,
@@ -239,6 +244,7 @@ export async function getApprovalById(id: string): Promise<ApprovalRequest | nul
   const safeId = escapeLiteral(id);
   const taskPrisma = getTaskPrisma();
   const preferred = taskPrisma ?? prisma;
+  const statusSql = approvalStatusSql("r");
 
   const approvalQuery = `
     SELECT
@@ -257,7 +263,7 @@ export async function getApprovalById(id: string): Promise<ApprovalRequest | nul
       r.blast_radius,
       r.auto_approvable,
       r.policy_version,
-      r.status,
+      ${statusSql} AS status,
       r.decision,
       r.approved_by,
       r.approved_at,
@@ -322,15 +328,26 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
 
   const autoApprovable = input.riskLevel === "p3";
   const expiresHours = input.riskLevel === "p0" || input.riskLevel === "p1" ? 24 : 72;
+  const initialStatus = autoApprovable ? "approved" : "pending";
+  const initialDecision = autoApprovable
+    ? asJsonbLiteral({
+        reason: "Auto-approved by low-risk policy",
+        source: "mission-control-policy",
+        risk_level: input.riskLevel,
+      })
+    : "NULL";
+  const approvedBy = autoApprovable ? "'policy:auto-approve'" : "NULL";
+  const approvedAt = autoApprovable ? "NOW()" : "NULL";
+  const expiresAt = autoApprovable ? "NULL" : `NOW() + INTERVAL '${expiresHours} hours'`;
 
   const insertSql = `
     INSERT INTO mc_approval_requests (
       run_id, task_id, agent_id, action_type, proposal, rationale, risk_level,
-      blast_radius, auto_approvable, status, created_at, expires_at, resume_payload
+      blast_radius, auto_approvable, status, decision, approved_by, approved_at, created_at, expires_at, resume_payload
     )
     VALUES (
       ${safeRunId}, ${safeTaskId}, '${safeAgentId}', '${safeActionType}', ${proposalJson}, ${safeRationale}, '${safeRiskLevel}',
-      ${safeBlastRadius}, ${autoApprovable}, 'pending', NOW(), NOW() + INTERVAL '${expiresHours} hours', ${resumePayloadJson}
+      ${safeBlastRadius}, ${autoApprovable}, '${initialStatus}', ${initialDecision}, ${approvedBy}, ${approvedAt}, NOW(), ${expiresAt}, ${resumePayloadJson}
     )
     RETURNING id
   `;
@@ -345,6 +362,14 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
       VALUES ('${escapeLiteral(createdId)}', 'created', '${safeAgentId}', ${proposalJson})
     `;
     await client.$executeRawUnsafe(eventSql);
+
+    if (autoApprovable) {
+      const autoApprovedEventSql = `
+        INSERT INTO mc_approval_events (approval_id, event_type, actor, payload)
+        VALUES ('${escapeLiteral(createdId)}', 'auto_approved', 'policy:auto-approve', ${initialDecision})
+      `;
+      await client.$executeRawUnsafe(autoApprovedEventSql);
+    }
 
     return getApprovalById(createdId);
   };
@@ -376,7 +401,6 @@ export async function updateApprovalStatus(
       decision = COALESCE(${decisionJson}, decision),
       approved_by = CASE WHEN '${status}' IN ('approved','approved_edited') THEN COALESCE(${safeActor}, approved_by) ELSE approved_by END,
       approved_at = CASE WHEN '${status}' IN ('approved','approved_edited') THEN NOW() ELSE approved_at END,
-      resumed_at = CASE WHEN '${status}' IN ('approved','approved_edited') THEN NOW() ELSE resumed_at END,
       rejected_by = CASE WHEN '${status}' = 'rejected' THEN COALESCE(${safeActor}, rejected_by) ELSE rejected_by END,
       rejected_at = CASE WHEN '${status}' = 'rejected' THEN NOW() ELSE rejected_at END
     WHERE id = '${safeId}'
@@ -415,7 +439,7 @@ export async function resumeApproval(
 
   const updateSql = `
     UPDATE mc_approval_requests
-    SET resumed_at = NOW()
+    SET resumed_at = COALESCE(resumed_at, NOW())
     WHERE id = '${safeId}'
   `;
 

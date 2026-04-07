@@ -24,7 +24,7 @@ const getMissionControlBaseUrl = (): string =>
 const getApprovalMessageText = (input: ApprovalTelegramNotificationInput): string => {
   const risk = input.riskLevel.toUpperCase();
   const rationale = input.rationale?.trim() ? input.rationale.trim() : "No rationale provided.";
-  const approvalsUrl = `${getMissionControlBaseUrl().replace(/\/$/, "")}/approvals`;
+  const approvalsUrl = `${getMissionControlBaseUrl().replace(/\/$/, "")}/approvals?id=${encodeURIComponent(input.approvalId)}`;
 
   return [
     `🔐 <b>Approval Required</b> [${escapeHtml(risk)}]`,
@@ -56,14 +56,6 @@ export async function sendApprovalTelegramNotification(input: ApprovalTelegramNo
       text: getApprovalMessageText(input),
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Approve", callback_data: `approve:${input.approvalId}` },
-            { text: "❌ Reject", callback_data: `reject:${input.approvalId}` },
-          ],
-        ],
-      },
     }),
   });
 

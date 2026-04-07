@@ -527,7 +527,6 @@ function SessionsTab({
   usage: UsageData | null;
 }) {
   const totalTokens = sessions.reduce((s, x) => s + (x.totalTokens ?? 0), 0);
-  const totalCost = sessions.reduce((s, x) => s + (x.estimatedCost ?? 0), 0);
 
   return (
     <div className="space-y-4">

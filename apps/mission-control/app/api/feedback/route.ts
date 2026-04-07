@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     severity: (searchParams.get("severity") as FeedbackFilters["severity"]) ?? "all",
     category: searchParams.get("category") || undefined,
     source: (searchParams.get("source") as FeedbackFilters["source"]) ?? "all",
-    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 14,
+    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 90,
     limit: parseNumber(searchParams.get("limit")) ?? 120,
   };
 

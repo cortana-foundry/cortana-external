@@ -70,6 +70,8 @@ const normalizeObject = (value: unknown): Record<string, unknown> => {
 };
 
 const escapeLiteral = (value: string) => value.replaceAll("'", "''");
+const clampDecisionRangeHours = (rangeHours?: number) =>
+  Math.max(1, Math.min(rangeHours ?? 24 * 30, 24 * 90));
 
 const normalizeOutcome = (value?: string) => {
   const normalized = (value || "").toLowerCase();
@@ -95,7 +97,7 @@ export async function getDecisionTraces(filters: DecisionFilters = {}): Promise<
   const preferred = taskPrisma ?? prisma;
 
   const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
-  const rangeHours = Math.max(1, Math.min(filters.rangeHours ?? 48, 24 * 30));
+  const rangeHours = clampDecisionRangeHours(filters.rangeHours);
 
   const conditions: string[] = [
     `t.created_at >= NOW() - INTERVAL '${rangeHours} hours'`,
@@ -161,14 +163,16 @@ export async function getDecisionTraces(filters: DecisionFilters = {}): Promise<
 
   let rows: DecisionRow[] = [];
   let source: "cortana" | "app" = taskPrisma ? "cortana" : "app";
-  let warning: string | undefined;
+  let warning: string | undefined = taskPrisma
+    ? undefined
+    : "CORTANA_DATABASE_URL is not configured; showing decision traces from the Mission Control fallback database.";
 
   try {
     rows = await runQuery(preferred);
   } catch (error) {
     if (!taskPrisma) throw error;
     source = "app";
-    warning = "Decision traces unavailable in cortana DB; fell back to app DB.";
+    warning = "Decision traces unavailable in the Cortana database; fell back to the Mission Control database.";
     rows = await runQuery(prisma);
   }
 

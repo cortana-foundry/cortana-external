@@ -22,7 +22,13 @@ const outcomeVariant = (value: string) => {
   return "outline" as const;
 };
 
-export function DecisionTimeline({ traces }: { traces: DecisionTrace[] }) {
+export function DecisionTimeline({
+  traces,
+  emptyMessage = "No traces match current filters.",
+}: {
+  traces: DecisionTrace[];
+  emptyMessage?: string;
+}) {
   if (traces.length === 0) {
     return (
       <Card>
@@ -30,7 +36,7 @@ export function DecisionTimeline({ traces }: { traces: DecisionTrace[] }) {
           <CardTitle className="text-base">Decision timeline</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No traces match current filters.</p>
+          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </CardContent>
       </Card>
     );

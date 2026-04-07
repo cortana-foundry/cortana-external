@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/status-badge";
-import { FeedbackItem, RemediationStatus } from "@/lib/feedback";
+import { FeedbackItem, FeedbackWorkflowStatus, RemediationStatus } from "@/lib/feedback";
 
 const toRelativeTime = (iso: string | null) => {
   if (!iso) return "never";
@@ -44,18 +44,43 @@ const remediationVariant = (status: RemediationStatus) => {
 };
 
 const remediationLabel = (status: RemediationStatus) => status.replaceAll("_", " ");
+const workflowLabel = (status: FeedbackWorkflowStatus) =>
+  status.replaceAll("_", " ");
+const workflowToRemediation: Record<FeedbackWorkflowStatus, RemediationStatus> = {
+  new: "open",
+  triaged: "open",
+  in_progress: "in_progress",
+  verified: "resolved",
+  wont_fix: "wont_fix",
+};
 
-export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
+export function FeedbackCard({
+  feedback,
+  highlighted = false,
+  initiallyExpanded = false,
+}: {
+  feedback: FeedbackItem;
+  highlighted?: boolean;
+  initiallyExpanded?: boolean;
+}) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [actionType, setActionType] = useState("patch");
   const [actionRef, setActionRef] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<"planned" | "applied" | "verified" | "failed">("planned");
   const [submitting, setSubmitting] = useState(false);
   const [actions, setActions] = useState(feedback.actions || []);
+  const [workflowStatus, setWorkflowStatus] = useState<FeedbackWorkflowStatus>(feedback.status);
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>(feedback.remediationStatus);
   const [remediationNotes, setRemediationNotes] = useState(feedback.remediationNotes ?? "");
+
+  useEffect(() => {
+    if (!highlighted) return;
+    setExpanded(true);
+    cardRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [highlighted]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -67,6 +92,7 @@ export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
       const payload = (await response.json()) as FeedbackItem;
       if (!alive) return;
       setActions(payload.actions || []);
+      setWorkflowStatus(payload.status);
       setRemediationStatus(payload.remediationStatus);
       setRemediationNotes(payload.remediationNotes ?? "");
     };
@@ -95,16 +121,45 @@ export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
     }
   };
 
-  const setRemediation = async (nextStatus: RemediationStatus) => {
+  const setWorkflowStage = async (nextStatus: FeedbackWorkflowStatus) => {
+    const nextRemediation = workflowToRemediation[nextStatus];
     try {
       setSubmitting(true);
       const response = await fetch(`/api/feedback/${feedback.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ remediationStatus: nextStatus, remediationNotes, resolvedBy: "mission-control" }),
+        body: JSON.stringify({
+          status: nextStatus,
+          owner: "mission-control-ui",
+          remediationStatus: nextRemediation,
+          remediationNotes,
+          resolvedBy: nextRemediation === "resolved" ? "mission-control-ui" : null,
+        }),
       });
       if (!response.ok) return;
-      setRemediationStatus(nextStatus);
+      setWorkflowStatus(nextStatus);
+      setRemediationStatus(nextRemediation);
+      router.refresh();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const saveRemediationNotes = async () => {
+    try {
+      setSubmitting(true);
+      const response = await fetch(`/api/feedback/${feedback.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          status: workflowStatus,
+          owner: "mission-control-ui",
+          remediationStatus,
+          remediationNotes,
+          resolvedBy: remediationStatus === "resolved" ? "mission-control-ui" : null,
+        }),
+      });
+      if (!response.ok) return;
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -112,14 +167,18 @@ export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      ref={cardRef}
+      className={`overflow-hidden ${highlighted ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
+    >
       <CardHeader className="cursor-pointer pb-2" onClick={() => setExpanded((prev) => !prev)}>
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Badge variant={severityVariant(feedback.severity)}>{feedback.severity.toUpperCase()}</Badge>
           <Badge variant="outline">{feedback.category}</Badge>
           <Badge variant="secondary">{feedback.source}</Badge>
-          <Badge variant="outline">{feedback.status}</Badge>
+          <Badge variant="outline">{workflowLabel(workflowStatus)}</Badge>
           <Badge variant={remediationVariant(remediationStatus)}>{remediationLabel(remediationStatus)}</Badge>
+          {highlighted ? <Badge variant="info">focused</Badge> : null}
         </CardTitle>
         <p className="text-sm text-foreground">{feedback.summary}</p>
         {feedback.linkedTaskId && feedback.linkedTaskStatus && (
@@ -140,6 +199,24 @@ export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
       {expanded && (
         <CardContent className="space-y-4">
           <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workflow stage</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(["new", "triaged", "in_progress", "verified", "wont_fix"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setWorkflowStage(option)}
+                >
+                  <Badge variant={workflowStatus === option ? "secondary" : "outline"}>
+                    {workflowLabel(option)}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remediation Notes</p>
             <Textarea
               value={remediationNotes}
@@ -147,10 +224,10 @@ export function FeedbackCard({ feedback }: { feedback: FeedbackItem }) {
               placeholder="Document context, fix details, and follow-up steps"
               className="mt-2"
             />
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button disabled={submitting} size="sm" variant="secondary" onClick={() => setRemediation("in_progress")}>In Progress</Button>
-              <Button disabled={submitting} size="sm" onClick={() => setRemediation("resolved")}>Resolve</Button>
-              <Button disabled={submitting} size="sm" variant="secondary" onClick={() => setRemediation("wont_fix")}>Won&apos;t Fix</Button>
+            <div className="mt-2 flex justify-end">
+              <Button disabled={submitting} variant="outline" onClick={saveRemediationNotes}>
+                Save notes
+              </Button>
             </div>
           </div>
 

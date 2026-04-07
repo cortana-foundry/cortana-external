@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Loader2, Sparkles, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/status-badge";
 import { TaskBoardTask } from "@/lib/data";
 import { cn } from "@/lib/utils";
 

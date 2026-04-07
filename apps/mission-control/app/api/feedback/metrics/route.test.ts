@@ -20,7 +20,9 @@ describe("GET /api/feedback/metrics", () => {
       dailyCorrections: [{ day: "2026-02-26", count: 3 }],
     });
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://localhost/api/feedback/metrics?severity=high&source=user&rangeHours=72"),
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -30,6 +32,14 @@ describe("GET /api/feedback/metrics", () => {
       byRemediationStatus: { open: 2, resolved: 1 },
       byCategory: { ux: 2, reliability: 1 },
       dailyCorrections: [{ day: "2026-02-26", count: 3 }],
+    });
+    expect(getFeedbackMetrics).toHaveBeenCalledWith({
+      status: "all",
+      remediationStatus: "all",
+      severity: "high",
+      category: undefined,
+      source: "user",
+      rangeHours: 72,
     });
   });
 });
