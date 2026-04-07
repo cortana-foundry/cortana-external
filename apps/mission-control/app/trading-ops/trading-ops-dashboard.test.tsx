@@ -218,7 +218,7 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("1 open / 2 closed");
   });
 
-  it("renders runtime canary-missing language and stale badge text", () => {
+  it("renders runtime readiness-check missing language and stale badge text", () => {
     const staleFixture: TradingOpsDashboardData = {
       ...fixture,
       market: {
@@ -238,8 +238,8 @@ describe("TradingOpsDashboard", () => {
         data: fixture.runtime.data
           ? {
               ...fixture.runtime.data,
-              preOpenGateStatus: "Canary not available",
-              preOpenGateDetail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+              preOpenGateStatus: "Readiness check unavailable",
+              preOpenGateDetail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
               incidents: [],
               operatorState: "healthy",
               operatorAction: "No operator action required.",
@@ -264,8 +264,9 @@ describe("TradingOpsDashboard", () => {
 
     const { container } = render(<TradingOpsDashboard data={staleFixture} />);
     expect(container).toHaveTextContent("stale");
-    expect(container).toHaveTextContent("Canary not available");
-    expect(container).toHaveTextContent("Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.");
+    expect(container).toHaveTextContent("Readiness check unavailable");
+    expect(container).toHaveTextContent("Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.");
+    expect(container).toHaveTextContent("Pre-open readiness check");
     expect(container).toHaveTextContent("File artifact fallback");
   });
 });

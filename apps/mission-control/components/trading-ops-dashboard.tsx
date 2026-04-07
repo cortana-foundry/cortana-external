@@ -253,7 +253,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         {/* ── System Health ── */}
         <TabsContent value="health" className="space-y-3">
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <ArtifactPanel title="Pre-open canary" artifact={data.canary}>
+            <ArtifactPanel title="Pre-open readiness check" artifact={data.canary}>
               {data.canary.data ? (
                 <div className="space-y-2 text-sm">
                   <dl className="grid grid-cols-2 gap-2">

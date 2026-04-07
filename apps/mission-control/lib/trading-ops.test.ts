@@ -245,6 +245,7 @@ describe("trading ops loader", () => {
     expect(data.market.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
     expect(data.market.data?.alertSummary).toBe("Latest trading run Apr 7, 10:53 AM: BUY 0 · WATCH 0 · NO_BUY 96");
     expect(data.market.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this market brief.");
+    expect(data.market.source).toContain("canslim-alert.json");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.isStale).toBe(true);
     expect(data.workflow.badgeText).toBe("stale");
@@ -253,7 +254,7 @@ describe("trading ops loader", () => {
     expect(data.workflow.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this workflow artifact.");
   });
 
-  it("renders missing pre-open canary state as not available instead of unknown", async () => {
+  it("renders missing pre-open readiness-check state as not available instead of unknown", async () => {
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-"));
     tempDirs.push(repoPath);
 
@@ -265,7 +266,7 @@ describe("trading ops loader", () => {
           return {
             generated_at: "2026-04-07T16:08:10.071538+00:00",
             pre_open_gate_status: "not_available",
-            pre_open_gate_detail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+            pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
             service_health: {
               operator_state: "healthy",
               operator_action: "No operator action required.",
@@ -279,8 +280,45 @@ describe("trading ops loader", () => {
     });
 
     expect(data.runtime.state).toBe("ok");
-    expect(data.runtime.data?.preOpenGateStatus).toBe("Canary not available");
-    expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open canary artifact is missing");
+    expect(data.runtime.data?.preOpenGateStatus).toBe("Readiness check unavailable");
+    expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open readiness check artifact is missing");
+  });
+
+  it("renders provider cooldown timestamps in ET instead of raw ISO", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-human-"));
+    tempDirs.push(repoPath);
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      tradingRunStateStore: null,
+      runJsonCommand: async (scriptPath: string) => {
+        if (scriptPath.endsWith("runtime_health_snapshot.py")) {
+          return {
+            generated_at: "2026-04-07T17:32:10.071538+00:00",
+            pre_open_gate_status: "not_available",
+            pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            service_health: {
+              operator_state: "provider_cooldown",
+              operator_action: "Schwab REST is cooling down after repeated failures. Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+            },
+            incident_markers: [
+              {
+                incident_type: "provider_cooldown",
+                severity: "medium",
+                operator_action: "Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+              },
+            ],
+          };
+        }
+        throw new Error("script unavailable");
+      },
+    });
+
+    expect(data.runtime.message).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.message).not.toContain("2026-04-07T17:35:29.777Z");
+    expect(data.runtime.data?.operatorAction).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.data?.incidents[0]?.operatorAction).toContain("Apr 7, 1:35 PM ET");
   });
 
   it("prefers DB-backed latest trading run state when the store matches the latest artifact", async () => {

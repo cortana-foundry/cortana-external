@@ -117,7 +117,7 @@ def build_runtime_health_snapshot(
     pre_open_gate_detail = (
         None
         if readiness
-        else f"Pre-open canary artifact is missing at {readiness_path}."
+        else f"Pre-open readiness check artifact is missing at {readiness_path}."
     )
 
     overall_status = "ok" if not incident_markers and readiness else "degraded"

@@ -271,7 +271,7 @@ async function loadMarketOverview(
     state: staleAgainstTradingRun || status === "degraded" ? "degraded" : "ok",
     label: regimeLabel.toUpperCase(),
     message,
-    source: staleAgainstTradingRun ? tradingRunSignal?.source ?? latestAlert?.path ?? regimePath : latestAlert?.path ?? regimePath,
+    source: latestAlert?.path ?? regimePath,
     updatedAt,
     badgeText: staleAgainstTradingRun ? "stale" : undefined,
     warnings: compactStrings([
@@ -334,23 +334,24 @@ async function loadRuntimeOverview(
       .map((entry) => ({
         incidentType: stringValue(entry.incident_type) ?? "unknown",
         severity: stringValue(entry.severity) ?? "unknown",
-        operatorAction: stringValue(entry.operator_action) ?? "No operator action provided.",
+        operatorAction: humanizeOperatorText(stringValue(entry.operator_action) ?? "No operator action provided."),
       }));
     const operatorState = stringValue(service?.operator_state) ?? "unknown";
     const state: LoadState = operatorState === "healthy" ? "ok" : "degraded";
     const preOpenGateStatus = normalizePreOpenGateStatus(stringValue(data?.pre_open_gate_status));
-    const preOpenGateDetail = stringValue(data?.pre_open_gate_detail);
+    const preOpenGateDetail = humanizeOperatorText(stringValue(data?.pre_open_gate_detail));
+    const operatorAction = humanizeOperatorText(stringValue(service?.operator_action) ?? "No operator action required.");
 
     return {
       state,
       label: operatorState,
       message:
-        stringValue(service?.operator_action) ??
+        operatorAction ??
         preOpenGateDetail ??
         "No operator action required.",
       data: {
         operatorState,
-        operatorAction: stringValue(service?.operator_action) ?? "No operator action required.",
+        operatorAction,
         preOpenGateStatus,
         preOpenGateDetail,
         incidents,
@@ -378,8 +379,8 @@ async function loadCanaryOverview(repoPath: string): Promise<ArtifactState<Canar
   if (!canary?.data) {
     return {
       state: canary?.error === "missing" ? "missing" : "error",
-      label: "Canary unavailable",
-      message: canary?.message ?? "Pre-open canary artifact is missing.",
+      label: "Readiness check unavailable",
+      message: canary?.message ?? "Pre-open readiness check artifact is missing.",
       data: null,
       source: canaryPath,
       warnings: [],
@@ -399,7 +400,7 @@ async function loadCanaryOverview(repoPath: string): Promise<ArtifactState<Canar
   return {
     state: status === "ok" ? "ok" : "degraded",
     label: stringValue(data.result) ?? status,
-    message: checks.length > 0 ? `${checks.filter((check) => check.result !== "ok").length} checks need attention.` : "No canary checks recorded.",
+    message: checks.length > 0 ? `${checks.filter((check) => check.result !== "ok").length} checks need attention.` : "No readiness checks recorded.",
     data: {
       readyForOpen: booleanValue(data.ready_for_open),
       result: stringValue(data.result),
@@ -1052,13 +1053,21 @@ function positionSizingPctFromTradingDecision(decision: string | null | undefine
 
 function normalizePreOpenGateStatus(status: string | null): string | null {
   if (!status) return null;
-  if (status === "not_available") return "Canary not available";
+  if (status === "not_available") return "Readiness check unavailable";
   if (status === "unknown" || status === "not_reported") return "Not reported";
   if (status === "warn") return "Warn";
   if (status === "fail") return "Fail";
   if (status === "pass") return "Pass";
   if (status === "ok") return "OK";
   return status.replaceAll("_", " ");
+}
+
+function humanizeOperatorText(value: string | null): string | null {
+  if (!value) return value;
+  return value.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, (timestamp) => {
+    const formatted = formatOperatorTimestamp(timestamp);
+    return formatted === "—" ? timestamp : `${formatted} ET`;
+  });
 }
 
 function extractTickers(value: unknown): string[] {
