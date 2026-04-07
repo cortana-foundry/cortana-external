@@ -17,7 +17,8 @@ type TradingOpsDashboardProps = {
 
 export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
-  const hasErrors = [data.market, data.runtime, data.workflow, data.canary].some((a) => a.state === "error");
+  const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].some((a) => a.state === "error");
+  const hasTradingRunFallback = data.tradingRun.badgeText === "fallback";
 
   return (
     <div className="space-y-3">
@@ -25,7 +26,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       <TerminalHeader data={data} />
 
       {/* ── Zone B: Alert Banner (conditional) ── */}
-      {(hasIncidents || hasErrors) && <AlertBanner data={data} />}
+      {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
       {/* ── Zone C: Four Summary Cells ── */}
       <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -111,10 +112,17 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 <div className="space-y-2 text-sm">
                   <dl className="grid grid-cols-2 gap-2">
                     <Metric label="Completed" value={data.tradingRun.data.runLabel} />
+                    <Metric label="Status" value={data.tradingRun.data.status} />
                     <Metric label="Decision" value={data.tradingRun.data.decision} />
                     <Metric
                       label="Delivered"
-                      value={data.tradingRun.data.notifiedAt ? formatOperatorTimestamp(data.tradingRun.data.notifiedAt) : "Pending notification"}
+                      value={
+                        data.tradingRun.data.notifiedAt
+                          ? formatOperatorTimestamp(data.tradingRun.data.notifiedAt)
+                          : data.tradingRun.data.deliveryStatus === "failed"
+                            ? "Failed"
+                            : "Pending notification"
+                      }
                     />
                     <Metric
                       label="Counts"
@@ -122,11 +130,18 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                     />
                   </dl>
                   <p className="text-xs text-muted-foreground">
+                    {data.tradingRun.data.sourceType === "db" ? "DB-backed current-state record" : data.tradingRun.data.sourceType === "file_fallback" ? "File artifact fallback" : "Direct artifact read"}
+                    {" · "}
                     Internal id {data.tradingRun.data.runId}
                     {data.tradingRun.data.focusTicker
                       ? ` · Focus ${data.tradingRun.data.focusTicker} · ${data.tradingRun.data.focusAction ?? "n/a"}`
                       : ""}
                   </p>
+                  {data.tradingRun.data.lastError ? (
+                    <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                      {data.tradingRun.data.lastError}
+                    </p>
+                  ) : null}
                   <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
                     Open the <span className="font-medium">Watchlists</span> tab to see the full latest run names.
                     Dip Buyer currently has <span className="font-medium">{data.tradingRun.data.dipBuyerWatch.length}</span> watch names.
@@ -239,7 +254,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         {/* ── System Health ── */}
         <TabsContent value="health" className="space-y-3">
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <ArtifactPanel title="Pre-open canary" artifact={data.canary}>
+            <ArtifactPanel title="Pre-open readiness check" artifact={data.canary}>
               {data.canary.data ? (
                 <div className="space-y-2 text-sm">
                   <dl className="grid grid-cols-2 gap-2">

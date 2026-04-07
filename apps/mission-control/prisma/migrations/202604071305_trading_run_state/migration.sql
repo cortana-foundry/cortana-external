@@ -1,0 +1,46 @@
+CREATE TABLE "mc_trading_runs" (
+    "id" TEXT NOT NULL,
+    "run_id" TEXT NOT NULL,
+    "schema_version" INTEGER NOT NULL DEFAULT 1,
+    "strategy" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL,
+    "started_at" TIMESTAMP(3),
+    "completed_at" TIMESTAMP(3),
+    "notified_at" TIMESTAMP(3),
+    "delivery_status" TEXT,
+    "decision" TEXT,
+    "confidence" DOUBLE PRECISION,
+    "risk" TEXT,
+    "correction_mode" BOOLEAN,
+    "buy_count" INTEGER,
+    "watch_count" INTEGER,
+    "no_buy_count" INTEGER,
+    "symbols_scanned" INTEGER,
+    "candidates_evaluated" INTEGER,
+    "focus_ticker" TEXT,
+    "focus_action" TEXT,
+    "focus_strategy" TEXT,
+    "dip_buyer_buy" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "dip_buyer_watch" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "dip_buyer_no_buy" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "canslim_buy" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "canslim_watch" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "canslim_no_buy" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "artifact_directory" TEXT,
+    "summary_path" TEXT,
+    "message_path" TEXT,
+    "watchlist_path" TEXT,
+    "message_preview" TEXT,
+    "metrics" JSONB,
+    "last_error" TEXT,
+    "source_host" TEXT,
+    "inserted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "mc_trading_runs_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "mc_trading_runs_run_id_key" ON "mc_trading_runs"("run_id");
+CREATE INDEX "mc_trading_runs_created_at_idx" ON "mc_trading_runs"("created_at" DESC);
+CREATE INDEX "mc_trading_runs_completed_at_idx" ON "mc_trading_runs"("completed_at" DESC);

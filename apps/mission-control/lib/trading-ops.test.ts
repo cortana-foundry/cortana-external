@@ -129,7 +129,12 @@ describe("trading ops loader", () => {
       };
     };
 
-    const data = await loadTradingOpsDashboardData({ backtesterRepoPath: repoPath, cortanaRepoPath, runJsonCommand });
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand,
+      tradingRunStateStore: null,
+    });
 
     expect(data.market.state).toBe("degraded");
     expect(data.market.badgeText).toBeUndefined();
@@ -148,8 +153,11 @@ describe("trading ops loader", () => {
     expect(data.opsHighway.data?.criticalAssetCount).toBe(2);
     expect(data.tradingRun.state).toBe("ok");
     expect(data.tradingRun.data?.runLabel).toBe("Apr 3, 12:38 PM");
+    expect(data.tradingRun.data?.status).toBe("success");
+    expect(data.tradingRun.data?.deliveryStatus).toBe("pending");
     expect(data.tradingRun.data?.notifiedAt).toBeNull();
     expect(data.tradingRun.data?.focusTicker).toBe("ABBV");
+    expect(data.tradingRun.data?.sourceType).toBe("artifact");
     expect(data.tradingRun.data?.dipBuyerWatch).toEqual(["ABBV", "ACHV", "AEP", "AEE", "ADM", "AES"]);
     expect(data.tradingRun.data?.dipBuyerBuy).toEqual(["ABC"]);
     expect(data.tradingRun.data?.dipBuyerNoBuy).toEqual(["AAPL", "AMD"]);
@@ -168,6 +176,7 @@ describe("trading ops loader", () => {
       runJsonCommand: async () => {
         throw new Error("script unavailable");
       },
+      tradingRunStateStore: null,
     });
 
     expect(data.market.state).toBe("missing");
@@ -225,6 +234,7 @@ describe("trading ops loader", () => {
       runJsonCommand: async () => {
         throw new Error("script unavailable");
       },
+      tradingRunStateStore: null,
     });
 
     expect(data.market.state).toBe("degraded");
@@ -235,6 +245,7 @@ describe("trading ops loader", () => {
     expect(data.market.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
     expect(data.market.data?.alertSummary).toBe("Latest trading run Apr 7, 10:53 AM: BUY 0 · WATCH 0 · NO_BUY 96");
     expect(data.market.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this market brief.");
+    expect(data.market.source).toContain("canslim-alert.json");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.isStale).toBe(true);
     expect(data.workflow.badgeText).toBe("stale");
@@ -243,7 +254,7 @@ describe("trading ops loader", () => {
     expect(data.workflow.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this workflow artifact.");
   });
 
-  it("renders missing pre-open canary state as not available instead of unknown", async () => {
+  it("renders missing pre-open readiness-check state as not available instead of unknown", async () => {
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-"));
     tempDirs.push(repoPath);
 
@@ -255,7 +266,7 @@ describe("trading ops loader", () => {
           return {
             generated_at: "2026-04-07T16:08:10.071538+00:00",
             pre_open_gate_status: "not_available",
-            pre_open_gate_detail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+            pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
             service_health: {
               operator_state: "healthy",
               operator_action: "No operator action required.",
@@ -265,11 +276,203 @@ describe("trading ops loader", () => {
         }
         throw new Error("script unavailable");
       },
+      tradingRunStateStore: null,
     });
 
     expect(data.runtime.state).toBe("ok");
-    expect(data.runtime.data?.preOpenGateStatus).toBe("Canary not available");
-    expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open canary artifact is missing");
+    expect(data.runtime.data?.preOpenGateStatus).toBe("Readiness check unavailable");
+    expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open readiness check artifact is missing");
+  });
+
+  it("renders provider cooldown timestamps in ET instead of raw ISO", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-human-"));
+    tempDirs.push(repoPath);
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      tradingRunStateStore: null,
+      runJsonCommand: async (scriptPath: string) => {
+        if (scriptPath.endsWith("runtime_health_snapshot.py")) {
+          return {
+            generated_at: "2026-04-07T17:32:10.071538+00:00",
+            pre_open_gate_status: "not_available",
+            pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            service_health: {
+              operator_state: "provider_cooldown",
+              operator_action: "Schwab REST is cooling down after repeated failures. Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+            },
+            incident_markers: [
+              {
+                incident_type: "provider_cooldown",
+                severity: "medium",
+                operator_action: "Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+              },
+            ],
+          };
+        }
+        throw new Error("script unavailable");
+      },
+    });
+
+    expect(data.runtime.message).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.message).not.toContain("2026-04-07T17:35:29.777Z");
+    expect(data.runtime.data?.operatorAction).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.data?.incidents[0]?.operatorAction).toContain("Apr 7, 1:35 PM ET");
+  });
+
+  it("prefers DB-backed latest trading run state when the store matches the latest artifact", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "summary.json"), {
+      runId: "20260407-160126",
+      status: "success",
+      createdAt: "2026-04-07T16:01:26.865Z",
+      startedAt: "2026-04-07T16:01:26.865Z",
+      completedAt: "2026-04-07T16:10:52.486Z",
+      notifiedAt: "2026-04-07T16:11:11.107Z",
+      metrics: { decision: "NO_TRADE", correctionMode: false, buy: 0, watch: 0, noBuy: 96 },
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "watchlist-full.json"), {
+      decision: "NO_TRADE",
+      correctionMode: false,
+      summary: { buy: 0, watch: 0, noBuy: 96 },
+      strategies: { dipBuyer: { buy: [], watch: [], noBuy: [] }, canslim: { buy: [], watch: [], noBuy: [] } },
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: {
+        syncFromArtifacts: async () => [],
+        loadLatest: async () => ({
+          runId: "20260407-160126",
+          schemaVersion: 1,
+          strategy: "Trading market-session unified",
+          status: "success",
+          createdAt: "2026-04-07T16:01:26.865Z",
+          startedAt: "2026-04-07T16:01:26.865Z",
+          completedAt: "2026-04-07T16:10:52.486Z",
+          notifiedAt: "2026-04-07T16:11:11.107Z",
+          deliveryStatus: "notified",
+          decision: "NO_TRADE",
+          confidence: 0.9,
+          risk: "LOW",
+          correctionMode: false,
+          buyCount: 0,
+          watchCount: 0,
+          noBuyCount: 96,
+          symbolsScanned: 240,
+          candidatesEvaluated: 0,
+          focusTicker: null,
+          focusAction: null,
+          focusStrategy: null,
+          dipBuyerBuy: [],
+          dipBuyerWatch: [],
+          dipBuyerNoBuy: [],
+          canslimBuy: [],
+          canslimWatch: [],
+          canslimNoBuy: [],
+          artifactDirectory: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126"),
+          summaryPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "summary.json"),
+          messagePath: null,
+          watchlistPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "watchlist-full.json"),
+          messagePreview: null,
+          metrics: { decision: "NO_TRADE" },
+          lastError: null,
+          sourceHost: "Hs-Mac-mini.local",
+        }),
+      },
+    });
+
+    expect(data.tradingRun.state).toBe("ok");
+    expect(data.tradingRun.source).toBe("Mission Control Postgres · mc_trading_runs");
+    expect(data.tradingRun.data?.sourceType).toBe("db");
+    expect(data.tradingRun.data?.deliveryStatus).toBe("notified");
+    expect(data.tradingRun.message).toContain("DB-backed latest run Apr 7, 12:10 PM finished NO_TRADE.");
+  });
+
+  it("falls back explicitly when DB-backed latest run state disagrees with the latest artifact", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-fallback-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-fallback-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "summary.json"), {
+      runId: "20260407-160126",
+      status: "success",
+      createdAt: "2026-04-07T16:01:26.865Z",
+      startedAt: "2026-04-07T16:01:26.865Z",
+      completedAt: "2026-04-07T16:10:52.486Z",
+      notifiedAt: "2026-04-07T16:11:11.107Z",
+      metrics: { decision: "NO_TRADE", correctionMode: false, buy: 0, watch: 0, noBuy: 96 },
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "watchlist-full.json"), {
+      decision: "NO_TRADE",
+      correctionMode: false,
+      summary: { buy: 0, watch: 0, noBuy: 96 },
+      strategies: { dipBuyer: { buy: [], watch: [], noBuy: [] }, canslim: { buy: [], watch: [], noBuy: [] } },
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: {
+        syncFromArtifacts: async () => [],
+        loadLatest: async () => ({
+          runId: "20260407-160126",
+          schemaVersion: 1,
+          strategy: "Trading market-session unified",
+          status: "success",
+          createdAt: "2026-04-07T16:01:26.865Z",
+          startedAt: "2026-04-07T16:01:26.865Z",
+          completedAt: "2026-04-07T16:10:52.486Z",
+          notifiedAt: "2026-04-07T16:11:11.107Z",
+          deliveryStatus: "notified",
+          decision: "WATCH",
+          confidence: 0.9,
+          risk: "LOW",
+          correctionMode: false,
+          buyCount: 0,
+          watchCount: 12,
+          noBuyCount: 84,
+          symbolsScanned: 240,
+          candidatesEvaluated: 12,
+          focusTicker: "NVDA",
+          focusAction: "WATCH",
+          focusStrategy: "CANSLIM",
+          dipBuyerBuy: [],
+          dipBuyerWatch: [],
+          dipBuyerNoBuy: [],
+          canslimBuy: [],
+          canslimWatch: ["NVDA"],
+          canslimNoBuy: [],
+          artifactDirectory: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126"),
+          summaryPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "summary.json"),
+          messagePath: null,
+          watchlistPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-160126", "watchlist-full.json"),
+          messagePreview: null,
+          metrics: { decision: "WATCH" },
+          lastError: null,
+          sourceHost: "Hs-Mac-mini.local",
+        }),
+      },
+    });
+
+    expect(data.tradingRun.state).toBe("degraded");
+    expect(data.tradingRun.badgeText).toBe("fallback");
+    expect(data.tradingRun.data?.sourceType).toBe("file_fallback");
+    expect(data.tradingRun.message).toContain("Using file fallback because DB-backed trading run state disagrees");
+    expect(data.tradingRun.warnings).toContain("DB decision WATCH does not match file decision NO_TRADE for 20260407-160126.");
   });
 });
 

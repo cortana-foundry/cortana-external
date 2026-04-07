@@ -147,6 +147,8 @@ const fixture: TradingOpsDashboardData = {
     data: {
       runId: "20260403-163103",
       runLabel: "Apr 3, 12:38 PM",
+      status: "success",
+      deliveryStatus: "notified",
       decision: "WATCH",
       focusTicker: "ABBV",
       focusAction: "WATCH",
@@ -164,6 +166,8 @@ const fixture: TradingOpsDashboardData = {
       completedAt: "2026-04-03T16:38:59.979Z",
       notifiedAt: "2026-04-03T16:40:00.000Z",
       correctionMode: false,
+      lastError: null,
+      sourceType: "artifact",
     },
   },
 };
@@ -184,6 +188,8 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
     expect(container).toHaveTextContent("Apr 3, 12:38 PM");
     expect(container).toHaveTextContent("Apr 3, 12:40 PM");
+    expect(container).toHaveTextContent("success");
+    expect(container).toHaveTextContent("Direct artifact read");
     expect(container).toHaveTextContent("Internal id 20260403-163103");
     expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
     expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
@@ -204,6 +210,35 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByText(/provider_cooldown: Wait\./)).toBeInTheDocument();
   });
 
+  it("renders alert banner when latest trading run is in explicit fallback", () => {
+    const fallbackFixture: TradingOpsDashboardData = {
+      ...fixture,
+      runtime: {
+        ...fixture.runtime,
+        state: "ok",
+        message: "No operator action required.",
+        warnings: [],
+        data: fixture.runtime.data
+          ? {
+              ...fixture.runtime.data,
+              incidents: [],
+              operatorState: "healthy",
+              operatorAction: "No operator action required.",
+            }
+          : fixture.runtime.data,
+      },
+      tradingRun: {
+        ...fixture.tradingRun,
+        state: "degraded",
+        badgeText: "fallback",
+        message: "Using file fallback because DB-backed trading run state is unavailable.",
+      },
+    };
+
+    render(<TradingOpsDashboard data={fallbackFixture} />);
+    expect(screen.getByText(/trading_run_state_fallback:/)).toBeInTheDocument();
+  });
+
   it("renders terminal header metrics", () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
     expect(container).toHaveTextContent("CORRECTION");
@@ -212,7 +247,7 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("1 open / 2 closed");
   });
 
-  it("renders runtime canary-missing language and stale badge text", () => {
+  it("renders runtime readiness-check missing language and stale badge text", () => {
     const staleFixture: TradingOpsDashboardData = {
       ...fixture,
       market: {
@@ -232,8 +267,8 @@ describe("TradingOpsDashboard", () => {
         data: fixture.runtime.data
           ? {
               ...fixture.runtime.data,
-              preOpenGateStatus: "Canary not available",
-              preOpenGateDetail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+              preOpenGateStatus: "Readiness check unavailable",
+              preOpenGateDetail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
               incidents: [],
               operatorState: "healthy",
               operatorAction: "No operator action required.",
@@ -243,11 +278,24 @@ describe("TradingOpsDashboard", () => {
         warnings: [],
         message: "No operator action required.",
       },
+      tradingRun: {
+        ...fixture.tradingRun,
+        badgeText: "fallback",
+        state: "degraded",
+        data: fixture.tradingRun.data
+          ? {
+              ...fixture.tradingRun.data,
+              sourceType: "file_fallback",
+            }
+          : fixture.tradingRun.data,
+      },
     };
 
     const { container } = render(<TradingOpsDashboard data={staleFixture} />);
     expect(container).toHaveTextContent("stale");
-    expect(container).toHaveTextContent("Canary not available");
-    expect(container).toHaveTextContent("Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.");
+    expect(container).toHaveTextContent("Readiness check unavailable");
+    expect(container).toHaveTextContent("Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.");
+    expect(container).toHaveTextContent("Pre-open readiness check");
+    expect(container).toHaveTextContent("File artifact fallback");
   });
 });

@@ -3,13 +3,16 @@ import type { TradingOpsDashboardData } from "@/lib/trading-ops";
 
 export function AlertBanner({ data }: { data: TradingOpsDashboardData }) {
   const incidents = data.runtime.data?.incidents ?? [];
-  const errorArtifacts = [data.market, data.runtime, data.workflow, data.canary].filter((a) => a.state === "error");
+  const errorArtifacts = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].filter((a) => a.state === "error");
+  const tradingRunFallback = data.tradingRun.badgeText === "fallback";
   const isCritical = errorArtifacts.length > 0;
   const message =
     isCritical
       ? `${errorArtifacts.length} artifact(s) in error state — check immediately`
       : incidents.length > 0
         ? `${incidents[0].incidentType}: ${incidents[0].operatorAction}`
+        : tradingRunFallback
+          ? `trading_run_state_fallback: ${data.tradingRun.message}`
         : "";
 
   return (
