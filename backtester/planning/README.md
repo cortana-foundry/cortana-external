@@ -102,6 +102,19 @@ Covers:
 - operational runbooks
 - deployment/runtime readiness
 
+### W7. Trading Ops Live State And Operator Truth
+
+- PRD: [07-trading-ops-live-state-and-operator-truth.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/07-trading-ops-live-state-and-operator-truth.md)
+- Tech Spec: [07-trading-ops-live-state-and-operator-truth.md](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/07-trading-ops-live-state-and-operator-truth.md)
+- Implementation Plan: [07-trading-ops-live-state-and-operator-truth.md](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/07-trading-ops-live-state-and-operator-truth.md)
+
+Covers:
+- Mission Control Trading Ops as a trustworthy operator surface
+- DB-backed latest trading run state
+- live runtime health as a separate current-state source
+- explicit fallback and stale-data semantics
+- cross-repo current-state contract between `cortana` and `cortana-external`
+
 ## Recommended Order
 
 Execution order:
@@ -112,6 +125,7 @@ Execution order:
 4. W4 Decision Brain, Narrative Discovery, And Research Plane
 5. W5 Governance, Validation, And Model Promotion
 6. W6 Unified Operator Surfaces And Ops Highway
+7. W7 Trading Ops Live State And Operator Truth
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -120,6 +134,7 @@ This order is deliberate:
 - W4 makes the system smarter without blocking the hot path
 - W5 hardens the science and promotion rules
 - W6 unifies the operator experience and long-run operations
+- W7 turns Trading Ops into a trustworthy current-state surface using explicit source ownership
 
 ## Authoring Rules
 
