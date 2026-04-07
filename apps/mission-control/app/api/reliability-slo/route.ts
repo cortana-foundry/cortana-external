@@ -27,39 +27,47 @@ type JobsFile = {
 };
 
 export async function GET() {
-  const raw = await fs.readFile(JOBS_PATH, "utf-8");
-  const parsed = JSON.parse(raw) as JobsFile;
-  const jobs = parsed.jobs || [];
+  try {
+    const raw = await fs.readFile(JOBS_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as JobsFile;
+    const jobs = parsed.jobs || [];
 
-  const since = new Date(Date.now() - WINDOW_MS);
-  const runs = await prisma.run.findMany({
-    where: {
-      OR: [{ startedAt: { gte: since } }, { createdAt: { gte: since } }],
-    },
-    select: {
-      status: true,
-      externalStatus: true,
-      startedAt: true,
-      completedAt: true,
-      payload: true,
-      summary: true,
-    },
-    take: 2000,
-    orderBy: { createdAt: "desc" },
-  });
-
-  const metrics = computeReliabilitySloMetrics({ jobs, runs, nowMs: Date.now() });
-
-  return NextResponse.json(
-    {
-      generatedAt: new Date().toISOString(),
-      windowHours: 24,
-      metrics,
-    },
-    {
-      headers: {
-        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    const since = new Date(Date.now() - WINDOW_MS);
+    const runs = await prisma.run.findMany({
+      where: {
+        OR: [{ startedAt: { gte: since } }, { createdAt: { gte: since } }],
       },
-    }
-  );
+      select: {
+        status: true,
+        externalStatus: true,
+        startedAt: true,
+        completedAt: true,
+        payload: true,
+        summary: true,
+      },
+      take: 2000,
+      orderBy: { createdAt: "desc" },
+    });
+
+    const metrics = computeReliabilitySloMetrics({ jobs, runs, nowMs: Date.now() });
+
+    return NextResponse.json(
+      {
+        generatedAt: new Date().toISOString(),
+        windowHours: 24,
+        metrics,
+      },
+      {
+        headers: {
+          "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
 }

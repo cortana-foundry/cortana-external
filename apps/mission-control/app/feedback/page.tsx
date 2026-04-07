@@ -31,11 +31,33 @@ export default async function FeedbackPage({
   };
   const highlightedId = params.id ?? params.highlight ?? null;
 
-  const [items, metrics, highlightedItem] = await Promise.all([
-    getFeedbackItems(filters),
-    getFeedbackMetrics(filters),
-    highlightedId ? getFeedbackById(highlightedId) : Promise.resolve(null),
-  ]);
+  let items: Awaited<ReturnType<typeof getFeedbackItems>> | null = null;
+  let metrics: Awaited<ReturnType<typeof getFeedbackMetrics>> | null = null;
+  let highlightedItem: Awaited<ReturnType<typeof getFeedbackById>> | null = null;
+  let fetchError: string | null = null;
+  try {
+    [items, metrics, highlightedItem] = await Promise.all([
+      getFeedbackItems(filters),
+      getFeedbackMetrics(filters),
+      highlightedId ? getFeedbackById(highlightedId) : Promise.resolve(null),
+    ]);
+  } catch (err) {
+    console.error("Failed to load feedback", err);
+    fetchError = "Could not load feedback items. The database may be unreachable.";
+  }
+
+  if (!items || !metrics) {
+    return (
+      <Card className="border-destructive/40 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-lg">Feedback unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{fetchError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

@@ -25,7 +25,28 @@ export default async function CouncilPage({
     limit: parseNum(params.limit) ?? 120,
   };
 
-  const sessions = await getCouncilSessions(filters);
+  let sessions: Awaited<ReturnType<typeof getCouncilSessions>> | null = null;
+  let fetchError: string | null = null;
+  try {
+    sessions = await getCouncilSessions(filters);
+  } catch (err) {
+    console.error("Failed to load council sessions", err);
+    fetchError = "Could not load council sessions. The database may be unreachable.";
+  }
+
+  if (!sessions) {
+    return (
+      <Card className="border-destructive/40 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-lg">Council Sessions unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{fetchError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value) search.set(key, value);

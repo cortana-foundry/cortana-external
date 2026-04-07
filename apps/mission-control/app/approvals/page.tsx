@@ -28,10 +28,32 @@ export default async function ApprovalsPage({
   };
   const highlightedId = params.id ?? params.highlight ?? null;
 
-  const [approvals, highlightedApproval] = await Promise.all([
-    getApprovals(filters),
-    highlightedId ? getApprovalById(highlightedId) : Promise.resolve(null),
-  ]);
+  let approvals: Awaited<ReturnType<typeof getApprovals>> | null = null;
+  let highlightedApproval: Awaited<ReturnType<typeof getApprovalById>> | null = null;
+  let fetchError: string | null = null;
+  try {
+    [approvals, highlightedApproval] = await Promise.all([
+      getApprovals(filters),
+      highlightedId ? getApprovalById(highlightedId) : Promise.resolve(null),
+    ]);
+  } catch (err) {
+    console.error("Failed to load approvals", err);
+    fetchError = "Could not load approvals. The database may be unreachable.";
+  }
+
+  if (!approvals) {
+    return (
+      <Card className="border-destructive/40 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-lg">Approvals unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{fetchError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value) search.set(key, value);

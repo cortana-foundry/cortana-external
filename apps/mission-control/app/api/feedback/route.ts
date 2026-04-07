@@ -11,42 +11,58 @@ const parseNumber = (value: string | null) => {
 };
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  try {
+    const { searchParams } = new URL(request.url);
 
-  const filters: FeedbackFilters = {
-    status: (searchParams.get("status") as FeedbackFilters["status"]) ?? "all",
-    remediationStatus: (searchParams.get("remediationStatus") as FeedbackFilters["remediationStatus"]) ?? "all",
-    severity: (searchParams.get("severity") as FeedbackFilters["severity"]) ?? "all",
-    category: searchParams.get("category") || undefined,
-    source: (searchParams.get("source") as FeedbackFilters["source"]) ?? "all",
-    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 90,
-    limit: parseNumber(searchParams.get("limit")) ?? 120,
-  };
+    const filters: FeedbackFilters = {
+      status: (searchParams.get("status") as FeedbackFilters["status"]) ?? "all",
+      remediationStatus: (searchParams.get("remediationStatus") as FeedbackFilters["remediationStatus"]) ?? "all",
+      severity: (searchParams.get("severity") as FeedbackFilters["severity"]) ?? "all",
+      category: searchParams.get("category") || undefined,
+      source: (searchParams.get("source") as FeedbackFilters["source"]) ?? "all",
+      rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 90,
+      limit: parseNumber(searchParams.get("limit")) ?? 120,
+    };
 
-  const items = await getFeedbackItems(filters);
+    const items = await getFeedbackItems(filters);
 
-  return NextResponse.json({ items }, {
-    headers: {
-      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    },
-  });
+    return NextResponse.json({ items }, {
+      headers: {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      },
+    });
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    runId?: string | null;
-    taskId?: string | null;
-    agentId?: string | null;
-    source: "user" | "system" | "evaluator";
-    category: string;
-    severity: "low" | "medium" | "high" | "critical";
-    summary: string;
-    details?: Record<string, unknown>;
-    recurrenceKey?: string | null;
-    status?: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
-    owner?: string | null;
-  };
+  try {
+    const body = (await request.json()) as {
+      runId?: string | null;
+      taskId?: string | null;
+      agentId?: string | null;
+      source: "user" | "system" | "evaluator";
+      category: string;
+      severity: "low" | "medium" | "high" | "critical";
+      summary: string;
+      details?: Record<string, unknown>;
+      recurrenceKey?: string | null;
+      status?: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
+      owner?: string | null;
+    };
 
-  const id = await createFeedback(body);
-  return NextResponse.json({ ok: true, id }, { status: 201 });
+    const id = await createFeedback(body);
+    return NextResponse.json({ ok: true, id }, { status: 201 });
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
 }

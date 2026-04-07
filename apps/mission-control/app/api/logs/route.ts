@@ -18,22 +18,30 @@ const parseFilter = (value: string | null) => {
 };
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  try {
+    const { searchParams } = new URL(request.url);
 
-  const filters: LogFilters = {
-    rangeHours: parseNumber(searchParams.get("rangeHours")),
-    limit: parseNumber(searchParams.get("limit")),
-    severity: parseFilter(searchParams.get("severity")),
-    source: parseFilter(searchParams.get("source")),
-    eventType: parseFilter(searchParams.get("eventType")),
-    query: parseFilter(searchParams.get("query")),
-  };
+    const filters: LogFilters = {
+      rangeHours: parseNumber(searchParams.get("rangeHours")),
+      limit: parseNumber(searchParams.get("limit")),
+      severity: parseFilter(searchParams.get("severity")),
+      source: parseFilter(searchParams.get("source")),
+      eventType: parseFilter(searchParams.get("eventType")),
+      query: parseFilter(searchParams.get("query")),
+    };
 
-  const payload = await getLogEntries(filters);
+    const payload = await getLogEntries(filters);
 
-  return NextResponse.json(payload, {
-    headers: {
-      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    },
-  });
+    return NextResponse.json(payload, {
+      headers: {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      },
+    });
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
 }
