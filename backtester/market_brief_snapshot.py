@@ -30,6 +30,7 @@ from data.polymarket_context import latest_report_json_path, load_structured_con
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_MARKET_BRIEF, annotate_artifact
 from evaluation.failure_taxonomy import classify_market_brief_outcome
 from operator_surfaces.decision_contract import build_market_brief_operator_payload
+from operator_surfaces.mission_control import emit_decision_trace
 from operator_surfaces.renderers import describe_operator_outcome, render_operator_payload
 
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
@@ -894,6 +895,19 @@ def format_operator_text(payload: dict[str, Any]) -> str:
 def main() -> None:
     args = parse_args()
     payload = build_snapshot(service_base_url=args.service_base_url)
+    decision_state = payload.get("decision_state")
+    if isinstance(decision_state, dict):
+        session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+        emit_decision_trace(
+            decision_state,
+            trigger_type="market_brief",
+            action_type="market_posture",
+            metadata={
+                "session_phase": session.get("phase"),
+                "status": payload.get("status"),
+                "service_base_url": args.service_base_url,
+            },
+        )
     text = format_operator_text(payload) if args.operator else json.dumps(payload, indent=2 if args.pretty else None, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

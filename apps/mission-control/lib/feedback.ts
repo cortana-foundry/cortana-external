@@ -67,6 +67,13 @@ export type FeedbackMetrics = {
   dailyCorrections: Array<{ day: string; count: number }>;
 };
 
+export type FeedbackSignalState = "active" | "cleared";
+
+export type FeedbackSignalResult = {
+  id: string | null;
+  state: "created" | "updated" | "resolved" | "noop";
+};
+
 type FeedbackRow = {
   id: string;
   run_id: string | null;
@@ -100,6 +107,12 @@ type FeedbackActionRow = {
   status: "planned" | "applied" | "verified" | "failed";
   created_at: Date;
   verified_at: Date | null;
+};
+
+type FeedbackSignalRow = {
+  id: string;
+  status: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
+  remediation_status: RemediationStatus;
 };
 
 const normalizeObject = (value: unknown): Record<string, unknown> => {
@@ -379,6 +392,139 @@ export async function createFeedback(data: {
     const rows = await run(prisma);
     return rows[0]?.id ?? "";
   }
+}
+
+const getLatestFeedbackSignalRow = async (
+  recurrenceKey: string,
+): Promise<FeedbackSignalRow | null> => {
+  const safeRecurrenceKey = escapeLiteral(recurrenceKey);
+  const sql = `
+    SELECT id, status, remediation_status
+    FROM mc_feedback_items
+    WHERE recurrence_key = '${safeRecurrenceKey}'
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT 1
+  `;
+
+  const taskPrisma = getTaskPrisma();
+  const preferred = taskPrisma ?? prisma;
+  const run = async (client: typeof prisma) => client.$queryRawUnsafe<FeedbackSignalRow[]>(sql);
+
+  try {
+    const rows = await run(preferred);
+    return rows[0] ?? null;
+  } catch (error) {
+    if (!taskPrisma) throw error;
+    const rows = await run(prisma);
+    return rows[0] ?? null;
+  }
+};
+
+export async function reconcileFeedbackSignal(input: {
+  runId?: string | null;
+  taskId?: string | null;
+  agentId?: string | null;
+  source: "user" | "system" | "evaluator";
+  category: string;
+  severity: "low" | "medium" | "high" | "critical";
+  summary: string;
+  details?: Record<string, unknown>;
+  recurrenceKey: string;
+  owner?: string | null;
+  actor?: string | null;
+  signalState: FeedbackSignalState;
+}): Promise<FeedbackSignalResult> {
+  const recurrenceKey = input.recurrenceKey.trim();
+  if (!recurrenceKey) {
+    throw new Error("recurrenceKey is required for feedback signal reconciliation");
+  }
+
+  const existing = await getLatestFeedbackSignalRow(recurrenceKey);
+  if (!existing) {
+    if (input.signalState === "cleared") {
+      return { id: null, state: "noop" };
+    }
+
+    const id = await createFeedback({
+      runId: input.runId ?? null,
+      taskId: input.taskId ?? null,
+      agentId: input.agentId ?? null,
+      source: input.source,
+      category: input.category,
+      severity: input.severity,
+      summary: input.summary,
+      details: input.details,
+      recurrenceKey,
+      owner: input.owner ?? null,
+      status: "new",
+    });
+    return { id, state: "created" };
+  }
+
+  const safeId = escapeLiteral(existing.id);
+  const runId = input.runId ? `'${escapeLiteral(input.runId)}'` : "NULL";
+  const taskId = input.taskId ? `'${escapeLiteral(input.taskId)}'` : "NULL";
+  const agentId = input.agentId ? `'${escapeLiteral(input.agentId)}'` : "NULL";
+  const details = input.details ? `'${JSON.stringify(input.details).replaceAll("'", "''")}'::jsonb` : "NULL";
+  const owner = input.owner ? `'${escapeLiteral(input.owner)}'` : "NULL";
+  const actor = input.actor ? `'${escapeLiteral(input.actor)}'` : "'system'";
+  const shouldReopen =
+    existing.status === "verified" ||
+    existing.status === "wont_fix" ||
+    existing.remediation_status === "resolved";
+
+  const sql = input.signalState === "cleared"
+    ? `
+      UPDATE mc_feedback_items
+      SET
+        run_id = COALESCE(${runId}, run_id),
+        task_id = COALESCE(${taskId}, task_id),
+        agent_id = COALESCE(${agentId}, agent_id),
+        summary = '${escapeLiteral(input.summary)}',
+        details = COALESCE(${details}, details),
+        severity = '${escapeLiteral(input.severity)}',
+        updated_at = NOW(),
+        status = 'verified',
+        remediation_status = 'resolved',
+        resolved_at = NOW(),
+        resolved_by = ${actor}
+      WHERE id = '${safeId}'
+    `
+    : `
+      UPDATE mc_feedback_items
+      SET
+        run_id = COALESCE(${runId}, run_id),
+        task_id = COALESCE(${taskId}, task_id),
+        agent_id = COALESCE(${agentId}, agent_id),
+        source = '${escapeLiteral(input.source)}',
+        category = '${escapeLiteral(input.category)}',
+        severity = '${escapeLiteral(input.severity)}',
+        summary = '${escapeLiteral(input.summary)}',
+        details = COALESCE(${details}, details),
+        owner = COALESCE(${owner}, owner),
+        updated_at = NOW(),
+        status = CASE WHEN ${shouldReopen} THEN 'new' ELSE status END,
+        remediation_status = CASE WHEN ${shouldReopen} THEN 'open' ELSE COALESCE(remediation_status, 'open') END,
+        resolved_at = CASE WHEN ${shouldReopen} THEN NULL ELSE resolved_at END,
+        resolved_by = CASE WHEN ${shouldReopen} THEN NULL ELSE resolved_by END
+      WHERE id = '${safeId}'
+    `;
+
+  const taskPrisma = getTaskPrisma();
+  const preferred = taskPrisma ?? prisma;
+  const run = async (client: typeof prisma) => client.$executeRawUnsafe(sql);
+
+  try {
+    await run(preferred);
+  } catch (error) {
+    if (!taskPrisma) throw error;
+    await run(prisma);
+  }
+
+  return {
+    id: existing.id,
+    state: input.signalState === "cleared" ? "resolved" : "updated",
+  };
 }
 
 export async function updateFeedbackStatus(

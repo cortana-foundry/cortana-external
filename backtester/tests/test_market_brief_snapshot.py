@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import market_brief_snapshot as module
@@ -85,12 +86,14 @@ def test_build_focus_names_prefers_leaders_then_macro():
 def test_load_cached_tape_quotes_uses_previous_session_history(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "MARKET_DATA_CACHE_DIR", tmp_path)
     monkeypatch.setenv("MARKET_BRIEF_TAPE_FALLBACK_MAX_AGE_HOURS", "72")
+    latest = datetime.now(UTC) - timedelta(hours=24)
+    previous = latest - timedelta(days=1)
     payload = {
-        "generated_at_utc": "2026-04-02T20:00:00+00:00",
+        "generated_at_utc": latest.isoformat(),
         "source": "schwab",
         "rows": [
-            {"date": "2026-04-01T20:00:00+00:00", "Open": 0, "High": 0, "Low": 0, "Close": 100.0, "Volume": 1},
-            {"date": "2026-04-02T20:00:00+00:00", "Open": 0, "High": 0, "Low": 0, "Close": 102.0, "Volume": 1},
+            {"date": previous.isoformat(), "Open": 0, "High": 0, "Low": 0, "Close": 100.0, "Volume": 1},
+            {"date": latest.isoformat(), "Open": 0, "High": 0, "Low": 0, "Close": 102.0, "Volume": 1},
         ],
     }
     for symbol in ("SPY", "QQQ"):

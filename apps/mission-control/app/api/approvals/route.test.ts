@@ -17,7 +17,7 @@ describe("GET /api/approvals", () => {
     ] as never);
 
     const request = new Request(
-      "http://localhost/api/approvals?status=pending&risk_level=p1&rangeHours=48&limit=5",
+      "http://localhost/api/approvals?status=pending&risk_level=p1&actionType=deploy&correlationKey=deploy:prod&rangeHours=48&limit=5",
     );
 
     const response = await GET(request);
@@ -28,6 +28,8 @@ describe("GET /api/approvals", () => {
     expect(getApprovals).toHaveBeenCalledWith({
       status: "pending",
       risk_level: "p1",
+      actionType: "deploy",
+      correlationKey: "deploy:prod",
       rangeHours: 48,
       limit: 5,
     });

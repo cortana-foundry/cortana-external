@@ -1,6 +1,7 @@
 import { AutoRefresh } from "@/components/auto-refresh";
 import { FeedbackCard } from "@/components/feedback-card";
 import { FeedbackFilters } from "@/components/feedback-filters";
+import { GovernanceGuide } from "@/components/governance-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FeedbackFilters as Filters, getFeedbackById, getFeedbackItems, getFeedbackMetrics } from "@/lib/feedback";
@@ -80,6 +81,10 @@ export default async function FeedbackPage({
         categories={categories}
       />
 
+      <GovernanceGuide
+        label="feedback"
+        summary="track problems"
+      />
 
       <Card>
         <CardHeader>

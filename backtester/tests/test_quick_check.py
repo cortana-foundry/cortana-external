@@ -3,6 +3,26 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from advisor import TradingAdvisor
+from data.market_regime import MarketRegime, MarketStatus
+
+
+def make_market_status() -> MarketStatus:
+    return MarketStatus(
+        regime=MarketRegime.CONFIRMED_UPTREND,
+        distribution_days=2,
+        last_ftd="2026-04-01",
+        trend_direction="up",
+        position_sizing=1.0,
+        notes="Trend is supportive.",
+        data_source="cache",
+        status="ok",
+        degraded_reason="",
+        snapshot_age_seconds=0.0,
+        next_action="stay selective",
+        regime_score=7,
+        drawdown_pct=-1.2,
+        recent_return_pct=1.8,
+    )
 
 
 def test_normalize_quick_check_symbol_maps_crypto_aliases_and_proxies():
@@ -24,6 +44,7 @@ def test_normalize_quick_check_symbol_maps_crypto_aliases_and_proxies():
 
 def test_quick_check_downgrades_actionable_stock_when_polymarket_conflicts(monkeypatch):
     advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=make_market_status())
     advisor.risk_fetcher = MagicMock(get_snapshot=lambda: {})
     advisor.analyze_stock = MagicMock(
         return_value={
@@ -57,6 +78,7 @@ def test_quick_check_downgrades_actionable_stock_when_polymarket_conflicts(monke
 
 def test_quick_check_uses_dip_path_for_direct_crypto_and_can_lift_early_to_confirmation(monkeypatch):
     advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=make_market_status())
     advisor.risk_fetcher = MagicMock(get_snapshot=lambda: {})
     advisor.analyze_dip_stock = MagicMock(
         return_value={
@@ -91,6 +113,7 @@ def test_quick_check_uses_dip_path_for_direct_crypto_and_can_lift_early_to_confi
 
 def test_quick_check_attaches_context_overlays_when_available(monkeypatch):
     advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=make_market_status())
     advisor.risk_fetcher = MagicMock(get_snapshot=lambda: {})
     advisor.analyze_stock = MagicMock(
         return_value={
@@ -151,6 +174,7 @@ def test_quick_check_attaches_overlay_promotion_context_when_available(monkeypat
     monkeypatch.setenv("TRADING_OVERLAY_PROMOTION_STATE_PATH", str(state_path))
 
     advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=make_market_status())
     advisor.risk_fetcher = MagicMock(get_snapshot=lambda: {})
     advisor.analyze_stock = MagicMock(
         return_value={
@@ -289,6 +313,7 @@ def test_quick_check_promotion_context_supports_rank_modifier_eligible_shape(mon
     monkeypatch.setenv("TRADING_OVERLAY_PROMOTION_STATE_PATH", str(state_path))
 
     advisor = TradingAdvisor()
+    advisor.get_market_status = MagicMock(return_value=make_market_status())
     advisor.risk_fetcher = MagicMock(get_snapshot=lambda: {})
     advisor.analyze_stock = MagicMock(
         return_value={

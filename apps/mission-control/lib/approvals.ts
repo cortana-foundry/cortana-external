@@ -4,6 +4,8 @@ import { getTaskPrisma } from "@/lib/task-prisma";
 export type ApprovalFilters = {
   status?: "pending" | "approved" | "approved_edited" | "rejected" | "expired" | "cancelled" | "all";
   risk_level?: "p0" | "p1" | "p2" | "p3";
+  actionType?: string;
+  correlationKey?: string;
   rangeHours?: number;
   limit?: number;
 };
@@ -103,6 +105,19 @@ type CreateApprovalInput = {
   taskId?: string | null;
 };
 
+export type ApprovalSignalState = "pending" | "cleared";
+
+export type ApprovalSignalResult = {
+  approval: ApprovalRequest | null;
+  state: "created" | "existing" | "cancelled" | "noop";
+};
+
+type ApprovalSignalRow = {
+  id: string;
+  status: string;
+  executed_at: Date | null;
+};
+
 const normalizeObject = (value: unknown): Record<string, unknown> => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -183,6 +198,14 @@ export async function getApprovals(filters: ApprovalFilters = {}): Promise<Appro
 
   if (filters.risk_level) {
     conditions.push(`r.risk_level = '${escapeLiteral(filters.risk_level)}'`);
+  }
+
+  if (filters.actionType) {
+    conditions.push(`r.action_type = '${escapeLiteral(filters.actionType)}'`);
+  }
+
+  if (filters.correlationKey) {
+    conditions.push(`r.proposal->>'correlation_key' = '${escapeLiteral(filters.correlationKey)}'`);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -380,6 +403,145 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
     if (!taskPrisma) throw error;
     return run(prisma);
   }
+}
+
+const getLatestApprovalSignalRow = async (
+  actionType: string,
+  correlationKey: string,
+): Promise<ApprovalSignalRow | null> => {
+  const sql = `
+    SELECT id, status, executed_at
+    FROM mc_approval_requests
+    WHERE action_type = '${escapeLiteral(actionType)}'
+      AND proposal->>'correlation_key' = '${escapeLiteral(correlationKey)}'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  const taskPrisma = getTaskPrisma();
+  const preferred = taskPrisma ?? prisma;
+  const run = async (client: typeof prisma) => client.$queryRawUnsafe<ApprovalSignalRow[]>(sql);
+
+  try {
+    const rows = await run(preferred);
+    return rows[0] ?? null;
+  } catch (error) {
+    if (!taskPrisma) throw error;
+    const rows = await run(prisma);
+    return rows[0] ?? null;
+  }
+};
+
+export async function cancelApproval(
+  id: string,
+  actor = "system",
+  payload?: Record<string, unknown> | null,
+): Promise<void> {
+  const safeId = escapeLiteral(id);
+  const safeActor = `'${escapeLiteral(actor)}'`;
+  const payloadJson = payload ? asJsonbLiteral(payload) : "NULL";
+
+  const updateSql = `
+    UPDATE mc_approval_requests
+    SET status = 'cancelled'
+    WHERE id = '${safeId}' AND status = 'pending'
+  `;
+
+  const eventSql = `
+    INSERT INTO mc_approval_events (approval_id, event_type, actor, payload)
+    VALUES ('${safeId}', 'cancelled', ${safeActor}, ${payloadJson})
+  `;
+
+  const taskPrisma = getTaskPrisma();
+  const preferred = taskPrisma ?? prisma;
+
+  const run = async (client: typeof prisma) => {
+    const updated = await client.$executeRawUnsafe(updateSql);
+    if (updated > 0) {
+      await client.$executeRawUnsafe(eventSql);
+    }
+  };
+
+  try {
+    await run(preferred);
+  } catch (error) {
+    if (!taskPrisma) throw error;
+    await run(prisma);
+  }
+}
+
+export async function reconcileApprovalSignal(input: {
+  signalState: ApprovalSignalState;
+  agentId: string;
+  actionType: string;
+  correlationKey: string;
+  proposal: Record<string, unknown>;
+  rationale?: string | null;
+  riskLevel: "p0" | "p1" | "p2" | "p3";
+  blastRadius?: string | null;
+  resumePayload?: Record<string, unknown> | null;
+  runId?: string | null;
+  taskId?: string | null;
+  actor?: string | null;
+  clearReason?: string | null;
+}): Promise<ApprovalSignalResult> {
+  const correlationKey = input.correlationKey.trim();
+  if (!correlationKey) {
+    throw new Error("correlationKey is required for approval reconciliation");
+  }
+
+  const latest = await getLatestApprovalSignalRow(input.actionType, correlationKey);
+  if (input.signalState === "cleared") {
+    if (!latest || latest.status !== "pending") {
+      return {
+        approval: latest ? await getApprovalById(latest.id) : null,
+        state: "noop",
+      };
+    }
+
+    await cancelApproval(latest.id, input.actor ?? input.agentId, {
+      correlation_key: correlationKey,
+      reason: input.clearReason ?? "signal cleared by producer",
+    });
+
+    return {
+      approval: await getApprovalById(latest.id),
+      state: "cancelled",
+    };
+  }
+
+  if (
+    latest &&
+    (
+      latest.status === "pending" ||
+      ((latest.status === "approved" || latest.status === "approved_edited") && latest.executed_at == null)
+    )
+  ) {
+    return {
+      approval: await getApprovalById(latest.id),
+      state: "existing",
+    };
+  }
+
+  const approval = await createApproval({
+    agentId: input.agentId,
+    actionType: input.actionType,
+    proposal: {
+      ...input.proposal,
+      correlation_key: correlationKey,
+    },
+    rationale: input.rationale ?? null,
+    riskLevel: input.riskLevel,
+    blastRadius: input.blastRadius ?? null,
+    resumePayload: input.resumePayload ?? null,
+    runId: input.runId ?? null,
+    taskId: input.taskId ?? null,
+  });
+
+  return {
+    approval,
+    state: "created",
+  };
 }
 
 export async function updateApprovalStatus(

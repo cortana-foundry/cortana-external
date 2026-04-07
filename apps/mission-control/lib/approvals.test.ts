@@ -5,6 +5,7 @@ import {
   createApproval,
   getApprovalById,
   getApprovals,
+  reconcileApprovalSignal,
   recordExecution,
   resumeApproval,
   updateApprovalStatus,
@@ -281,6 +282,121 @@ describe("lib/approvals", () => {
     const executeCalls = vi.mocked(prisma.$executeRawUnsafe).mock.calls;
     expect(executeCalls).toHaveLength(2);
     expect(executeCalls[1][0]).toContain("'auto_approved'");
+  });
+
+  it("reconcileApprovalSignal creates a new approval when no matching correlation key exists", async () => {
+    const createdAt = new Date("2026-04-07T12:00:00.000Z");
+
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "apr-new" }])
+      .mockResolvedValueOnce([
+        {
+          id: "apr-new",
+          run_id: null,
+          task_id: null,
+          feedback_id: null,
+          feedback_summary: null,
+          agent_id: "backtester.experimental_alpha",
+          action_type: "promote_rank_modifier_overlay",
+          proposal: { overlay_name: "execution_quality", correlation_key: "overlay-rank:execution_quality" },
+          diff: null,
+          rationale: "Only manual approval is missing.",
+          risk_level: "p1",
+          risk_score: null,
+          blast_radius: "ranking policy",
+          auto_approvable: false,
+          policy_version: null,
+          status: "pending",
+          decision: null,
+          approved_by: null,
+          approved_at: null,
+          rejected_by: null,
+          rejected_at: null,
+          created_at: createdAt,
+          expires_at: null,
+          resumed_at: null,
+          executed_at: null,
+          execution_result: null,
+          resume_payload: null,
+          event_count: 1,
+          latest_event_at: createdAt,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const result = await reconcileApprovalSignal({
+      signalState: "pending",
+      agentId: "backtester.experimental_alpha",
+      actionType: "promote_rank_modifier_overlay",
+      correlationKey: "overlay-rank:execution_quality",
+      proposal: { overlay_name: "execution_quality" },
+      rationale: "Only manual approval is missing.",
+      riskLevel: "p1",
+      blastRadius: "ranking policy",
+    });
+
+    expect(result.state).toBe("created");
+    expect(result.approval?.id).toBe("apr-new");
+  });
+
+  it("reconcileApprovalSignal cancels the pending approval when the producer clears it", async () => {
+    const createdAt = new Date("2026-04-07T12:00:00.000Z");
+    vi.mocked(prisma.$executeRawUnsafe).mockResolvedValue(1);
+
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: "apr-pending", status: "pending", executed_at: null }])
+      .mockResolvedValueOnce([
+        {
+          id: "apr-pending",
+          run_id: null,
+          task_id: null,
+          feedback_id: null,
+          feedback_summary: null,
+          agent_id: "backtester.experimental_alpha",
+          action_type: "promote_rank_modifier_overlay",
+          proposal: { overlay_name: "execution_quality", correlation_key: "overlay-rank:execution_quality" },
+          diff: null,
+          rationale: "Only manual approval is missing.",
+          risk_level: "p1",
+          risk_score: null,
+          blast_radius: "ranking policy",
+          auto_approvable: false,
+          policy_version: null,
+          status: "cancelled",
+          decision: null,
+          approved_by: null,
+          approved_at: null,
+          rejected_by: null,
+          rejected_at: null,
+          created_at: createdAt,
+          expires_at: null,
+          resumed_at: null,
+          executed_at: null,
+          execution_result: null,
+          resume_payload: null,
+          event_count: 2,
+          latest_event_at: createdAt,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const result = await reconcileApprovalSignal({
+      signalState: "cleared",
+      agentId: "backtester.experimental_alpha",
+      actionType: "promote_rank_modifier_overlay",
+      correlationKey: "overlay-rank:execution_quality",
+      proposal: { overlay_name: "execution_quality" },
+      rationale: "No longer eligible",
+      riskLevel: "p1",
+      actor: "backtester.experimental_alpha",
+      clearReason: "gate no longer passes",
+    });
+
+    expect(result.state).toBe("cancelled");
+    const calls = vi.mocked(prisma.$executeRawUnsafe).mock.calls;
+    expect(calls[0][0]).toContain("status = 'cancelled'");
+    expect(calls[1][0]).toContain("'cancelled'");
   });
 
   it("resumeApproval preserves the first resumed timestamp", async () => {

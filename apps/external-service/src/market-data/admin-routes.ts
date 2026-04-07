@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { buildOpsPayload, getServiceOperatorAction, getServiceOperatorState } from "./ops-reporter.js";
+import type { MarketDataGovernanceReporter } from "./governance-reporter.js";
 import type { ProviderMetrics, SchwabRestClient } from "./schwab-rest-client.js";
 import type { MarketDataRouteResult, MarketDataUniverse } from "./types.js";
 import type { UniverseArtifactManager } from "./universe-manager.js";
@@ -14,6 +15,7 @@ interface MarketDataAdminRoutesConfig {
   universeManager: UniverseArtifactManager;
   streamerRuntime: SchwabStreamerRuntime;
   schwabRestClient: SchwabRestClient;
+  governanceReporter: MarketDataGovernanceReporter;
   checkHealth: () => Promise<Record<string, unknown>>;
   ensureRuntimeReady: () => Promise<void>;
   enforceStreamerFailurePolicy: () => Promise<void>;
@@ -27,6 +29,7 @@ export class MarketDataAdminRoutes {
   private readonly universeManager: UniverseArtifactManager;
   private readonly streamerRuntime: SchwabStreamerRuntime;
   private readonly schwabRestClient: SchwabRestClient;
+  private readonly governanceReporter: MarketDataGovernanceReporter;
   private readonly checkHealth: () => Promise<Record<string, unknown>>;
   private readonly ensureRuntimeReady: () => Promise<void>;
   private readonly enforceStreamerFailurePolicy: () => Promise<void>;
@@ -39,6 +42,7 @@ export class MarketDataAdminRoutes {
     this.universeManager = config.universeManager;
     this.streamerRuntime = config.streamerRuntime;
     this.schwabRestClient = config.schwabRestClient;
+    this.governanceReporter = config.governanceReporter;
     this.checkHealth = config.checkHealth;
     this.ensureRuntimeReady = config.ensureRuntimeReady;
     this.enforceStreamerFailurePolicy = config.enforceStreamerFailurePolicy;
@@ -49,9 +53,19 @@ export class MarketDataAdminRoutes {
     await this.ensureRuntimeReady();
     await this.enforceStreamerFailurePolicy();
     const health = await this.checkHealth();
+    const streamerMeta =
+      (((health.providers as Record<string, unknown> | undefined)?.schwabStreamerMeta as Record<string, unknown> | undefined) ?? {});
     const latestUniverse = readJsonFile<MarketDataUniverse>(path.join(this.cacheDir, "base-universe.json"));
     const universeAudit = this.universeManager.readAudit(5);
     const serviceOperatorState = getServiceOperatorState(this.schwabRestClient);
+    const serviceOperatorAction = getServiceOperatorAction(this.schwabRestClient);
+    await this.governanceReporter.reconcile({
+      serviceOperatorState,
+      serviceOperatorAction,
+      streamerOperatorState: String(streamerMeta.operatorState ?? "healthy"),
+      streamerOperatorAction: String(streamerMeta.operatorAction ?? "No operator action required."),
+      health,
+    });
     return {
       status: 200,
       body: {
@@ -67,7 +81,7 @@ export class MarketDataAdminRoutes {
           health,
           streamerRuntime: this.streamerRuntime,
           serviceOperatorState,
-          serviceOperatorAction: getServiceOperatorAction(this.schwabRestClient),
+          serviceOperatorAction,
           universeSourceLadder: this.universeSourceLadder,
         }),
       },
@@ -80,7 +94,16 @@ export class MarketDataAdminRoutes {
       const streamerMeta =
         (((health.providers as Record<string, unknown> | undefined)?.schwabStreamerMeta as Record<string, unknown> | undefined) ?? {});
       const streamerOperatorState = String(streamerMeta.operatorState ?? "healthy");
+      const streamerOperatorAction = String(streamerMeta.operatorAction ?? "No operator action required.");
       const serviceOperatorState = getServiceOperatorState(this.schwabRestClient);
+      const serviceOperatorAction = getServiceOperatorAction(this.schwabRestClient);
+      await this.governanceReporter.reconcile({
+        serviceOperatorState,
+        serviceOperatorAction,
+        streamerOperatorState,
+        streamerOperatorAction,
+        health,
+      });
       const operatorState = serviceOperatorState !== "healthy" ? serviceOperatorState : streamerOperatorState;
       const ready = !["human_action_required", "max_connections_blocked"].includes(operatorState);
       return {
@@ -96,8 +119,8 @@ export class MarketDataAdminRoutes {
             operatorState,
             operatorAction:
               serviceOperatorState !== "healthy"
-                ? getServiceOperatorAction(this.schwabRestClient)
-                : (streamerMeta.operatorAction ?? "No operator action required."),
+                ? serviceOperatorAction
+                : streamerOperatorAction,
           },
         },
       };

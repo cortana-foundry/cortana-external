@@ -48,6 +48,7 @@ from decision_brain.surfaces import (
     build_surface_research_runtime,
     load_shadow_inputs,
 )
+from operator_surfaces.mission_control import emit_decision_trace
 from data.confidence import (
     build_confidence_assessment,
     build_trade_quality_score,
@@ -1248,6 +1249,31 @@ class TradingAdvisor:
             reason=reason,
             symbol=display_symbol,
         )
+        recommendation = analysis.get("recommendation", {}) if isinstance(analysis, dict) else {}
+        raw_confidence = recommendation.get("confidence_pct") if isinstance(recommendation, dict) else None
+        confidence = None
+        try:
+            if raw_confidence is not None:
+                confidence_value = float(raw_confidence)
+                confidence = confidence_value / 100.0 if confidence_value > 1.0 else confidence_value
+        except (TypeError, ValueError):
+            confidence = None
+        decision_state = shadow_bundle.get("decision_state")
+        if isinstance(decision_state, dict):
+            emit_decision_trace(
+                decision_state,
+                trigger_type="quick_check",
+                action_type="symbol_verdict",
+                metadata={
+                    "symbol": display_symbol,
+                    "provider_symbol": provider_symbol,
+                    "asset_class": asset_class,
+                    "analysis_path": path,
+                    "verdict": verdict,
+                },
+                confidence=confidence,
+                run_id=display_symbol,
+            )
 
         return {
             "input_symbol": target["input_symbol"],

@@ -16,6 +16,7 @@ import { SchwabStreamerRuntime } from "./schwab-streamer-runtime.js";
 import { AlpacaClient } from "./alpaca-client.js";
 import { ProviderChain } from "./provider-chain.js";
 import { buildHealthReport, buildOpsPayload, getServiceOperatorAction, getServiceOperatorState } from "./ops-reporter.js";
+import { MarketDataGovernanceReporter } from "./governance-reporter.js";
 import { SchwabRestClient, type ProviderMetrics } from "./schwab-rest-client.js";
 import { MarketDataQueryRoutes } from "./query-routes.js";
 import { MarketDataSupportRoutes } from "./support-routes.js";
@@ -68,6 +69,7 @@ export class MarketDataService {
   private readonly supportRoutes: MarketDataSupportRoutes;
   private readonly authRoutes: SchwabAuthRoutes;
   private readonly adminRoutes: MarketDataAdminRoutes;
+  private readonly governanceReporter: MarketDataGovernanceReporter;
   private readonly providerMetrics: ProviderMetrics = {
     lastSuccessfulSchwabRestAt: null,
     lastSuccessfulUniverseRefreshAt: null,
@@ -132,6 +134,7 @@ export class MarketDataService {
       TONAL_DATA_PATH: "tonal_data.json",
       APPLE_HEALTH_DATA_PATH: path.join(os.homedir(), ".openclaw/data/apple-health/latest.json"),
       APPLE_HEALTH_MAX_AGE_HOURS: 36,
+      APPLE_HEALTH_API_TOKEN: "",
       ALPACA_KEYS_PATH: "",
       ALPACA_TARGET_ENVIRONMENT: "live",
       CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",
@@ -216,6 +219,10 @@ export class MarketDataService {
         this.pendingSchwabAuthState = state;
       },
     });
+    this.governanceReporter = new MarketDataGovernanceReporter({
+      fetchImpl: this.fetchImpl,
+      logger: this.logger,
+    });
     this.adminRoutes = new MarketDataAdminRoutes({
       cacheDir: this.cacheDir,
       universeSourceLadder: this.universeSourceLadder,
@@ -223,6 +230,7 @@ export class MarketDataService {
       universeManager: this.universeManager,
       streamerRuntime: this.streamerRuntime,
       schwabRestClient: this.schwabRestClient,
+      governanceReporter: this.governanceReporter,
       checkHealth: this.checkHealth.bind(this),
       ensureRuntimeReady: this.ensureRuntimeReady.bind(this),
       enforceStreamerFailurePolicy: this.enforceStreamerFailurePolicy.bind(this),
