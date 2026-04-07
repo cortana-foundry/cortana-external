@@ -1,17 +1,6 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { loadMissionControlScriptEnv } from "../lib/script-env";
-
-type LatestArtifactRun = {
-  runId: string;
-  status: string | null;
-  decision: string | null;
-  buyCount: number;
-  watchCount: number;
-  noBuyCount: number;
-  completedAt: string | null;
-  notifiedAt: string | null;
-};
+import { loadLatestArtifactRun } from "../lib/trading-ops-smoke";
 
 async function main() {
   loadMissionControlScriptEnv(path.resolve(__dirname, ".."));
@@ -64,63 +53,6 @@ async function main() {
   console.log(`Decision/counts: ${tradingRun.decision} | BUY ${tradingRun.buyCount} · WATCH ${tradingRun.watchCount} · NO_BUY ${tradingRun.noBuyCount}`);
   console.log(`Delivery: ${tradingRun.notifiedAt ?? "not notified"}`);
   console.log(`Runtime: ${data.runtime.data?.operatorState ?? data.runtime.label} | ${data.runtime.message}`);
-}
-
-async function loadLatestArtifactRun(cortanaRepoPath: string): Promise<LatestArtifactRun | null> {
-  const runsRoot = path.join(cortanaRepoPath, "var", "backtests", "runs");
-  const latest = await findLatestRunDirectory(runsRoot);
-  if (!latest) return null;
-
-  const [summaryRaw, watchlistRaw] = await Promise.all([
-    fs.readFile(path.join(latest.path, "summary.json"), "utf8"),
-    fs.readFile(path.join(latest.path, "watchlist-full.json"), "utf8"),
-  ]);
-
-  const summary = JSON.parse(summaryRaw) as Record<string, unknown>;
-  const watchlist = JSON.parse(watchlistRaw) as Record<string, unknown>;
-  const summaryCounts = asRecord(watchlist.summary);
-
-  return {
-    runId: latest.runId,
-    status: stringValue(summary.status) ?? (stringValue(summary.completedAt) || stringValue(summary.finalizedAt) ? "success" : null),
-    decision: stringValue(watchlist.decision) ?? stringValue(asRecord(summary.metrics)?.decision),
-    buyCount: numberValue(summaryCounts?.buy) ?? numberValue(asRecord(summary.metrics)?.buy) ?? 0,
-    watchCount: numberValue(summaryCounts?.watch) ?? numberValue(asRecord(summary.metrics)?.watch) ?? 0,
-    noBuyCount: numberValue(summaryCounts?.noBuy) ?? numberValue(asRecord(summary.metrics)?.noBuy) ?? 0,
-    completedAt:
-      stringValue(summary.completedAt) ??
-      stringValue(summary.completed_at) ??
-      stringValue(summary.finalizedAt) ??
-      null,
-    notifiedAt: stringValue(summary.notifiedAt) ?? stringValue(summary.notified_at) ?? null,
-  };
-}
-
-async function findLatestRunDirectory(rootPath: string): Promise<{ runId: string; path: string } | null> {
-  try {
-    const entries = await fs.readdir(rootPath, { withFileTypes: true });
-    const latest = entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
-      .at(-1);
-    return latest ? { runId: latest, path: path.join(rootPath, latest) } : null;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 main().catch((error) => {
