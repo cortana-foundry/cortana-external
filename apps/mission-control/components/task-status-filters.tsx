@@ -8,7 +8,7 @@ import {
   DragOverlay,
   PointerSensor,
   TouchSensor,
-  closestCorners,
+  rectIntersection,
   useSensor,
   useSensors,
   useDraggable,
@@ -87,7 +87,7 @@ function DroppableColumn({ id, children }: { id: string; children: React.ReactNo
     <div
       ref={setNodeRef}
       className={cn(
-        "kanban-column min-h-[12rem] transition-colors duration-150",
+        "kanban-column min-h-[20rem] transition-colors duration-150",
         isOver && "ring-2 ring-primary/30 bg-primary/5",
       )}
     >
@@ -277,7 +277,7 @@ export function TaskStatusFilters({
       )}
 
       {/* Desktop: horizontal kanban columns with drag-and-drop */}
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={rectIntersection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="hidden md:grid md:grid-cols-4 md:gap-3">
           {columnData.map((col) => (
             <DroppableColumn key={col.key} id={col.key}>
