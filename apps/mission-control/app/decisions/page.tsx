@@ -21,7 +21,7 @@ export default async function DecisionsPage({
 }) {
   const params = (await searchParams) ?? {};
   const filters: DecisionFilters = {
-    rangeHours: parseNum(params.rangeHours) ?? 48,
+    rangeHours: parseNum(params.rangeHours) ?? 24 * 30,
     actionType: params.actionType,
     triggerType: params.triggerType,
     outcome: (params.outcome as DecisionFilters["outcome"]) ?? "all",
@@ -40,6 +40,11 @@ export default async function DecisionsPage({
     .filter((trace) => typeof trace.confidence === "number")
     .slice(0, 20)
     .map((trace) => Math.round((trace.confidence ?? 0) * 100));
+  const sourceLabel = data.source === "cortana" ? "cortana" : "mission-control fallback";
+  const emptyTimelineMessage =
+    data.source === "app"
+      ? "No decision traces were found in the Mission Control fallback database. Configure CORTANA_DATABASE_URL or verify the trace producer is writing rows."
+      : "No traces match current filters.";
 
   return (
     <div className="space-y-6">
@@ -52,13 +57,13 @@ export default async function DecisionsPage({
             Chronological record of autonomous actions, why they happened, and what input signals drove them.
           </p>
         </div>
-        <Badge variant="secondary">{data.traces.length} traces · source: {data.source}</Badge>
+        <Badge variant="secondary">{data.traces.length} traces · source: {sourceLabel}</Badge>
       </div>
 
       {data.warning && (
         <Card className="border-warning/40 bg-warning/10">
           <CardHeader>
-            <CardTitle className="text-base">Fallback mode</CardTitle>
+            <CardTitle className="text-base">Fallback data source</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">{data.warning}</CardContent>
         </Card>
@@ -77,7 +82,11 @@ export default async function DecisionsPage({
         </CardHeader>
         <CardContent>
           {confidenceSeries.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No confidence points in current slice.</p>
+            <p className="text-sm text-muted-foreground">
+              {data.source === "app"
+                ? "No confidence points in the fallback data source."
+                : "No confidence points in current slice."}
+            </p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {confidenceSeries.map((point, idx) => (
@@ -88,7 +97,7 @@ export default async function DecisionsPage({
         </CardContent>
       </Card>
 
-      <DecisionTimeline traces={data.traces} />
+      <DecisionTimeline traces={data.traces} emptyMessage={emptyTimelineMessage} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { ApprovalFilters } from "@/components/approval-filters";
 import { GovernanceGuide } from "@/components/governance-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApprovalFilters as Filters, getApprovals } from "@/lib/approvals";
+import { ApprovalFilters as Filters, getApprovalById, getApprovals } from "@/lib/approvals";
 
 export const dynamic = "force-dynamic";
 
@@ -22,21 +22,33 @@ export default async function ApprovalsPage({
   const params = (await searchParams) ?? {};
   const filters: Filters = {
     status: (params.status as Filters["status"]) ?? "all",
-    rangeHours: parseNum(params.rangeHours) ?? 24 * 7,
+    risk_level: (params.risk_level as Filters["risk_level"]) ?? undefined,
+    rangeHours: parseNum(params.rangeHours) ?? 24 * 90,
     limit: parseNum(params.limit) ?? 120,
   };
+  const highlightedId = params.id ?? params.highlight ?? null;
 
-  const approvals = await getApprovals(filters);
+  const [approvals, highlightedApproval] = await Promise.all([
+    getApprovals(filters),
+    highlightedId ? getApprovalById(highlightedId) : Promise.resolve(null),
+  ]);
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value) search.set(key, value);
   });
+
+  const visibleApprovals =
+    highlightedApproval && !approvals.some((approval) => approval.id === highlightedApproval.id)
+      ? [highlightedApproval, ...approvals]
+      : approvals;
 
   const counts = {
     pending: approvals.filter((item) => item.status === "pending").length,
     approved: approvals.filter((item) => ["approved", "approved_edited"].includes(item.status)).length,
     rejected: approvals.filter((item) => item.status === "rejected").length,
     expired: approvals.filter((item) => item.status === "expired").length,
+    awaitingResume: approvals.filter((item) => ["approved", "approved_edited"].includes(item.status) && !item.resumedAt).length,
+    executed: approvals.filter((item) => Boolean(item.executedAt)).length,
   };
 
   return (
@@ -53,7 +65,12 @@ export default async function ApprovalsPage({
         <Badge variant="secondary">{approvals.length} requests</Badge>
       </div>
 
-      <ApprovalFilters params={search} selectedStatus={filters.status ?? "all"} />
+      <ApprovalFilters
+        params={search}
+        selectedStatus={filters.status ?? "all"}
+        selectedRiskLevel={filters.risk_level ?? "all"}
+        selectedRangeHours={String(filters.rangeHours ?? 24 * 90)}
+      />
 
       <GovernanceGuide
         label="approvals"
@@ -74,20 +91,31 @@ export default async function ApprovalsPage({
         <CardContent className="flex flex-wrap gap-2">
           <Badge variant="outline">Pending: {counts.pending}</Badge>
           <Badge variant="success">Approved: {counts.approved}</Badge>
+          <Badge variant="info">Awaiting resume: {counts.awaitingResume}</Badge>
+          <Badge variant="secondary">Executed: {counts.executed}</Badge>
           <Badge variant="destructive">Rejected: {counts.rejected}</Badge>
           <Badge variant="warning">Expired: {counts.expired}</Badge>
         </CardContent>
       </Card>
 
       <div className="space-y-4">
-        {approvals.length === 0 ? (
+        {visibleApprovals.length === 0 ? (
           <Card>
             <CardContent className="py-8">
-              <p className="text-sm text-muted-foreground">No approval requests match current filters.</p>
+              <p className="text-sm text-muted-foreground">
+                No approval requests match the current filters. Expand the range or clear the risk filter.
+              </p>
             </CardContent>
           </Card>
         ) : (
-          approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} />)
+          visibleApprovals.map((approval) => (
+            <ApprovalCard
+              key={approval.id}
+              approval={approval}
+              highlighted={approval.id === highlightedId}
+              initiallyExpanded={approval.id === highlightedId}
+            />
+          ))
         )}
       </div>
     </div>

@@ -37,6 +37,8 @@ describe("lib/feedback", () => {
         id: "fb-1",
         run_id: "run-1",
         task_id: "task-1",
+        linked_task_id: 11,
+        linked_task_status: "pending",
         agent_id: "agent-1",
         source: "user",
         category: "ux",
@@ -49,6 +51,10 @@ describe("lib/feedback", () => {
         created_at: createdAt,
         updated_at: updatedAt,
         action_count: 3,
+        remediation_status: "open",
+        remediation_notes: null,
+        resolved_at: null,
+        resolved_by: null,
       },
     ]);
 
@@ -88,6 +94,8 @@ describe("lib/feedback", () => {
           id: "fb-1",
           run_id: null,
           task_id: null,
+          linked_task_id: null,
+          linked_task_status: null,
           agent_id: null,
           source: "system",
           category: "reliability",
@@ -100,6 +108,10 @@ describe("lib/feedback", () => {
           created_at: createdAt,
           updated_at: updatedAt,
           action_count: 1,
+          remediation_status: "in_progress",
+          remediation_notes: "Investigating retry storm",
+          resolved_at: null,
+          resolved_by: null,
         },
       ])
       .mockResolvedValueOnce([
@@ -138,6 +150,7 @@ describe("lib/feedback", () => {
     expect(sql).toContain("INSERT INTO mc_feedback_items");
     expect(sql).toContain("'user'");
     expect(sql).toContain("'ux'");
+    expect(sql).toContain("'new'");
   });
 
   it("reconcileFeedbackSignal creates a new row when the recurrence key is unseen", async () => {
@@ -182,12 +195,15 @@ describe("lib/feedback", () => {
   });
 
   it("updateFeedbackStatus applies status transition", async () => {
-    await updateFeedbackStatus("fb-1", "verified", "owner-1");
+    vi.mocked(prisma.$executeRawUnsafe).mockResolvedValueOnce(1);
+
+    const updated = await updateFeedbackStatus("fb-1", "verified", "owner-1");
 
     expect(prisma.$executeRawUnsafe).toHaveBeenCalledTimes(1);
     const sql = vi.mocked(prisma.$executeRawUnsafe).mock.calls[0][0] as string;
     expect(sql).toContain("status = 'verified'");
     expect(sql).toContain("owner = 'owner-1'");
+    expect(updated).toBe(true);
   });
 
   it("addFeedbackAction creates action linked to feedback", async () => {
@@ -205,7 +221,7 @@ describe("lib/feedback", () => {
     expect(sql).toContain("'create_issue'");
   });
 
-  it("getFeedbackMetrics returns aggregated counts and trends", async () => {
+  it("getFeedbackMetrics returns aggregated counts and trends for the requested slice", async () => {
     vi.mocked(prisma.$queryRawUnsafe)
       .mockResolvedValueOnce([
         { severity: "low", count: 2 },
@@ -228,7 +244,7 @@ describe("lib/feedback", () => {
         { day: "2026-02-26", count: 2 },
       ]);
 
-    const metrics = await getFeedbackMetrics();
+    const metrics = await getFeedbackMetrics({ source: "user", severity: "high", rangeHours: 72 });
 
     expect(metrics).toEqual({
       bySeverity: { low: 2, high: 1 },
@@ -240,5 +256,10 @@ describe("lib/feedback", () => {
         { day: "2026-02-26", count: 2 },
       ],
     });
+
+    const severityQuery = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+    expect(severityQuery).toContain("INTERVAL '72 hours'");
+    expect(severityQuery).toContain("f.source = 'user'");
+    expect(severityQuery).toContain("f.severity = 'high'");
   });
 });

@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { getFeedbackById, REMEDIATION_STATUSES, updateFeedbackRemediation, type RemediationStatus } from "@/lib/feedback";
+import {
+  FEEDBACK_WORKFLOW_STATUSES,
+  getFeedbackById,
+  REMEDIATION_STATUSES,
+  updateFeedbackRemediation,
+  updateFeedbackStatus,
+  type FeedbackWorkflowStatus,
+  type RemediationStatus,
+} from "@/lib/feedback";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,22 +39,38 @@ export async function PATCH(
     remediationStatus?: string;
     remediationNotes?: string | null;
     resolvedBy?: string | null;
+    status?: string;
+    owner?: string | null;
   };
 
-  if (!body.remediationStatus) {
-    return NextResponse.json({ error: "remediationStatus is required" }, { status: 400 });
+  if (!body.remediationStatus && !body.status) {
+    return NextResponse.json({ error: "status or remediationStatus is required" }, { status: 400 });
   }
 
-  if (!REMEDIATION_STATUSES.includes(body.remediationStatus as RemediationStatus)) {
+  if (body.remediationStatus && !REMEDIATION_STATUSES.includes(body.remediationStatus as RemediationStatus)) {
     return NextResponse.json({ error: "Invalid remediationStatus" }, { status: 400 });
   }
 
-  const updated = await updateFeedbackRemediation(
-    id,
-    body.remediationStatus as RemediationStatus,
-    body.remediationNotes,
-    body.resolvedBy,
-  );
+  if (body.status && !FEEDBACK_WORKFLOW_STATUSES.includes(body.status as FeedbackWorkflowStatus)) {
+    return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+  }
+
+  let updated = true;
+
+  if (body.status) {
+    updated = await updateFeedbackStatus(id, body.status as FeedbackWorkflowStatus, body.owner ?? undefined);
+  }
+
+  if (body.remediationStatus) {
+    updated = (
+      await updateFeedbackRemediation(
+        id,
+        body.remediationStatus as RemediationStatus,
+        body.remediationNotes,
+        body.resolvedBy,
+      )
+    ) && updated;
+  }
 
   if (!updated) {
     return NextResponse.json({ error: "Feedback item not found" }, { status: 404 });

@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
   const data = await getDecisionTraces({
-    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 48,
+    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 30,
     actionType: searchParams.get("actionType") || undefined,
     triggerType: searchParams.get("triggerType") || undefined,
     outcome: (searchParams.get("outcome") as "success" | "fail" | "unknown" | "all" | null) ?? "all",

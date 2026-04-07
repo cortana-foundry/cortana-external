@@ -264,7 +264,7 @@ Expected: JSON with `ok: true` and current heartbeat status.
 ### What it shows
 - Dashboard (`/`): system metrics + recent activity
 - Council (`/council`): deliberation sessions, weighted votes, and decision rationale timeline
-- Approvals (`/approvals`): risk-tiered approval inbox with inline Telegram actions + resume flow
+- Approvals (`/approvals`): risk-tiered approval inbox with Telegram deep links into Mission Control plus resume/execution controls
 - Feedback (`/feedback`): correction/remediation dashboard with action tracking and recurrence visibility
 - Mjolnir (`/mjolnir`): recovery dashboard with Whoop recovery/sleep/strain, workout cards, 14-day trend bars, threshold alerts + alert history
 

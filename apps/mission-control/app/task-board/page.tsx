@@ -36,8 +36,6 @@ export default async function TaskBoardPage() {
   }
 
   const {
-    readyNow,
-    blocked,
     dueSoon,
     overdue,
     activeTasks,

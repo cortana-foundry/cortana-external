@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     risk_level: (searchParams.get("risk_level") as ApprovalFilters["risk_level"]) ?? undefined,
     actionType: searchParams.get("actionType") || undefined,
     correlationKey: searchParams.get("correlationKey") || undefined,
-    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 168,
+    rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 24 * 90,
     limit: parseNumber(searchParams.get("limit")) ?? 120,
   };
 

@@ -4,7 +4,7 @@ import { FeedbackFilters } from "@/components/feedback-filters";
 import { GovernanceGuide } from "@/components/governance-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FeedbackFilters as Filters, getFeedbackItems, getFeedbackMetrics } from "@/lib/feedback";
+import { FeedbackFilters as Filters, getFeedbackById, getFeedbackItems, getFeedbackMetrics } from "@/lib/feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +26,15 @@ export default async function FeedbackPage({
     severity: (params.severity as Filters["severity"]) ?? "all",
     category: params.category ?? undefined,
     source: (params.source as Filters["source"]) ?? "all",
-    rangeHours: parseNum(params.rangeHours) ?? 24 * 14,
+    rangeHours: parseNum(params.rangeHours) ?? 24 * 90,
     limit: parseNum(params.limit) ?? 120,
   };
+  const highlightedId = params.id ?? params.highlight ?? null;
 
-  const [items, metrics] = await Promise.all([
+  const [items, metrics, highlightedItem] = await Promise.all([
     getFeedbackItems(filters),
-    getFeedbackMetrics(),
+    getFeedbackMetrics(filters),
+    highlightedId ? getFeedbackById(highlightedId) : Promise.resolve(null),
   ]);
 
   const search = new URLSearchParams();
@@ -40,8 +42,14 @@ export default async function FeedbackPage({
     if (value) search.set(key, value);
   });
 
-  const categories = Array.from(new Set(items.map((item) => item.category))).sort();
+  const visibleItems =
+    highlightedItem && !items.some((item) => item.id === highlightedItem.id)
+      ? [highlightedItem, ...items]
+      : items;
+
+  const categories = Array.from(new Set(visibleItems.map((item) => item.category))).sort();
   const maxDaily = Math.max(1, ...metrics.dailyCorrections.map((point) => point.count));
+  const windowDays = Math.max(1, Math.round((filters.rangeHours ?? 24 * 90) / 24));
 
   const openCount = metrics.byRemediationStatus.open ?? 0;
   const resolvedCount = metrics.byRemediationStatus.resolved ?? 0;
@@ -68,6 +76,8 @@ export default async function FeedbackPage({
         selectedRemediationStatus={filters.remediationStatus ?? "all"}
         selectedSeverity={filters.severity ?? "all"}
         selectedCategory={filters.category ?? "all"}
+        selectedSource={filters.source ?? "all"}
+        selectedRangeHours={String(filters.rangeHours ?? 24 * 90)}
         categories={categories}
       />
 
@@ -129,11 +139,11 @@ export default async function FeedbackPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Daily corrections (14d)</CardTitle>
+          <CardTitle className="text-base">Daily corrections</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {metrics.dailyCorrections.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No corrections in the last 14 days.</p>
+            <p className="text-sm text-muted-foreground">No corrections in the selected {windowDays}d window.</p>
           ) : (
             metrics.dailyCorrections.map((point) => (
               <div key={point.day} className="space-y-1">
@@ -154,14 +164,23 @@ export default async function FeedbackPage({
       </Card>
 
       <div className="space-y-4">
-        {items.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <Card>
             <CardContent className="py-8">
-              <p className="text-sm text-muted-foreground">No feedback items match current filters.</p>
+              <p className="text-sm text-muted-foreground">
+                No feedback items match the current filters. Try widening the range or switching the source filter.
+              </p>
             </CardContent>
           </Card>
         ) : (
-          items.map((feedback) => <FeedbackCard key={feedback.id} feedback={feedback} />)
+          visibleItems.map((feedback) => (
+            <FeedbackCard
+              key={feedback.id}
+              feedback={feedback}
+              highlighted={feedback.id === highlightedId}
+              initiallyExpanded={feedback.id === highlightedId}
+            />
+          ))
         )}
       </div>
     </div>

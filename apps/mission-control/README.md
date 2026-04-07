@@ -66,7 +66,7 @@ pnpm dev
 - `POST /api/council/jobs/deliberate` — council deliberation fanout job
 - `GET /api/feedback` / `POST /api/feedback` — feedback item list/create
 - `GET /api/feedback/:id` — fetch single feedback item and action history
-- `PATCH /api/feedback/:id` — update remediation fields (`remediationStatus`, `remediationNotes`, `resolvedBy`)
+- `PATCH /api/feedback/:id` — update workflow and remediation fields (`status`, `owner`, `remediationStatus`, `remediationNotes`, `resolvedBy`)
 - `GET /api/task-board` — task board slices (ready, blocked, due, pillar rollups, recent outcomes)
 - `GET /api/live` — SSE stream for near-live UI refresh ticks
 - `POST /api/openclaw/subagent-events` — OpenClaw sub-agent lifecycle ingestion (queued/running/done/failed/timeout/killed)
@@ -76,7 +76,7 @@ pnpm dev
 - `/` — Dashboard with stats, agent health widgets, runs table, and alerts feed
 - `/task-board` — Task board cards (Ready now, Blocked, Due soon/Overdue, By pillar, and Recent execution log)
 - `/agents` — Agent overview
-- `/approvals` — Approvals inbox with inline Telegram-driven action flow and resume controls
+- `/approvals` — Approvals inbox with Mission Control review flow, Telegram deep links, and resume/execution controls
 - `/council` — Council deliberation sessions, member votes, and synthesis rationale
 - `/feedback` — Feedback inbox with remediation status, notes/actions, and resolution metrics
 - `/jobs` — Runs/jobs list
