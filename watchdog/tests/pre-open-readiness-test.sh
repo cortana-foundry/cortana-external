@@ -96,6 +96,7 @@ run_scenario() {
   PRE_OPEN_CANARY_PATH="$scenario_dir/pre-open-canary-latest.json" \
   PRE_OPEN_CANARY_MAX_AGE_SECONDS=7200 \
   PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS=0 \
+  PRE_OPEN_CANARY_REFRESH_COMMAND="${PRE_OPEN_CANARY_REFRESH_COMMAND:-/bin/false}" \
   bash -c "source '$ROOT_DIR/watchdog.sh'; PATH='$BIN_DIR':\"\$PATH\"; ALERTS=''; LOGS=''; check_pre_open_readiness; printf '%s' \"\$ALERTS\" >'$scenario_dir/output.txt'"
 }
 
@@ -126,6 +127,46 @@ write_canary_artifact \
   "$CURRENT_TS"
 run_scenario provider_only
 assert_file_empty "provider-only readiness degradation stays silent" "$TMP_DIR/provider_only/output.txt"
+
+mkdir -p "$TMP_DIR/missing_refresh"
+cat >"$BIN_DIR/write-pass-canary.sh" <<'EOF'
+#!/bin/bash
+python3 - "$PRE_OPEN_CANARY_PATH" <<'PY'
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+import sys
+
+payload = {
+    "artifact_family": "readiness_check",
+    "schema_version": 1,
+    "producer": "backtester.pre_open_canary",
+    "status": "ok",
+    "degraded_status": "healthy",
+    "outcome_class": "readiness_pass",
+    "generated_at": datetime.now(UTC).isoformat(),
+    "known_at": datetime.now(UTC).isoformat(),
+    "check_name": "pre_open_canary",
+    "result": "pass",
+    "ready_for_open": True,
+    "checked_at": datetime.now(UTC).isoformat(),
+    "checks": [{"name": "service_ready", "result": "pass", "evidence": {}}],
+    "warnings": [],
+}
+Path(sys.argv[1]).write_text(json.dumps(payload), encoding="utf-8")
+PY
+EOF
+chmod +x "$BIN_DIR/write-pass-canary.sh"
+PRE_OPEN_CANARY_REFRESH_COMMAND="$BIN_DIR/write-pass-canary.sh" run_scenario missing_refresh
+assert_file_empty "missing canary refreshes before alerting" "$TMP_DIR/missing_refresh/output.txt"
+
+mkdir -p "$TMP_DIR/missing_persist"
+PRE_OPEN_CANARY_REFRESH_COMMAND="/bin/false" run_scenario missing_persist
+assert_file_empty "missing canary first failure stays silent" "$TMP_DIR/missing_persist/output.txt"
+PRE_OPEN_CANARY_REFRESH_COMMAND="/bin/false" run_scenario missing_persist
+assert_file_contains "missing canary alerts after persistence" "Pre-open canary artifact is missing and could not be refreshed." "$TMP_DIR/missing_persist/output.txt"
 
 strategy_fail_checks='[
   {"name":"service_ready","result":"pass","evidence":{"reason":"healthy"}},

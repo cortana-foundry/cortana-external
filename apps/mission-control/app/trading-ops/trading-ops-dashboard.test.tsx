@@ -41,6 +41,8 @@ const fixture: TradingOpsDashboardData = {
       operatorAction: "Wait for cooldown to clear.",
       preOpenGateStatus: "Warn",
       preOpenGateDetail: null,
+      preOpenGateFreshness: "Last pre-open readiness check ran 10m ago at Apr 3, 7:15 PM ET.",
+      cooldownSummary: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.",
       incidents: [{ incidentType: "provider_cooldown", severity: "medium", operatorAction: "Wait." }],
     },
   },
@@ -55,6 +57,8 @@ const fixture: TradingOpsDashboardData = {
       readyForOpen: false,
       result: "warn",
       warningCount: 1,
+      checkedAt: "2026-04-03T23:15:22.659140+00:00",
+      freshness: "Apr 3, 7:15 PM (15m ago)",
       checks: [{ name: "service_ready", result: "warn" }],
     },
   },
@@ -186,6 +190,7 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
     expect(container).toHaveTextContent("Focus ABBV · WATCH");
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
+    expect(container).toHaveTextContent("Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.");
     expect(container).toHaveTextContent("Apr 3, 12:38 PM");
     expect(container).toHaveTextContent("Apr 3, 12:40 PM");
     expect(container).toHaveTextContent("success");
@@ -269,6 +274,8 @@ describe("TradingOpsDashboard", () => {
               ...fixture.runtime.data,
               preOpenGateStatus: "Readiness check unavailable",
               preOpenGateDetail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+              preOpenGateFreshness: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+              cooldownSummary: null,
               incidents: [],
               operatorState: "healthy",
               operatorAction: "No operator action required.",
@@ -296,6 +303,7 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Readiness check unavailable");
     expect(container).toHaveTextContent("Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.");
     expect(container).toHaveTextContent("Pre-open readiness check");
+    expect(container).toHaveTextContent("No operator action required.");
     expect(container).toHaveTextContent("File artifact fallback");
   });
 });

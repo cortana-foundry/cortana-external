@@ -36,6 +36,7 @@ describe("trading ops loader", () => {
     });
     await writeJson(path.join(repoPath, "var", "readiness", "pre-open-canary-latest.json"), {
       generated_at: "2026-04-03T23:15:22.659140+00:00",
+      checked_at: "2026-04-03T23:15:22.659140+00:00",
       result: "warn",
       status: "degraded",
       ready_for_open: false,
@@ -111,6 +112,14 @@ describe("trading ops loader", () => {
         return {
           generated_at: "2026-04-03T23:25:53.853293+00:00",
           pre_open_gate_status: "warn",
+          pre_open_gate_freshness: {
+            status: "fresh",
+            detail: "Last pre-open readiness check ran 11m ago at 2026-04-03T23:15:22.659140+00:00.",
+          },
+          provider_cooldown_summary: {
+            active: true,
+            detail: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since 2026-04-03T23:02:00.000000+00:00.",
+          },
           service_health: {
             operator_state: "provider_cooldown",
             operator_action: "Wait for cooldown to clear.",
@@ -142,7 +151,11 @@ describe("trading ops loader", () => {
     expect(data.runtime.data?.operatorState).toBe("provider_cooldown");
     expect(data.runtime.data?.preOpenGateStatus).toBe("Warn");
     expect(data.runtime.data?.preOpenGateDetail).toBeNull();
+    expect(data.runtime.data?.preOpenGateFreshness).toContain("Last pre-open readiness check ran");
+    expect(data.runtime.data?.cooldownSummary).toContain("Cooldown is active now");
     expect(data.canary.data?.warningCount).toBe(1);
+    expect(data.canary.data?.checkedAt).toBe("2026-04-03T23:15:22.659140+00:00");
+    expect(data.canary.data?.freshness).toContain("Apr 3");
     expect(data.prediction.data?.oneDayMatured).toBe(880);
     expect(data.benchmark.data?.horizonKey).toBe("5d");
     expect(data.lifecycle.data?.openCount).toBe(1);
@@ -267,6 +280,10 @@ describe("trading ops loader", () => {
             generated_at: "2026-04-07T16:08:10.071538+00:00",
             pre_open_gate_status: "not_available",
             pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            pre_open_gate_freshness: {
+              status: "missing",
+              detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            },
             service_health: {
               operator_state: "healthy",
               operator_action: "No operator action required.",
@@ -282,6 +299,7 @@ describe("trading ops loader", () => {
     expect(data.runtime.state).toBe("ok");
     expect(data.runtime.data?.preOpenGateStatus).toBe("Readiness check unavailable");
     expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open readiness check artifact is missing");
+    expect(data.runtime.data?.preOpenGateFreshness).toContain("Pre-open readiness check artifact is missing");
   });
 
   it("renders provider cooldown timestamps in ET instead of raw ISO", async () => {
@@ -298,6 +316,14 @@ describe("trading ops loader", () => {
             generated_at: "2026-04-07T17:32:10.071538+00:00",
             pre_open_gate_status: "not_available",
             pre_open_gate_detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            pre_open_gate_freshness: {
+              status: "missing",
+              detail: "Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.",
+            },
+            provider_cooldown_summary: {
+              active: true,
+              detail: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since 2026-04-07T17:12:29.777Z. Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+            },
             service_health: {
               operator_state: "provider_cooldown",
               operator_action: "Schwab REST is cooling down after repeated failures. Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
@@ -319,6 +345,35 @@ describe("trading ops loader", () => {
     expect(data.runtime.message).not.toContain("2026-04-07T17:35:29.777Z");
     expect(data.runtime.data?.operatorAction).toContain("Apr 7, 1:35 PM ET");
     expect(data.runtime.data?.incidents[0]?.operatorAction).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.data?.cooldownSummary).toContain("Apr 7, 1:35 PM ET");
+  });
+
+  it("marks stale canary artifacts as stale supporting health state", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-canary-stale-"));
+    tempDirs.push(repoPath);
+
+    await writeJson(path.join(repoPath, "var", "readiness", "pre-open-canary-latest.json"), {
+      generated_at: "2026-04-03T23:15:22.659140+00:00",
+      checked_at: "2026-04-03T23:15:22.659140+00:00",
+      result: "pass",
+      status: "ok",
+      ready_for_open: true,
+      warnings: [],
+      checks: [{ name: "service_ready", result: "pass" }],
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: null,
+    });
+
+    expect(data.canary.state).toBe("degraded");
+    expect(data.canary.badgeText).toBe("stale");
+    expect(data.canary.message).toContain("Readiness artifact is stale");
   });
 
   it("prefers DB-backed latest trading run state when the store matches the latest artifact", async () => {

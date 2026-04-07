@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { formatOperatorTimestamp } from "@/lib/format-utils";
+import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 import {
   prismaTradingRunStateStore,
@@ -46,6 +46,8 @@ export type RuntimeOverview = {
   operatorAction: string;
   preOpenGateStatus: string | null;
   preOpenGateDetail: string | null;
+  preOpenGateFreshness: string | null;
+  cooldownSummary: string | null;
   incidents: Array<{ incidentType: string; severity: string; operatorAction: string }>;
 };
 
@@ -53,6 +55,8 @@ export type CanaryOverview = {
   readyForOpen: boolean | null;
   result: string | null;
   warningCount: number;
+  checkedAt: string | null;
+  freshness: string;
   checks: Array<{ name: string; result: string }>;
 };
 
@@ -340,13 +344,17 @@ async function loadRuntimeOverview(
     const state: LoadState = operatorState === "healthy" ? "ok" : "degraded";
     const preOpenGateStatus = normalizePreOpenGateStatus(stringValue(data?.pre_open_gate_status));
     const preOpenGateDetail = humanizeOperatorText(stringValue(data?.pre_open_gate_detail));
+    const preOpenGateFreshness = humanizeOperatorText(stringValue(asRecord(data?.pre_open_gate_freshness)?.detail));
     const operatorAction = humanizeOperatorText(stringValue(service?.operator_action) ?? "No operator action required.");
+    const cooldownSummary = humanizeOperatorText(stringValue(asRecord(data?.provider_cooldown_summary)?.detail));
 
     return {
       state,
       label: operatorState,
       message:
         operatorAction ??
+        cooldownSummary ??
+        preOpenGateFreshness ??
         preOpenGateDetail ??
         "No operator action required.",
       data: {
@@ -354,6 +362,8 @@ async function loadRuntimeOverview(
         operatorAction,
         preOpenGateStatus,
         preOpenGateDetail,
+        preOpenGateFreshness,
+        cooldownSummary,
         incidents,
       },
       source: scriptPath,
@@ -396,20 +406,35 @@ async function loadCanaryOverview(repoPath: string): Promise<ArtifactState<Canar
       result: stringValue(entry.result) ?? "unknown",
     }));
   const status = stringValue(data.status) ?? "unknown";
+  const checkedAt = stringValue(data.checked_at) ?? stringValue(data.generated_at);
+  const isStale = isTimestampOlderThanSeconds(checkedAt, 7200);
+  const freshness = checkedAt
+    ? `${formatOperatorTimestamp(checkedAt)} (${formatRelativeAge(checkedAt)})`
+    : "No check timestamp";
 
   return {
-    state: status === "ok" ? "ok" : "degraded",
+    state: isStale || status !== "ok" ? "degraded" : "ok",
     label: stringValue(data.result) ?? status,
-    message: checks.length > 0 ? `${checks.filter((check) => check.result !== "ok").length} checks need attention.` : "No readiness checks recorded.",
+    message: isStale
+      ? `Readiness artifact is stale. Last check was ${formatRelativeAge(checkedAt)}.`
+      : checks.length > 0
+        ? `${checks.filter((check) => check.result !== "ok").length} checks need attention.`
+        : "No readiness checks recorded.",
     data: {
       readyForOpen: booleanValue(data.ready_for_open),
       result: stringValue(data.result),
       warningCount: asArray(data.warnings).length,
+      checkedAt,
+      freshness,
       checks,
     },
     source: canaryPath,
-    updatedAt: stringValue(data.generated_at) ?? stringValue(data.checked_at),
-    warnings: asArray(data.warnings).map(String),
+    updatedAt: stringValue(data.generated_at) ?? checkedAt,
+    warnings: [
+      ...asArray(data.warnings).map(String),
+      ...(isStale ? [`stale:${formatRelativeAge(checkedAt)}`] : []),
+    ],
+    badgeText: isStale ? "stale" : undefined,
   };
 }
 
@@ -1051,9 +1076,17 @@ function positionSizingPctFromTradingDecision(decision: string | null | undefine
   return decision.toUpperCase() === "NO_TRADE" ? 0 : null;
 }
 
+function isTimestampOlderThanSeconds(timestamp: string | null | undefined, seconds: number): boolean {
+  if (!timestamp) return false;
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed > seconds * 1000;
+}
+
 function normalizePreOpenGateStatus(status: string | null): string | null {
   if (!status) return null;
   if (status === "not_available") return "Readiness check unavailable";
+  if (status === "stale") return "Stale";
   if (status === "unknown" || status === "not_reported") return "Not reported";
   if (status === "warn") return "Warn";
   if (status === "fail") return "Fail";

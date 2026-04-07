@@ -23,6 +23,8 @@ MARKET_DATA_QUOTE_SYMBOLS="${MARKET_DATA_QUOTE_SYMBOLS:-SPY,QQQ}"
 PRE_OPEN_CANARY_PATH="${PRE_OPEN_CANARY_PATH:-/Users/hd/Developer/cortana-external/backtester/var/readiness/pre-open-canary-latest.json}"
 PRE_OPEN_CANARY_MAX_AGE_SECONDS="${PRE_OPEN_CANARY_MAX_AGE_SECONDS:-7200}"
 PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
+BACKTESTER_ROOT="${BACKTESTER_ROOT:-$SCRIPT_DIR/../backtester}"
+PRE_OPEN_CANARY_REFRESH_COMMAND="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
 MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
 MISSION_CONTROL_HEALTH_PATH="${MISSION_CONTROL_HEALTH_PATH:-/api/heartbeat-status}"
 MISSION_CONTROL_LAUNCHD_LABEL="${MISSION_CONTROL_LAUNCHD_LABEL:-com.cortana.mission-control}"
@@ -501,23 +503,48 @@ check_pre_open_readiness() {
   local warn_threshold_seconds="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
 
   if [[ ! -f "$PRE_OPEN_CANARY_PATH" ]]; then
-    log "info" "Pre-open canary artifact not present at ${PRE_OPEN_CANARY_PATH}; skipping readiness check"
-    clear_check_recovery_silent "$readiness_check_name"
-    return
+    if refresh_pre_open_canary_artifact "missing"; then
+      log "info" "Pre-open canary artifact was missing; refresh succeeded"
+    else
+      alert_if_failure_persists \
+        "$readiness_check_name" \
+        "$warn_threshold_seconds" \
+        "Pre-open canary artifact is missing and could not be refreshed. Trading-lane readiness freshness is unknown." \
+        "warning" >/dev/null || true
+      return
+    fi
   fi
 
   local checked_at age_seconds
   checked_at=$(jq -r '.checked_at // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
   age_seconds=$(get_iso8601_age_seconds "$checked_at")
   if [[ -z "$age_seconds" ]]; then
-    log "warning" "Pre-open canary artifact is unreadable or missing checked_at; skipping readiness check"
-    clear_check_recovery_silent "$readiness_check_name"
-    return
+    if refresh_pre_open_canary_artifact "unreadable"; then
+      checked_at=$(jq -r '.checked_at // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+      age_seconds=$(get_iso8601_age_seconds "$checked_at")
+    fi
+    if [[ -z "$age_seconds" ]]; then
+      alert_if_failure_persists \
+        "$readiness_check_name" \
+        "$warn_threshold_seconds" \
+        "Pre-open canary artifact is unreadable or missing a checked_at timestamp. Trading-lane readiness freshness is unknown." \
+        "warning" >/dev/null || true
+      return
+    fi
   fi
   if [[ "$age_seconds" -gt "$PRE_OPEN_CANARY_MAX_AGE_SECONDS" ]]; then
-    log "info" "Pre-open canary artifact is stale (${age_seconds}s old); skipping readiness check"
-    clear_check_recovery_silent "$readiness_check_name"
-    return
+    if refresh_pre_open_canary_artifact "stale"; then
+      checked_at=$(jq -r '.checked_at // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+      age_seconds=$(get_iso8601_age_seconds "$checked_at")
+    fi
+    if [[ -z "$age_seconds" || "$age_seconds" -gt "$PRE_OPEN_CANARY_MAX_AGE_SECONDS" ]]; then
+      alert_if_failure_persists \
+        "$readiness_check_name" \
+        "$warn_threshold_seconds" \
+        "Pre-open canary artifact is stale (${age_seconds:-unknown}s old) and could not be refreshed. Trading-lane readiness freshness is unknown." \
+        "warning" >/dev/null || true
+      return
+    fi
   fi
 
   local artifact_family result outcome_class
@@ -596,6 +623,25 @@ check_pre_open_readiness() {
     "$warn_threshold_seconds" \
     "Pre-open canary is degraded. Trading lane may not be fully ready for the open. ${human_causes}" \
     "warning" >/dev/null || true
+}
+
+refresh_pre_open_canary_artifact() {
+  local reason="${1:-unknown}"
+  local command="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
+
+  log "info" "Attempting pre-open canary refresh (${reason})"
+
+  if [[ -z "$command" ]]; then
+    command="cd '$BACKTESTER_ROOT' && uv run python pre_open_canary.py >/dev/null"
+  fi
+
+  if bash -lc "$command" >/dev/null 2>&1; then
+    [[ -f "$PRE_OPEN_CANARY_PATH" ]]
+    return $?
+  fi
+
+  log "warning" "Pre-open canary refresh failed (${reason})"
+  return 1
 }
 
 # ── A) Cron Health ──

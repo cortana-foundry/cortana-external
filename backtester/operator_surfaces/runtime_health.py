@@ -21,6 +21,7 @@ DEFAULT_READINESS_PATH = BACKTESTER_ROOT / "var" / "readiness" / "pre-open-canar
 DEFAULT_WATCHDOG_STATE_PATH = WATCHDOG_ROOT / "watchdog-state.json"
 DEFAULT_WATCHDOG_LOG_PATH = WATCHDOG_ROOT / "logs" / "watchdog.log"
 DEFAULT_SERVICE_BASE_URL = "http://127.0.0.1:3033"
+DEFAULT_PRE_OPEN_CANARY_MAX_AGE_SECONDS = 7200
 
 
 def build_runtime_health_snapshot(
@@ -30,11 +31,18 @@ def build_runtime_health_snapshot(
     readiness_path: Path = DEFAULT_READINESS_PATH,
     watchdog_state_path: Path = DEFAULT_WATCHDOG_STATE_PATH,
     watchdog_log_path: Path = DEFAULT_WATCHDOG_LOG_PATH,
+    pre_open_canary_max_age_seconds: int = DEFAULT_PRE_OPEN_CANARY_MAX_AGE_SECONDS,
 ) -> dict[str, Any]:
     readiness = _load_json(readiness_path)
     ready_payload, ready_error = _http_json(f"{service_base_url.rstrip('/')}/market-data/ready")
     ops_payload, ops_error = _http_json(f"{service_base_url.rstrip('/')}/market-data/ops")
     watchdog_state = _load_json(watchdog_state_path)
+    canary_freshness = _build_canary_freshness(
+        readiness,
+        readiness_path=readiness_path,
+        generated_at=generated_at,
+        max_age_seconds=pre_open_canary_max_age_seconds,
+    )
 
     service_health = {
         "status": "ok" if ready_error is None else "degraded",
@@ -44,11 +52,13 @@ def build_runtime_health_snapshot(
         "ops_payload": ops_payload,
     }
     canary_result = str((readiness or {}).get("result") or "not_available")
-    if canary_result == "unknown":
+    if canary_freshness["status"] == "stale":
+        canary_result = "stale"
+    elif canary_result == "unknown":
         canary_result = "not_reported"
 
     cron_health = {
-        "status": "ok" if readiness else "degraded",
+        "status": "ok" if canary_freshness["status"] == "fresh" else "degraded",
         "pre_open_canary_present": bool(readiness),
         "pre_open_canary_result": canary_result,
         "pre_open_canary_checked_at": (readiness or {}).get("checked_at"),
@@ -78,6 +88,10 @@ def build_runtime_health_snapshot(
         or (ops_data or {}).get("serviceOperatorAction")
         or ""
     ).strip()
+    cooldown_summary = _build_provider_cooldown_summary(
+        operator_state=operator_state,
+        watchdog_state=watchdog_state,
+    )
 
     incident_markers = []
     if ready_error:
@@ -97,6 +111,15 @@ def build_runtime_health_snapshot(
                 "operator_action": operator_action,
             }
         )
+    if canary_freshness["status"] in {"missing", "stale", "unreadable"}:
+        incident_markers.append(
+            {
+                "incident_type": "pre_open_gate_unavailable",
+                "severity": "medium",
+                "runbook_ref": "watchdog/README.md#What it checks",
+                "operator_action": canary_freshness["detail"],
+            }
+        )
     if readiness and str(readiness.get("result") or "").lower() == "fail":
         incident_markers.append(
             {
@@ -114,21 +137,19 @@ def build_runtime_health_snapshot(
         service_health["operator_action"] = operator_action
 
     pre_open_gate_status = canary_result
-    pre_open_gate_detail = (
-        None
-        if readiness
-        else f"Pre-open readiness check artifact is missing at {readiness_path}."
-    )
+    pre_open_gate_detail = canary_freshness["detail"]
 
-    overall_status = "ok" if not incident_markers and readiness else "degraded"
+    overall_status = "ok" if not incident_markers and canary_freshness["status"] == "fresh" else "degraded"
     return annotate_artifact(
         {
             "pre_open_gate_status": pre_open_gate_status,
             "pre_open_gate_detail": pre_open_gate_detail,
+            "pre_open_gate_freshness": canary_freshness,
             "service_health": service_health,
             "cron_health": cron_health,
             "watchdog_health": watchdog_health,
             "delivery_health": delivery_health,
+            "provider_cooldown_summary": cooldown_summary,
             "incident_markers": incident_markers,
             "inspection_paths": {
                 "readiness_artifact": str(readiness_path),
@@ -167,3 +188,172 @@ def _http_json(url: str) -> tuple[dict[str, Any] | None, str | None]:
     except Exception as exc:
         return None, str(exc)
     return payload if isinstance(payload, dict) else None, None
+
+
+def _build_canary_freshness(
+    readiness: dict[str, Any] | None,
+    *,
+    readiness_path: Path,
+    generated_at: str,
+    max_age_seconds: int,
+) -> dict[str, Any]:
+    checked_at = None
+    if isinstance(readiness, dict):
+        checked_at = readiness.get("checked_at") or readiness.get("generated_at")
+    age_seconds = _age_seconds(checked_at, generated_at)
+    detail = None
+    status = "fresh"
+
+    if not readiness_path.exists():
+        status = "missing"
+        detail = f"Pre-open readiness check artifact is missing at {readiness_path}."
+    elif readiness is None:
+        status = "unreadable"
+        detail = f"Pre-open readiness check artifact at {readiness_path} is unreadable or invalid."
+    elif age_seconds is None:
+        status = "unreadable"
+        detail = f"Pre-open readiness check artifact at {readiness_path} is missing a valid checked_at timestamp."
+    elif age_seconds > max_age_seconds:
+        status = "stale"
+        detail = (
+            f"Pre-open readiness check is stale. Last check ran "
+            f"{_format_duration(age_seconds)} ago at {_format_iso(checked_at)}."
+        )
+    else:
+        detail = f"Last pre-open readiness check ran {_format_duration(age_seconds)} ago at {_format_iso(checked_at)}."
+
+    return {
+        "status": status,
+        "checked_at": checked_at,
+        "age_seconds": age_seconds,
+        "max_age_seconds": max_age_seconds,
+        "detail": detail,
+    }
+
+
+def _build_provider_cooldown_summary(
+    *,
+    operator_state: str,
+    watchdog_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    failing_rows: list[dict[str, Any]] = []
+    labels = {
+        "market_data_provider": "provider health",
+        "market_data_quotes": "quote smoke",
+    }
+
+    state_payload = watchdog_state if isinstance(watchdog_state, dict) else {}
+    for key, label in labels.items():
+        row = state_payload.get(key)
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "") != "failing":
+            continue
+        failing_rows.append(
+            {
+                "key": key,
+                "label": label,
+                "first_failure": _epoch_to_iso(row.get("first_failure")),
+                "last_alert": _epoch_to_iso(row.get("last_alert")),
+            }
+        )
+
+    active = operator_state == "provider_cooldown" or bool(failing_rows)
+    first_failure_at = _min_iso(*(row["first_failure"] for row in failing_rows))
+    last_alert_at = _max_iso(*(row["last_alert"] for row in failing_rows))
+    active_for_seconds = _duration_between(first_failure_at) if active and first_failure_at else None
+    affected_labels = [row["label"] for row in failing_rows]
+    detail = None
+    if active:
+        affected = ", ".join(affected_labels) if affected_labels else "market-data service"
+        if first_failure_at:
+            detail = f"Cooldown is active now. Watchdog still sees {affected} failing since {_format_iso(first_failure_at)}."
+        else:
+            detail = f"Cooldown is active now across {affected}."
+    elif last_alert_at:
+        detail = f"Last provider cooldown alert cleared at {_format_iso(last_alert_at)}."
+
+    return {
+        "active": active,
+        "affected_checks": affected_labels,
+        "failing_check_count": len(failing_rows),
+        "first_failure_at": first_failure_at,
+        "last_alert_at": last_alert_at,
+        "active_for_seconds": active_for_seconds,
+        "detail": detail,
+    }
+
+
+def _age_seconds(value: Any, generated_at: str) -> int | None:
+    if not value:
+        return None
+    checked_dt = _parse_iso(value)
+    generated_dt = _parse_iso(generated_at)
+    if checked_dt is None or generated_dt is None:
+        return None
+    return max(0, int((generated_dt - checked_dt).total_seconds()))
+
+
+def _duration_between(value: str | None) -> int | None:
+    if not value:
+        return None
+    current = datetime.now(UTC)
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return None
+    return max(0, int((current - parsed).total_seconds()))
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+    except Exception:
+        return None
+
+
+def _epoch_to_iso(value: Any) -> str | None:
+    try:
+        raw = int(value)
+    except Exception:
+        return None
+    if raw <= 0:
+        return None
+    return datetime.fromtimestamp(raw, UTC).isoformat()
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "unknown age"
+    if seconds < 60:
+        return "under 1m"
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    remainder = minutes % 60
+    if remainder == 0:
+        return f"{hours}h"
+    return f"{hours}h {remainder}m"
+
+
+def _format_iso(value: Any) -> str:
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return "unknown time"
+    return parsed.isoformat()
+
+
+def _min_iso(*values: str | None) -> str | None:
+    parsed = [item for item in (_parse_iso(value) for value in values) if item is not None]
+    if not parsed:
+        return None
+    return min(parsed).isoformat()
+
+
+def _max_iso(*values: str | None) -> str | None:
+    parsed = [item for item in (_parse_iso(value) for value in values) if item is not None]
+    if not parsed:
+        return None
+    return max(parsed).isoformat()
