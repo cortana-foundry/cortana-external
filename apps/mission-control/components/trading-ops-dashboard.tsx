@@ -18,6 +18,7 @@ type TradingOpsDashboardProps = {
 export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
   const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].some((a) => a.state === "error");
+  const hasTradingRunFallback = data.tradingRun.badgeText === "fallback";
 
   return (
     <div className="space-y-3">
@@ -25,7 +26,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       <TerminalHeader data={data} />
 
       {/* ── Zone B: Alert Banner (conditional) ── */}
-      {(hasIncidents || hasErrors) && <AlertBanner data={data} />}
+      {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
       {/* ── Zone C: Four Summary Cells ── */}
       <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">

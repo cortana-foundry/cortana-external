@@ -210,6 +210,35 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByText(/provider_cooldown: Wait\./)).toBeInTheDocument();
   });
 
+  it("renders alert banner when latest trading run is in explicit fallback", () => {
+    const fallbackFixture: TradingOpsDashboardData = {
+      ...fixture,
+      runtime: {
+        ...fixture.runtime,
+        state: "ok",
+        message: "No operator action required.",
+        warnings: [],
+        data: fixture.runtime.data
+          ? {
+              ...fixture.runtime.data,
+              incidents: [],
+              operatorState: "healthy",
+              operatorAction: "No operator action required.",
+            }
+          : fixture.runtime.data,
+      },
+      tradingRun: {
+        ...fixture.tradingRun,
+        state: "degraded",
+        badgeText: "fallback",
+        message: "Using file fallback because DB-backed trading run state is unavailable.",
+      },
+    };
+
+    render(<TradingOpsDashboard data={fallbackFixture} />);
+    expect(screen.getByText(/trading_run_state_fallback:/)).toBeInTheDocument();
+  });
+
   it("renders terminal header metrics", () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
     expect(container).toHaveTextContent("CORRECTION");
