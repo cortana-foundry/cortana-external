@@ -122,22 +122,26 @@ export function TaskStatusFilters({
   const [localActiveTasks, setLocalActiveTasks] = useState<TaskBoardTask[]>(activeTasks);
   const [localCompletedTasks, setLocalCompletedTasks] = useState<TaskBoardTask[]>(completedTasks);
   const [activeTask, setActiveTask] = useState<TaskBoardTask | null>(null);
+  const dragCooldownRef = useRef(0);
 
-  // Sync local state when server props change
+  // Sync local state when server props change, but skip during drag cooldown
+  // to prevent AutoRefresh from overwriting optimistic updates.
   const prevActiveRef = useRef(activeTasks);
   const prevCompletedRef = useRef(completedTasks);
 
   useEffect(() => {
     if (prevActiveRef.current !== activeTasks) {
-      setLocalActiveTasks(activeTasks);
       prevActiveRef.current = activeTasks;
+      if (Date.now() < dragCooldownRef.current) return;
+      setLocalActiveTasks(activeTasks);
     }
   }, [activeTasks]);
 
   useEffect(() => {
     if (prevCompletedRef.current !== completedTasks) {
-      setLocalCompletedTasks(completedTasks);
       prevCompletedRef.current = completedTasks;
+      if (Date.now() < dragCooldownRef.current) return;
+      setLocalCompletedTasks(completedTasks);
     }
   }, [completedTasks]);
 
@@ -173,6 +177,9 @@ export function TaskStatusFilters({
       }
 
       if (fromColumn === toColumn) return;
+
+      // Block prop-sync from AutoRefresh for 5s so optimistic state sticks
+      dragCooldownRef.current = Date.now() + 5_000;
 
       // Optimistic update
       const prevActive = localActiveTasks;
