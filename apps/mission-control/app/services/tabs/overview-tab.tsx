@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import {
   Bot,
@@ -16,7 +15,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { StatCard, formatInt, formatMoney } from "./shared";
 import type { SerializedAgent, CouncilSessionSummary, UsageData, Tab } from "./shared";
 
-const SystemStatsClient = React.lazy(() => import("@/app/system-stats/system-stats-client"));
+import SystemStatsClient from "@/app/system-stats/system-stats-client";
 
 export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { agents: SerializedAgent[]; councilSessions: CouncilSessionSummary[]; usage: UsageData | null; onSwitchTab: (tab: Tab) => void }) {
   const activeAgents = agents.filter((a) => a.status === "active").length;
@@ -25,9 +24,7 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { a
   return (
     <div className="space-y-4">
       {/* System health (live polling) */}
-      <React.Suspense fallback={<div className="h-32 animate-pulse rounded-lg bg-muted/20" />}>
-        <SystemStatsClient />
-      </React.Suspense>
+      <SystemStatsClient />
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

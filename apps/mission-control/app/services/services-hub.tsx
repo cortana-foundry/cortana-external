@@ -62,18 +62,18 @@ export default function ServicesHub() {
   React.useEffect(() => {
     void import("./services-client");
     void import("@/app/cron/cron-client");
-    void import("@/app/system-stats/system-stats-client");
+    // SystemStatsClient is eagerly imported in overview-tab (default tab)
   }, []);
 
-  /* Fetch agents, council, usage in parallel on mount */
+  /* Fetch agents + council fast, usage in background (it's slow — CLI subprocess) */
   React.useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+
+    const loadFast = async () => {
       setDataLoading(true);
-      const [agentsRes, councilRes, usageRes] = await Promise.allSettled([
+      const [agentsRes, councilRes] = await Promise.allSettled([
         fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/council", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/usage", { cache: "no-store" }).then((r) => r.json()),
       ]);
       if (cancelled) return;
 
@@ -109,14 +109,20 @@ export default function ServicesHub() {
         }
       }
 
-      if (usageRes.status === "fulfilled" && usageRes.value) {
-        const u = usageRes.value;
-        if (u.totals) setUsage(u as UsageData);
-      }
-
       setDataLoading(false);
     };
-    void load();
+
+    const loadUsage = async () => {
+      try {
+        const res = await fetch("/api/usage", { cache: "no-store" });
+        const u = await res.json();
+        if (!cancelled && u?.totals) setUsage(u as UsageData);
+      } catch { /* usage is non-critical */ }
+    };
+
+    void loadFast();
+    void loadUsage();
+
     return () => { cancelled = true; };
   }, []);
 
