@@ -1062,6 +1062,9 @@ function normalizePreOpenGateStatus(status: string | null): string | null {
   return status.replaceAll("_", " ");
 }
 
+function humanizeOperatorText(value: string): string;
+function humanizeOperatorText(value: null): null;
+function humanizeOperatorText(value: string | null): string | null;
 function humanizeOperatorText(value: string | null): string | null {
   if (!value) return value;
   return value.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, (timestamp) => {
