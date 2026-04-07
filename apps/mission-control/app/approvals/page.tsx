@@ -1,6 +1,7 @@
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ApprovalCard } from "@/components/approval-card";
 import { ApprovalFilters } from "@/components/approval-filters";
+import { GovernanceGuide } from "@/components/governance-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApprovalFilters as Filters, getApprovals } from "@/lib/approvals";
@@ -53,6 +54,18 @@ export default async function ApprovalsPage({
       </div>
 
       <ApprovalFilters params={search} selectedStatus={filters.status ?? "all"} />
+
+      <GovernanceGuide
+        label="approvals"
+        summary="approve risky actions"
+        flow={[
+          "request is created",
+          "human approves or rejects it",
+          "if approved, resume can be requested",
+          "execution can be recorded",
+          "all of that is visible in the audit history",
+        ]}
+      />
 
       <Card>
         <CardHeader>

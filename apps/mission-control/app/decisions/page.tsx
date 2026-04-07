@@ -1,6 +1,7 @@
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DecisionFiltersBar } from "@/components/decision-filters";
 import { DecisionTimeline } from "@/components/decision-timeline";
+import { GovernanceGuide } from "@/components/governance-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DecisionFilters, getDecisionTraces } from "@/lib/decision-traces";
@@ -62,6 +63,11 @@ export default async function DecisionsPage({
           <CardContent className="text-sm text-muted-foreground">{data.warning}</CardContent>
         </Card>
       )}
+
+      <GovernanceGuide
+        label="decisions"
+        summary="understand why actions happened"
+      />
 
       <DecisionFiltersBar params={search} filters={filters} facets={data.facets} />
 

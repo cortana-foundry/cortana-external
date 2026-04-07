@@ -7,6 +7,7 @@ import {
   getFeedbackById,
   getFeedbackItems,
   getFeedbackMetrics,
+  reconcileFeedbackSignal,
   updateFeedbackStatus,
 } from "@/lib/feedback";
 
@@ -137,6 +138,47 @@ describe("lib/feedback", () => {
     expect(sql).toContain("INSERT INTO mc_feedback_items");
     expect(sql).toContain("'user'");
     expect(sql).toContain("'ux'");
+  });
+
+  it("reconcileFeedbackSignal creates a new row when the recurrence key is unseen", async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "fb-signal" }]);
+
+    const result = await reconcileFeedbackSignal({
+      source: "system",
+      category: "external_service.market_data",
+      severity: "critical",
+      summary: "Schwab re-auth required",
+      details: { operator_state: "human_action_required" },
+      recurrenceKey: "external-service:market-data:service-operator",
+      signalState: "active",
+    });
+
+    expect(result).toEqual({ id: "fb-signal", state: "created" });
+    expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconcileFeedbackSignal resolves the latest recurring issue when cleared", async () => {
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([
+      { id: "fb-1", status: "new", remediation_status: "open" },
+    ]);
+
+    const result = await reconcileFeedbackSignal({
+      source: "system",
+      category: "external_service.market_data",
+      severity: "critical",
+      summary: "Schwab recovered",
+      recurrenceKey: "external-service:market-data:service-operator",
+      signalState: "cleared",
+      actor: "external-service.market-data",
+    });
+
+    expect(result).toEqual({ id: "fb-1", state: "resolved" });
+    const sql = vi.mocked(prisma.$executeRawUnsafe).mock.calls[0][0] as string;
+    expect(sql).toContain("status = 'verified'");
+    expect(sql).toContain("remediation_status = 'resolved'");
+    expect(sql).toContain("resolved_by = 'external-service.market-data'");
   });
 
   it("updateFeedbackStatus applies status transition", async () => {

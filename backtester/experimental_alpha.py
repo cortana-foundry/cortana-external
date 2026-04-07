@@ -27,6 +27,10 @@ from data.overlay_promotion import (
 )
 from data.polymarket_context import load_structured_context
 from outcomes import summarize_forward_return_by_dimension
+from operator_surfaces.mission_control import (
+    fetch_remote_overlay_manual_approvals,
+    reconcile_overlay_promotion_approvals,
+)
 from reports.overlay_attribution import (
     build_overlay_attribution_report,
     format_overlay_attribution_compact,
@@ -1038,22 +1042,30 @@ def main(argv: Optional[list[str]] = None) -> None:
         artifact_path = Path(args.attribution_artifact_path).expanduser() if args.attribution_artifact_path else DEFAULT_ATTRIBUTION_ARTIFACT_PATH
         write_atomic_json(artifact_path, report)
         if args.evaluate_promotions:
-            approvals = {
+            cli_approvals = {
                 token.strip().lower()
                 for token in str(args.approve_rank_modifier or "").split(",")
                 if token.strip()
             }
+            remote_approvals = fetch_remote_overlay_manual_approvals()
+            manual_approvals = set(cli_approvals) | set(remote_approvals)
+            state_path = Path(args.promotion_state_path).expanduser() if args.promotion_state_path else DEFAULT_PROMOTION_STATE_PATH
             state_payload = build_overlay_promotion_state_from_report(
                 report,
                 registry_path=Path(args.promotion_registry_path).expanduser() if args.promotion_registry_path else None,
-                state_path=Path(args.promotion_state_path).expanduser() if args.promotion_state_path else None,
-                manual_approvals=approvals,
+                state_path=state_path,
+                manual_approvals=manual_approvals,
                 horizon=args.attribution_horizon,
+            )
+            reconcile_overlay_promotion_approvals(
+                state_payload,
+                state_path=state_path,
+                horizon=args.attribution_horizon,
+                remote_approvals=remote_approvals,
             )
             if args.json:
                 print(json.dumps({"attribution": report, "promotion_state": state_payload}, indent=2))
             else:
-                state_path = Path(args.promotion_state_path).expanduser() if args.promotion_state_path else DEFAULT_PROMOTION_STATE_PATH
                 print(format_overlay_attribution_report(report, horizon=args.attribution_horizon))
                 print("")
                 print(f"Promotion state written: {state_path}")

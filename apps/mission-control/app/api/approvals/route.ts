@@ -17,6 +17,8 @@ export async function GET(request: Request) {
   const filters: ApprovalFilters = {
     status: (searchParams.get("status") as ApprovalFilters["status"]) ?? "all",
     risk_level: (searchParams.get("risk_level") as ApprovalFilters["risk_level"]) ?? undefined,
+    actionType: searchParams.get("actionType") || undefined,
+    correlationKey: searchParams.get("correlationKey") || undefined,
     rangeHours: parseNumber(searchParams.get("rangeHours")) ?? 168,
     limit: parseNumber(searchParams.get("limit")) ?? 120,
   };

@@ -81,6 +81,105 @@ const normalizeOutcome = (value?: string) => {
   return normalized;
 };
 
+const asJsonbLiteral = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
+
+export async function createDecisionTrace(input: {
+  traceId: string;
+  eventId?: number | null;
+  taskId?: number | null;
+  runId?: string | null;
+  triggerType: string;
+  actionType: string;
+  actionName: string;
+  reasoning?: string | null;
+  confidence?: number | null;
+  outcome?: string | null;
+  dataInputs?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  createdAt?: string | null;
+  completedAt?: string | null;
+}): Promise<void> {
+  const taskPrisma = getTaskPrisma();
+  const preferred = taskPrisma ?? prisma;
+
+  const traceId = escapeLiteral(input.traceId);
+  const eventId = typeof input.eventId === "number" && Number.isFinite(input.eventId)
+    ? `${Math.trunc(input.eventId)}`
+    : "NULL";
+  const taskId = typeof input.taskId === "number" && Number.isFinite(input.taskId)
+    ? `${Math.trunc(input.taskId)}`
+    : "NULL";
+  const runId = input.runId ? `'${escapeLiteral(input.runId)}'` : "NULL";
+  const reasoning = input.reasoning ? `'${escapeLiteral(input.reasoning)}'` : "NULL";
+  const confidence = typeof input.confidence === "number" && Number.isFinite(input.confidence)
+    ? `${Number(input.confidence)}`
+    : "NULL";
+  const outcome = input.outcome ? `'${escapeLiteral(input.outcome)}'` : "'unknown'";
+  const dataInputs = asJsonbLiteral(input.dataInputs ?? {});
+  const metadata = asJsonbLiteral(input.metadata ?? {});
+  const createdAt = input.createdAt ? `'${escapeLiteral(input.createdAt)}'::timestamptz` : "NOW()";
+  const completedAt = input.completedAt ? `'${escapeLiteral(input.completedAt)}'::timestamptz` : "NULL";
+
+  const sql = `
+    INSERT INTO cortana_decision_traces (
+      trace_id,
+      event_id,
+      task_id,
+      run_id,
+      trigger_type,
+      action_type,
+      action_name,
+      reasoning,
+      confidence,
+      outcome,
+      data_inputs,
+      metadata,
+      created_at,
+      completed_at
+    ) VALUES (
+      '${traceId}',
+      ${eventId},
+      ${taskId},
+      ${runId},
+      '${escapeLiteral(input.triggerType)}',
+      '${escapeLiteral(input.actionType)}',
+      '${escapeLiteral(input.actionName)}',
+      ${reasoning},
+      ${confidence},
+      ${outcome},
+      ${dataInputs},
+      ${metadata},
+      ${createdAt},
+      ${completedAt}
+    )
+    ON CONFLICT (trace_id) DO UPDATE
+    SET
+      event_id = COALESCE(EXCLUDED.event_id, cortana_decision_traces.event_id),
+      task_id = COALESCE(EXCLUDED.task_id, cortana_decision_traces.task_id),
+      run_id = COALESCE(EXCLUDED.run_id, cortana_decision_traces.run_id),
+      trigger_type = EXCLUDED.trigger_type,
+      action_type = EXCLUDED.action_type,
+      action_name = EXCLUDED.action_name,
+      reasoning = COALESCE(EXCLUDED.reasoning, cortana_decision_traces.reasoning),
+      confidence = COALESCE(EXCLUDED.confidence, cortana_decision_traces.confidence),
+      outcome = EXCLUDED.outcome,
+      data_inputs = EXCLUDED.data_inputs,
+      metadata = EXCLUDED.metadata,
+      completed_at = COALESCE(EXCLUDED.completed_at, cortana_decision_traces.completed_at)
+  `;
+
+  const run = async (client: typeof prisma) => {
+    await client.$executeRawUnsafe(sql);
+  };
+
+  try {
+    await run(preferred);
+  } catch (error) {
+    if (!taskPrisma) throw error;
+    await run(prisma);
+  }
+}
+
 export async function getDecisionTraces(filters: DecisionFilters = {}): Promise<{
   traces: DecisionTrace[];
   facets: {

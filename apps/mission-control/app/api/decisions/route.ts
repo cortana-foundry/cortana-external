@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDecisionTraces } from "@/lib/decision-traces";
+import { createDecisionTrace, getDecisionTraces } from "@/lib/decision-traces";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,4 +28,49 @@ export async function GET(request: Request) {
       "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
     },
   });
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json()) as {
+    trace_id?: string;
+    event_id?: number | null;
+    task_id?: number | null;
+    run_id?: string | null;
+    trigger_type?: string;
+    action_type?: string;
+    action_name?: string;
+    reasoning?: string | null;
+    confidence?: number | null;
+    outcome?: string | null;
+    data_inputs?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+    created_at?: string | null;
+    completed_at?: string | null;
+  };
+
+  if (!body.trace_id || !body.trigger_type || !body.action_type || !body.action_name) {
+    return NextResponse.json(
+      { error: "Missing required fields: trace_id, trigger_type, action_type, action_name" },
+      { status: 400 },
+    );
+  }
+
+  await createDecisionTrace({
+    traceId: body.trace_id,
+    eventId: body.event_id ?? null,
+    taskId: body.task_id ?? null,
+    runId: body.run_id ?? null,
+    triggerType: body.trigger_type,
+    actionType: body.action_type,
+    actionName: body.action_name,
+    reasoning: body.reasoning ?? null,
+    confidence: body.confidence ?? null,
+    outcome: body.outcome ?? null,
+    dataInputs: body.data_inputs ?? {},
+    metadata: body.metadata ?? {},
+    createdAt: body.created_at ?? null,
+    completedAt: body.completed_at ?? null,
+  });
+
+  return NextResponse.json({ ok: true }, { status: 201 });
 }
