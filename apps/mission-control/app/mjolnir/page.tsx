@@ -268,7 +268,7 @@ export default async function FitnessPage() {
       </section>
 
       {/* ── Body Metrics + Tonal Strength ── */}
-      <section className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+      <section className="grid grid-cols-1 gap-4">
         {/* Body Metrics */}
         <Card className="gap-3 py-4">
           <CardHeader className="gap-1 px-5">
@@ -321,15 +321,13 @@ export default async function FitnessPage() {
           </CardHeader>
           <CardContent className="px-5">
             {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {data.tonal.strengthScores.map((s) => (
-                    <div key={s.label} className="rounded-lg border border-purple-200/50 bg-purple-50/30 px-3 py-2 dark:border-purple-900/30 dark:bg-purple-950/20">
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
-                      <p className="font-mono text-lg font-bold text-purple-600 dark:text-purple-400">{s.value}</p>
-                    </div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                {data.tonal.strengthScores.map((s) => (
+                  <div key={s.label} className="rounded-lg border border-purple-200/50 bg-purple-50/30 px-3 py-2 dark:border-purple-900/30 dark:bg-purple-950/20">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                    <p className="font-mono text-lg font-bold text-purple-600 dark:text-purple-400">{s.value}</p>
+                  </div>
+                ))}
               </div>
             ) : data.tonal?.available ? (
               <p className="py-2 text-xs text-muted-foreground">No strength score data available yet.</p>
