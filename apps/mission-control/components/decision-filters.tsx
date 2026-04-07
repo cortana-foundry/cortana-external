@@ -8,7 +8,7 @@ type Facets = {
   outcomes: string[];
 };
 
-const ranges = [6, 24, 48, 168];
+const ranges = [6, 24, 168, 720, 2160];
 
 const buildHref = (params: URLSearchParams, key: string, value?: string) => {
   const next = new URLSearchParams(params.toString());
@@ -27,7 +27,7 @@ export function DecisionFiltersBar({
   filters: DecisionFilters;
   facets: Facets;
 }) {
-  const selectedRange = String(filters.rangeHours ?? 48);
+  const selectedRange = String(filters.rangeHours ?? 24 * 30);
   const selectedOutcome = filters.outcome ?? "all";
 
   return (

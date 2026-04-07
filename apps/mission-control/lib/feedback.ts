@@ -2,11 +2,19 @@ import prisma from "@/lib/prisma";
 import { getTaskPrisma } from "@/lib/task-prisma";
 
 export type RemediationStatus = "open" | "in_progress" | "resolved" | "wont_fix";
+export type FeedbackWorkflowStatus = "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
 
 export const REMEDIATION_STATUSES: RemediationStatus[] = ["open", "in_progress", "resolved", "wont_fix"];
+export const FEEDBACK_WORKFLOW_STATUSES: FeedbackWorkflowStatus[] = [
+  "new",
+  "triaged",
+  "in_progress",
+  "verified",
+  "wont_fix",
+];
 
 export type FeedbackFilters = {
-  status?: "new" | "triaged" | "in_progress" | "verified" | "wont_fix" | "all";
+  status?: FeedbackWorkflowStatus | "all";
   remediationStatus?: RemediationStatus | "all";
   severity?: "low" | "medium" | "high" | "critical" | "all";
   category?: string;
@@ -39,7 +47,7 @@ export type FeedbackItem = {
   summary: string;
   details: Record<string, unknown>;
   recurrenceKey: string | null;
-  status: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
+  status: FeedbackWorkflowStatus;
   owner: string | null;
   createdAt: string;
   updatedAt: string;
@@ -72,7 +80,7 @@ type FeedbackRow = {
   summary: string;
   details: unknown;
   recurrence_key: string | null;
-  status: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
+  status: FeedbackWorkflowStatus;
   owner: string | null;
   created_at: Date;
   updated_at: Date;
@@ -102,6 +110,37 @@ const normalizeObject = (value: unknown): Record<string, unknown> => {
 };
 
 const escapeLiteral = (value: string) => value.replaceAll("'", "''");
+const clampFeedbackRangeHours = (rangeHours?: number) =>
+  Math.max(1, Math.min(rangeHours ?? 24 * 90, 24 * 90));
+
+const buildFeedbackWhereClause = (
+  filters: FeedbackFilters,
+  alias = "f",
+  options?: { defaultRangeHours?: number },
+) => {
+  const rangeHours = clampFeedbackRangeHours(filters.rangeHours ?? options?.defaultRangeHours);
+  const conditions: string[] = [
+    `${alias}.created_at >= NOW() - INTERVAL '${rangeHours} hours'`,
+  ];
+
+  if (filters.status && filters.status !== "all") {
+    conditions.push(`${alias}.status = '${escapeLiteral(filters.status)}'`);
+  }
+  if (filters.severity && filters.severity !== "all") {
+    conditions.push(`${alias}.severity = '${escapeLiteral(filters.severity)}'`);
+  }
+  if (filters.remediationStatus && filters.remediationStatus !== "all") {
+    conditions.push(`${alias}.remediation_status = '${escapeLiteral(filters.remediationStatus)}'`);
+  }
+  if (filters.category && filters.category !== "all") {
+    conditions.push(`${alias}.category = '${escapeLiteral(filters.category)}'`);
+  }
+  if (filters.source && filters.source !== "all") {
+    conditions.push(`${alias}.source = '${escapeLiteral(filters.source)}'`);
+  }
+
+  return conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+};
 
 const mapItem = (row: FeedbackRow): FeedbackItem => ({
   id: row.id,
@@ -143,29 +182,7 @@ export async function getFeedbackItems(filters: FeedbackFilters = {}): Promise<F
   const preferred = taskPrisma ?? prisma;
 
   const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
-  const rangeHours = Math.max(1, Math.min(filters.rangeHours ?? 24 * 14, 24 * 90));
-
-  const conditions: string[] = [
-    `f.created_at >= NOW() - INTERVAL '${rangeHours} hours'`,
-  ];
-
-  if (filters.status && filters.status !== "all") {
-    conditions.push(`f.status = '${escapeLiteral(filters.status)}'`);
-  }
-  if (filters.severity && filters.severity !== "all") {
-    conditions.push(`f.severity = '${escapeLiteral(filters.severity)}'`);
-  }
-  if (filters.remediationStatus && filters.remediationStatus !== "all") {
-    conditions.push(`f.remediation_status = '${escapeLiteral(filters.remediationStatus)}'`);
-  }
-  if (filters.category && filters.category !== "all") {
-    conditions.push(`f.category = '${escapeLiteral(filters.category)}'`);
-  }
-  if (filters.source && filters.source !== "all") {
-    conditions.push(`f.source = '${escapeLiteral(filters.source)}'`);
-  }
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const whereClause = buildFeedbackWhereClause(filters, "f");
 
   const query = `
     SELECT
@@ -310,7 +327,7 @@ export async function createFeedback(data: {
   summary: string;
   details?: Record<string, unknown>;
   recurrenceKey?: string | null;
-  status?: "new" | "triaged" | "in_progress" | "verified" | "wont_fix";
+  status?: FeedbackWorkflowStatus;
   owner?: string | null;
 }): Promise<string> {
   const runId = data.runId ? `'${escapeLiteral(data.runId)}'` : "NULL";
@@ -366,9 +383,9 @@ export async function createFeedback(data: {
 
 export async function updateFeedbackStatus(
   id: string,
-  status: "new" | "triaged" | "in_progress" | "verified" | "wont_fix",
+  status: FeedbackWorkflowStatus,
   owner?: string,
-): Promise<void> {
+): Promise<boolean> {
   const safeId = escapeLiteral(id);
   const safeOwner = owner ? `'${escapeLiteral(owner)}'` : "owner";
 
@@ -384,15 +401,15 @@ export async function updateFeedbackStatus(
   const taskPrisma = getTaskPrisma();
   const preferred = taskPrisma ?? prisma;
 
-  const run = async (client: typeof prisma) => {
-    await client.$executeRawUnsafe(sql);
-  };
+  const run = async (client: typeof prisma) => client.$executeRawUnsafe(sql);
 
   try {
-    await run(preferred);
+    const result = await run(preferred);
+    return result > 0;
   } catch (error) {
     if (!taskPrisma) throw error;
-    await run(prisma);
+    const result = await run(prisma);
+    return result > 0;
   }
 }
 
@@ -483,31 +500,36 @@ export async function addFeedbackAction(
   }
 }
 
-export async function getFeedbackMetrics(): Promise<FeedbackMetrics> {
+export async function getFeedbackMetrics(filters: FeedbackFilters = {}): Promise<FeedbackMetrics> {
   const taskPrisma = getTaskPrisma();
   const preferred = taskPrisma ?? prisma;
+  const whereClause = buildFeedbackWhereClause(filters, "f", { defaultRangeHours: 24 * 90 });
 
   const bySeveritySql = `
     SELECT severity, COUNT(*)::int AS count
-    FROM mc_feedback_items
+    FROM mc_feedback_items f
+    ${whereClause}
     GROUP BY severity
   `;
 
   const byStatusSql = `
     SELECT status, COUNT(*)::int AS count
-    FROM mc_feedback_items
+    FROM mc_feedback_items f
+    ${whereClause}
     GROUP BY status
   `;
 
   const byRemediationStatusSql = `
     SELECT remediation_status AS status, COUNT(*)::int AS count
-    FROM mc_feedback_items
+    FROM mc_feedback_items f
+    ${whereClause}
     GROUP BY remediation_status
   `;
 
   const byCategorySql = `
     SELECT category, COUNT(*)::int AS count
-    FROM mc_feedback_items
+    FROM mc_feedback_items f
+    ${whereClause}
     GROUP BY category
     ORDER BY count DESC
   `;
@@ -518,8 +540,8 @@ export async function getFeedbackMetrics(): Promise<FeedbackMetrics> {
       SELECT
         date_trunc('day', created_at) AS day,
         COUNT(*) AS count
-      FROM mc_feedback_items
-      WHERE created_at >= NOW() - INTERVAL '14 days'
+      FROM mc_feedback_items f
+      ${whereClause}
       GROUP BY date_trunc('day', created_at)
     ) t
     ORDER BY day ASC

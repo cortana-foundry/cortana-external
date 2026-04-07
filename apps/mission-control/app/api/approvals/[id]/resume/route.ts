@@ -25,7 +25,22 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     execution_result?: Record<string, unknown>;
     actor?: string;
+    payload?: Record<string, unknown>;
   };
+
+  if (body.execution_result && approval.executedAt) {
+    return NextResponse.json(
+      { error: "Execution already recorded", status: approval.status },
+      { status: 409 },
+    );
+  }
+
+  if (!body.execution_result && approval.resumedAt) {
+    return NextResponse.json(
+      { error: "Resume already requested", status: approval.status },
+      { status: 409 },
+    );
+  }
 
   if (body.execution_result) {
     await recordExecution(id, body.execution_result, body.actor ?? approval.agentId);
@@ -33,6 +48,7 @@ export async function POST(
     await resumeApproval(id, body.actor ?? approval.agentId, {
       proposal: approval.proposal,
       resume_payload: approval.resumePayload,
+      ...body.payload,
     });
   }
 

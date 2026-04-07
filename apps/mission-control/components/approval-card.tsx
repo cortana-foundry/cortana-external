@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -34,12 +34,54 @@ const riskBadgeClass = (risk: string) => {
   return "secondary" as const;
 };
 
-export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
+const statusLabel = (approval: ApprovalRequest) => {
+  if (approval.executedAt) {
+    return `Executed ${toRelativeTime(approval.executedAt)}`;
+  }
+  if (approval.resumedAt) {
+    return `Resume requested ${toRelativeTime(approval.resumedAt)}`;
+  }
+  if (approval.status === "rejected") {
+    return `Rejected by ${approval.rejectedBy || "unknown"} · ${toRelativeTime(approval.rejectedAt)}`;
+  }
+  if (approval.status === "expired") {
+    return `Expired ${toRelativeTime(approval.expiresAt)}`;
+  }
+  if (["approved", "approved_edited"].includes(approval.status)) {
+    return `Approved by ${approval.approvedBy || "unknown"} · ${toRelativeTime(approval.approvedAt)}`;
+  }
+  return `Created ${toRelativeTime(approval.createdAt)}`;
+};
+
+export function ApprovalCard({
+  approval,
+  highlighted = false,
+  initiallyExpanded = false,
+}: {
+  approval: ApprovalRequest;
+  highlighted?: boolean;
+  initiallyExpanded?: boolean;
+}) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
-  const [loadingAction, setLoadingAction] = useState<"approve" | "reject" | "approve_edited" | null>(null);
-  const [reason, setReason] = useState("");
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [loadingAction, setLoadingAction] = useState<"approve" | "reject" | "approve_edited" | "resume" | "execute" | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
+  const [resumeNote, setResumeNote] = useState("");
+  const [executionNote, setExecutionNote] = useState("");
+  const [currentApproval, setCurrentApproval] = useState(approval);
   const [events, setEvents] = useState(approval.events || []);
+
+  useEffect(() => {
+    setCurrentApproval(approval);
+    setEvents(approval.events || []);
+  }, [approval]);
+
+  useEffect(() => {
+    if (!highlighted) return;
+    setExpanded(true);
+    cardRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [highlighted]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -50,6 +92,7 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
       if (!response.ok) return;
       const payload = (await response.json()) as ApprovalRequest;
       if (!alive) return;
+      setCurrentApproval(payload);
       setEvents(payload.events || []);
     };
 
@@ -60,22 +103,22 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
   }, [approval.id, expanded]);
 
   const truncatedRationale = useMemo(() => {
-    if (!approval.rationale) return "No rationale provided.";
-    if (approval.rationale.length <= 220) return approval.rationale;
-    return `${approval.rationale.slice(0, 220)}…`;
-  }, [approval.rationale]);
+    if (!currentApproval.rationale) return "No rationale provided.";
+    if (currentApproval.rationale.length <= 220) return currentApproval.rationale;
+    return `${currentApproval.rationale.slice(0, 220)}…`;
+  }, [currentApproval.rationale]);
 
   const feedbackId = useMemo(() => {
-    if (approval.feedbackId && approval.feedbackId.trim()) return approval.feedbackId.trim();
-    if (approval.proposal && typeof approval.proposal === "object" && !Array.isArray(approval.proposal)) {
-      const proposal = approval.proposal as Record<string, unknown>;
+    if (currentApproval.feedbackId && currentApproval.feedbackId.trim()) return currentApproval.feedbackId.trim();
+    if (currentApproval.proposal && typeof currentApproval.proposal === "object" && !Array.isArray(currentApproval.proposal)) {
+      const proposal = currentApproval.proposal as Record<string, unknown>;
       const candidate = proposal.feedback_id ?? proposal.feedbackId;
       if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
     }
     return null;
-  }, [approval.feedbackId, approval.proposal]);
+  }, [currentApproval.feedbackId, currentApproval.proposal]);
 
-  const feedbackSummary = approval.feedbackSummary?.trim();
+  const feedbackSummary = currentApproval.feedbackSummary?.trim();
   const truncatedFeedbackSummary = feedbackSummary && feedbackSummary.length > 140
     ? `${feedbackSummary.slice(0, 140)}…`
     : feedbackSummary;
@@ -86,16 +129,74 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
   const takeAction = async (action: "approve" | "reject" | "approve_edited") => {
     try {
       setLoadingAction(action);
-      await fetch(`/api/approvals/${approval.id}`, {
+      const response = await fetch(`/api/approvals/${approval.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action,
           actor: "mission-control-ui",
-          decision: reason ? { reason } : undefined,
+          decision: decisionNote ? { note: decisionNote } : undefined,
         }),
       });
-      setReason("");
+      if (!response.ok) return;
+      const payload = (await response.json()) as { approval?: ApprovalRequest };
+      if (payload.approval) {
+        setCurrentApproval(payload.approval);
+        setEvents(payload.approval.events || []);
+      }
+      setDecisionNote("");
+      router.refresh();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const requestResume = async () => {
+    try {
+      setLoadingAction("resume");
+      const response = await fetch(`/api/approvals/${approval.id}/resume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          actor: "mission-control-ui",
+          payload: resumeNote.trim() ? { note: resumeNote.trim(), source: "mission-control-ui" } : undefined,
+        }),
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { approval?: ApprovalRequest };
+      if (payload.approval) {
+        setCurrentApproval(payload.approval);
+        setEvents(payload.approval.events || []);
+      }
+      setResumeNote("");
+      router.refresh();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const markExecuted = async () => {
+    try {
+      setLoadingAction("execute");
+      const response = await fetch(`/api/approvals/${approval.id}/resume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          actor: "mission-control-ui",
+          execution_result: {
+            status: "completed",
+            note: executionNote.trim() || "Marked executed from Mission Control",
+            source: "mission-control-ui",
+          },
+        }),
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { approval?: ApprovalRequest };
+      if (payload.approval) {
+        setCurrentApproval(payload.approval);
+        setEvents(payload.approval.events || []);
+      }
+      setExecutionNote("");
       router.refresh();
     } finally {
       setLoadingAction(null);
@@ -103,13 +204,17 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      ref={cardRef}
+      className={`overflow-hidden ${highlighted ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
+    >
       <CardHeader className="cursor-pointer pb-2" onClick={() => setExpanded((prev) => !prev)}>
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          <Badge variant={riskBadgeClass(approval.riskLevel)}>{approval.riskLevel.toUpperCase()}</Badge>
-          <span className="font-semibold">{approval.actionType}</span>
-          <span className="text-xs font-normal text-muted-foreground">{approval.agentId}</span>
-          <Badge variant="outline">{approval.status}</Badge>
+          <Badge variant={riskBadgeClass(currentApproval.riskLevel)}>{currentApproval.riskLevel.toUpperCase()}</Badge>
+          <span className="font-semibold">{currentApproval.actionType}</span>
+          <span className="text-xs font-normal text-muted-foreground">{currentApproval.agentId}</span>
+          <Badge variant="outline">{currentApproval.status}</Badge>
+          {highlighted ? <Badge variant="info">focused</Badge> : null}
         </CardTitle>
         <p className="text-sm text-muted-foreground">{truncatedRationale}</p>
         {feedbackId && feedbackLabel && (
@@ -121,32 +226,51 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             From feedback: {feedbackLabel}
           </Link>
         )}
-        <p className="text-xs text-muted-foreground">{toRelativeTime(approval.createdAt)}</p>
+        <p className="text-xs text-muted-foreground">{statusLabel(currentApproval)}</p>
       </CardHeader>
 
       {expanded && (
         <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded border bg-card/60 p-3 text-xs">
+              <p className="font-medium uppercase tracking-wide text-muted-foreground">Approved</p>
+              <p className="mt-1 text-sm">{currentApproval.approvedAt ? toRelativeTime(currentApproval.approvedAt) : "pending"}</p>
+            </div>
+            <div className="rounded border bg-card/60 p-3 text-xs">
+              <p className="font-medium uppercase tracking-wide text-muted-foreground">Resumed</p>
+              <p className="mt-1 text-sm">{currentApproval.resumedAt ? toRelativeTime(currentApproval.resumedAt) : "not yet"}</p>
+            </div>
+            <div className="rounded border bg-card/60 p-3 text-xs">
+              <p className="font-medium uppercase tracking-wide text-muted-foreground">Executed</p>
+              <p className="mt-1 text-sm">{currentApproval.executedAt ? toRelativeTime(currentApproval.executedAt) : "not yet"}</p>
+            </div>
+            <div className="rounded border bg-card/60 p-3 text-xs">
+              <p className="font-medium uppercase tracking-wide text-muted-foreground">Expires</p>
+              <p className="mt-1 text-sm">{currentApproval.expiresAt ? toRelativeTime(currentApproval.expiresAt) : "n/a"}</p>
+            </div>
+          </div>
+
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Proposal</p>
             <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
-              <code>{JSON.stringify(approval.proposal, null, 2)}</code>
+              <code>{JSON.stringify(currentApproval.proposal, null, 2)}</code>
             </pre>
           </div>
 
-          {approval.diff && (
+          {currentApproval.diff && (
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Diff</p>
               <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
-                <code>{JSON.stringify(approval.diff, null, 2)}</code>
+                <code>{JSON.stringify(currentApproval.diff, null, 2)}</code>
               </pre>
             </div>
           )}
 
-          {approval.status === "pending" ? (
+          {currentApproval.status === "pending" ? (
             <div className="space-y-2">
               <Textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
+                value={decisionNote}
+                onChange={(event) => setDecisionNote(event.target.value)}
                 placeholder="Optional reason for audit trail"
               />
               <div className="flex flex-wrap gap-2">
@@ -160,11 +284,37 @@ export function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              {approval.status === "rejected"
-                ? `Rejected by ${approval.rejectedBy || "unknown"} · ${toRelativeTime(approval.rejectedAt)}`
-                : `Approved by ${approval.approvedBy || "unknown"} · ${toRelativeTime(approval.approvedAt)}`}
-            </p>
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">{statusLabel(currentApproval)}</p>
+
+              {["approved", "approved_edited"].includes(currentApproval.status) && !currentApproval.resumedAt && (
+                <div className="space-y-2 rounded border p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resume flow</p>
+                  <Textarea
+                    value={resumeNote}
+                    onChange={(event) => setResumeNote(event.target.value)}
+                    placeholder="Optional context for the resumed execution payload"
+                  />
+                  <Button disabled={!!loadingAction} variant="outline" onClick={requestResume}>
+                    Request Resume
+                  </Button>
+                </div>
+              )}
+
+              {["approved", "approved_edited"].includes(currentApproval.status) && !currentApproval.executedAt && (
+                <div className="space-y-2 rounded border p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution result</p>
+                  <Textarea
+                    value={executionNote}
+                    onChange={(event) => setExecutionNote(event.target.value)}
+                    placeholder="Optional note for the execution record"
+                  />
+                  <Button disabled={!!loadingAction} onClick={markExecuted}>
+                    Mark Executed
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
 
           <div>
