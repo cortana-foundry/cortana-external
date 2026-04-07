@@ -1,8 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Loader2, Sparkles, Zap } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock, GripVertical, Loader2, Sparkles, Zap } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TaskBoardTask } from "@/lib/data";
@@ -65,6 +78,24 @@ const priorityClass = (p: number) => {
 const formatDue = (date: Date) =>
   new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 
+/* ── Droppable column wrapper ── */
+
+function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "kanban-column min-h-[12rem] transition-colors duration-150",
+        isOver && "ring-2 ring-primary/30 bg-primary/5",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function TaskStatusFilters({
   activeTasks,
   initialCompletedTasks,
@@ -87,12 +118,102 @@ export function TaskStatusFilters({
   /* mobile: track which column is expanded */
   const [mobileExpanded, setMobileExpanded] = useState<string>("ready");
 
+  /* ── Drag-and-drop state ── */
+  const [localActiveTasks, setLocalActiveTasks] = useState<TaskBoardTask[]>(activeTasks);
+  const [localCompletedTasks, setLocalCompletedTasks] = useState<TaskBoardTask[]>(completedTasks);
+  const [activeTask, setActiveTask] = useState<TaskBoardTask | null>(null);
+
+  // Sync local state when server props change
+  const prevActiveRef = useRef(activeTasks);
+  const prevCompletedRef = useRef(completedTasks);
+
+  useEffect(() => {
+    if (prevActiveRef.current !== activeTasks) {
+      setLocalActiveTasks(activeTasks);
+      prevActiveRef.current = activeTasks;
+    }
+  }, [activeTasks]);
+
+  useEffect(() => {
+    if (prevCompletedRef.current !== completedTasks) {
+      setLocalCompletedTasks(completedTasks);
+      prevCompletedRef.current = completedTasks;
+    }
+  }, [completedTasks]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const task = (event.active.data.current as { task: TaskBoardTask } | undefined)?.task ?? null;
+    setActiveTask(task);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveTask(null);
+      const { active, over } = event;
+      if (!over) return;
+
+      const dragData = active.data.current as { task: TaskBoardTask; column: string } | undefined;
+      if (!dragData) return;
+
+      const { task, column: fromColumn } = dragData;
+      const toColumn = over.id as string;
+
+      if (fromColumn === toColumn) return;
+
+      // Optimistic update
+      const prevActive = localActiveTasks;
+      const prevCompleted = localCompletedTasks;
+
+      // Remove from source
+      if (fromColumn === "done") {
+        setLocalCompletedTasks((prev) => prev.filter((t) => t.id !== task.id));
+      } else {
+        setLocalActiveTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+
+      // Build moved task with new status
+      const movedTask: TaskBoardTask = {
+        ...task,
+        status: toColumn,
+        completedAt: toColumn === "done" ? new Date() : null,
+      };
+
+      // Add to destination
+      if (toColumn === "done") {
+        setLocalCompletedTasks((prev) => [movedTask, ...prev]);
+      } else {
+        setLocalActiveTasks((prev) => [...prev, movedTask]);
+      }
+
+      // PATCH API
+      fetch("/api/task-board", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id, status: toColumn }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`PATCH failed: ${res.status}`);
+        })
+        .catch(() => {
+          // Revert on failure
+          setLocalActiveTasks(prevActive);
+          setLocalCompletedTasks(prevCompleted);
+        });
+    },
+    [localActiveTasks, localCompletedTasks],
+  );
+
   const columnData = useMemo(() => {
     return COLUMNS.map((col) => {
-      const tasks = col.key === "done" ? completedTasks : activeTasks.filter(col.filter);
+      const tasks = col.key === "done" ? localCompletedTasks : localActiveTasks.filter(col.filter);
       return { ...col, tasks, count: col.key === "done" ? pagination.total : tasks.length };
     });
-  }, [activeTasks, completedTasks, pagination.total]);
+  }, [localActiveTasks, localCompletedTasks, pagination.total]);
 
   const canLoadMore = pagination.hasMore && !loadingMore;
 
@@ -146,65 +267,89 @@ export function TaskStatusFilters({
         </div>
       )}
 
-      {/* Desktop: horizontal kanban columns */}
-      <div className="hidden md:grid md:grid-cols-4 md:gap-3">
-        {columnData.map((col) => (
-          <div key={col.key} className="kanban-column min-h-[12rem]">
-            <div className="kanban-column-header">
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">{col.icon}</span>
-                <span className="text-sm font-semibold">{col.label}</span>
+      {/* Desktop: horizontal kanban columns with drag-and-drop */}
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="hidden md:grid md:grid-cols-4 md:gap-3">
+          {columnData.map((col) => (
+            <DroppableColumn key={col.key} id={col.key}>
+              <div className="kanban-column-header">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">{col.icon}</span>
+                  <span className="text-sm font-semibold">{col.label}</span>
+                </div>
+                <Badge variant="secondary" className="text-[10px]">{col.count}</Badge>
               </div>
-              <Badge variant="secondary" className="text-[10px]">{col.count}</Badge>
-            </div>
-            <div className="flex-1 space-y-2 p-2">
-              {col.key === "done" ? (
-                <>
-                  {doneCollapsed ? (
-                    <>
-                      {completedTasks.slice(0, 3).map((task) => (
-                        <KanbanCard key={task.id} task={task} compact />
-                      ))}
-                      {pagination.total > 3 && (
+              <div className="flex-1 space-y-2 p-2">
+                {col.key === "done" ? (
+                  <>
+                    {doneCollapsed ? (
+                      <>
+                        {localCompletedTasks.slice(0, 3).map((task) => (
+                          <KanbanCard key={task.id} task={task} compact />
+                        ))}
+                        {pagination.total > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setDoneCollapsed(false)}
+                            className="w-full rounded-md border border-dashed border-border/50 py-2 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            Show {pagination.total - 3} more
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {localCompletedTasks.map((task) => (
+                          <KanbanCard key={task.id} task={task} compact />
+                        ))}
+                        {canLoadMore && (
+                          <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
+                            {loadingMore ? "Loading..." : `Load more (${localCompletedTasks.length}/${pagination.total})`}
+                          </Button>
+                        )}
+                        {loadError && <p className="text-xs text-destructive">{loadError}</p>}
                         <button
                           type="button"
-                          onClick={() => setDoneCollapsed(false)}
-                          className="w-full rounded-md border border-dashed border-border/50 py-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setDoneCollapsed(true)}
+                          className="w-full rounded-md border border-dashed border-border/50 py-1.5 text-xs text-muted-foreground hover:text-foreground"
                         >
-                          Show {pagination.total - 3} more
+                          Collapse
                         </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {completedTasks.map((task) => (
-                        <KanbanCard key={task.id} task={task} compact />
-                      ))}
-                      {canLoadMore && (
-                        <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
-                          {loadingMore ? "Loading..." : `Load more (${completedTasks.length}/${pagination.total})`}
-                        </Button>
-                      )}
-                      {loadError && <p className="text-xs text-destructive">{loadError}</p>}
-                      <button
-                        type="button"
-                        onClick={() => setDoneCollapsed(true)}
-                        className="w-full rounded-md border border-dashed border-border/50 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        Collapse
-                      </button>
-                    </>
-                  )}
-                </>
-              ) : col.tasks.length === 0 ? (
-                <p className="px-1 py-4 text-center text-xs text-muted-foreground">{col.empty}</p>
-              ) : (
-                col.tasks.map((task) => <KanbanCard key={task.id} task={task} />)
+                      </>
+                    )}
+                  </>
+                ) : col.tasks.length === 0 ? (
+                  <p className="px-1 py-4 text-center text-xs text-muted-foreground">{col.empty}</p>
+                ) : (
+                  col.tasks.map((task) => <KanbanCard key={task.id} task={task} columnKey={col.key} />)
+                )}
+              </div>
+            </DroppableColumn>
+          ))}
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {activeTask ? (
+            <div className={cn(
+              "kanban-card w-64 scale-105 rotate-2 border-2 border-primary/30 shadow-2xl",
+              priorityClass(activeTask.priority),
+            )}>
+              <div className="flex items-start gap-1.5">
+                <GripVertical className="mt-0.5 h-4 w-4 text-muted-foreground/40" />
+                <p className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">{activeTask.title}</p>
+              </div>
+              {activeTask.description && (
+                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{activeTask.description}</p>
               )}
+              <div className="mt-2 flex flex-wrap gap-1">
+                <Badge variant="secondary" className="text-[10px]">P{activeTask.priority}</Badge>
+                {activeTask.epic && (
+                  <Badge variant="outline" className="max-w-[10rem] truncate text-[10px]">{activeTask.epic.title}</Badge>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Mobile: collapsible column sections */}
       <div className="space-y-2 md:hidden">
@@ -254,7 +399,7 @@ export function TaskStatusFilters({
 
 /* ── Kanban card ── */
 
-function KanbanCard({ task, compact }: { task: TaskBoardTask; compact?: boolean }) {
+function KanbanCard({ task, compact, columnKey }: { task: TaskBoardTask; compact?: boolean; columnKey?: string }) {
   const isOverdue = task.dueAt && task.dueAt < new Date();
 
   let pillar: string | null = null;
@@ -284,20 +429,61 @@ function KanbanCard({ task, compact }: { task: TaskBoardTask; compact?: boolean 
     );
   }
 
+  return <DraggableCard task={task} columnKey={columnKey} isOverdue={isOverdue} pillar={pillar} feedbackId={feedbackId} />;
+}
+
+function DraggableCard({
+  task,
+  columnKey,
+  isOverdue,
+  pillar,
+  feedbackId,
+}: {
+  task: TaskBoardTask;
+  columnKey?: string;
+  isOverdue: boolean | null;
+  pillar: string | null;
+  feedbackId: string | null;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `task-${task.id}`,
+    data: { task, column: columnKey },
+  });
+
+  const style: React.CSSProperties | undefined = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
+
   return (
-    <div className={cn("kanban-card", priorityClass(task.priority))}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("kanban-card", priorityClass(task.priority), isDragging && "opacity-30")}
+    >
       {/* Title row */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-sm font-medium leading-tight">{task.title}</p>
-        <div className="flex shrink-0 items-center gap-1">
-          {task.autoExecutable && (
-            <span title="Auto-executable"><Sparkles className="h-3.5 w-3.5 text-amber-500" /></span>
-          )}
-          {task.dependencyReady ? (
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Dependencies ready" />
-          ) : (
-            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" title="Blocked" />
-          )}
+      <div className="flex items-start gap-1.5">
+        <button
+          {...listeners}
+          {...attributes}
+          type="button"
+          className="mt-0.5 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 text-sm font-medium leading-tight">{task.title}</p>
+            <div className="flex shrink-0 items-center gap-1">
+              {task.autoExecutable && (
+                <span title="Auto-executable"><Sparkles className="h-3.5 w-3.5 text-amber-500" /></span>
+              )}
+              {task.dependencyReady ? (
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Dependencies ready" />
+              ) : (
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500" title="Blocked" />
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
