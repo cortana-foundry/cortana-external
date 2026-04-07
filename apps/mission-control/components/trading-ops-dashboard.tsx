@@ -40,7 +40,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         <TerminalCell
           title="Runtime health"
           value={data.runtime.data?.operatorState ?? data.runtime.label}
-          detail={data.runtime.data ? `${data.runtime.data.incidents.length} active incidents` : "No runtime snapshot"}
+          detail={
+            data.runtime.data?.cooldownSummary ??
+            (data.runtime.data ? `${data.runtime.data.incidents.length} active incidents` : "No runtime snapshot")
+          }
           state={data.runtime.state}
           icon={<ShieldCheck className="h-3.5 w-3.5" />}
         />
@@ -260,6 +263,8 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <dl className="grid grid-cols-2 gap-2">
                     <Metric label="Ready for open" value={String(data.canary.data.readyForOpen ?? false)} />
                     <Metric label="Warnings" value={String(data.canary.data.warningCount)} />
+                    <Metric label="Checked" value={data.canary.data.checkedAt ? formatOperatorTimestamp(data.canary.data.checkedAt) : "—"} />
+                    <Metric label="Freshness" value={data.canary.data.freshness} />
                   </dl>
                   <div className="space-y-1">
                     {data.canary.data.checks.map((check) => (
@@ -278,6 +283,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 <div className="space-y-2 text-sm">
                   <Metric label="Operator action" value={data.runtime.data.operatorAction} />
                   <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "Not reported"} />
+                  {data.runtime.data.cooldownSummary ? (
+                    <Metric label="Cooldown summary" value={data.runtime.data.cooldownSummary} />
+                  ) : null}
+                  {data.runtime.data.preOpenGateFreshness ? (
+                    <Metric label="Readiness freshness" value={data.runtime.data.preOpenGateFreshness} />
+                  ) : null}
                   {data.runtime.data.preOpenGateDetail ? (
                     <p className="text-xs text-muted-foreground">{data.runtime.data.preOpenGateDetail}</p>
                   ) : null}

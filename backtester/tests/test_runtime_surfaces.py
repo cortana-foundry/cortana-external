@@ -55,6 +55,7 @@ def test_runtime_health_snapshot_captures_readiness_and_incident_paths(monkeypat
 
     assert payload["artifact_family"] == "runtime_health_snapshot"
     assert payload["cron_health"]["pre_open_canary_result"] == "warn"
+    assert payload["pre_open_gate_freshness"]["status"] == "fresh"
     assert payload["watchdog_health"]["state_present"] is True
     assert payload["inspection_paths"]["readiness_artifact"] == str(readiness_path)
 
@@ -73,9 +74,12 @@ def test_runtime_health_snapshot_marks_service_incident_when_ready_unreachable(m
     )
 
     assert payload["status"] == "degraded"
-    assert payload["incident_markers"][0]["incident_type"] == "market_data_service_unreachable"
+    incident_types = {item["incident_type"] for item in payload["incident_markers"]}
+    assert "market_data_service_unreachable" in incident_types
+    assert "pre_open_gate_unavailable" in incident_types
     assert payload["pre_open_gate_status"] == "not_available"
     assert "Pre-open readiness check artifact is missing" in payload["pre_open_gate_detail"]
+    assert payload["pre_open_gate_freshness"]["status"] == "missing"
 
 
 def test_runtime_health_snapshot_marks_provider_cooldown_as_incident(monkeypatch, tmp_path):
@@ -127,6 +131,8 @@ def test_runtime_health_snapshot_marks_provider_cooldown_as_incident(monkeypatch
     assert payload["service_health"]["operator_state"] == "provider_cooldown"
     assert payload["incident_markers"][0]["incident_type"] == "provider_cooldown"
     assert "provider_cooldown" in payload["warnings"]
+    assert payload["provider_cooldown_summary"]["active"] is True
+    assert payload["provider_cooldown_summary"]["detail"] is not None
 
 
 def test_runtime_health_snapshot_normalizes_unknown_canary_result(monkeypatch, tmp_path):
@@ -159,3 +165,39 @@ def test_runtime_health_snapshot_normalizes_unknown_canary_result(monkeypatch, t
 
     assert payload["cron_health"]["pre_open_canary_result"] == "not_reported"
     assert payload["pre_open_gate_status"] == "not_reported"
+    assert payload["pre_open_gate_freshness"]["status"] == "fresh"
+
+
+def test_runtime_health_snapshot_marks_stale_canary_artifact(monkeypatch, tmp_path):
+    readiness_path = tmp_path / "pre-open-canary-latest.json"
+    readiness_path.write_text(
+        json.dumps(
+            {
+                "artifact_family": "readiness_check",
+                "result": "pass",
+                "checked_at": "2026-04-03T08:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_get(url, timeout):
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"data": {"ready": True, "operatorState": "healthy"}},
+        )
+
+    monkeypatch.setattr("operator_surfaces.runtime_health.requests.get", fake_get)
+
+    payload = build_runtime_health_snapshot(
+        generated_at="2026-04-03T12:00:00+00:00",
+        readiness_path=readiness_path,
+        watchdog_state_path=tmp_path / "missing-state.json",
+        watchdog_log_path=tmp_path / "missing.log",
+        pre_open_canary_max_age_seconds=900,
+    )
+
+    incident_types = {item["incident_type"] for item in payload["incident_markers"]}
+    assert payload["pre_open_gate_status"] == "stale"
+    assert payload["pre_open_gate_freshness"]["status"] == "stale"
+    assert "pre_open_gate_unavailable" in incident_types
