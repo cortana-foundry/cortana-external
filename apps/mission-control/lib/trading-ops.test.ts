@@ -169,6 +169,65 @@ describe("trading ops loader", () => {
     expect(data.opsHighway.state).toBe("error");
     expect(data.tradingRun.state).toBe("missing");
   });
+
+  it("marks older market and workflow artifacts as stale when a newer trading run exists", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-stale-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-stale-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(repoPath, ".cache", "market_regime_snapshot_SPY.json"), {
+      generated_at_utc: "2026-04-03T23:16:06.970801+00:00",
+      market_status: {
+        regime: "correction",
+        status: "ok",
+        notes: "Legacy market brief.",
+        position_sizing: 0.5,
+        next_action: "Keep scanning",
+      },
+    });
+    await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
+      generated_at: "2026-04-03T23:15:25.794002+00:00",
+      market: { regime: "correction", status: "ok", notes: "Legacy market brief.", position_sizing: 0.5, next_action: "Keep scanning" },
+      render_lines: ["Summary: scanned 120 | BUY 2 | WATCH 4 | NO_BUY 10"],
+      summary: { buy_count: 2, watch_count: 4, no_buy_count: 10 },
+    });
+    await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "leader-baskets-raw.json"), {
+      buckets: { monthly: [{ symbol: "OXY" }, { symbol: "GEV" }] },
+    });
+    await mkdir(path.join(repoPath, "var", "local-workflows", "20260403-231522"), { recursive: true });
+    await writeFile(
+      path.join(repoPath, "var", "local-workflows", "20260403-231522", "run-manifest-stages.tsv"),
+      "market_regime\tok\t2026-04-03T23:15:22Z\t2026-04-03T23:15:25Z\ncanslim_alert\tok\t2026-04-03T23:15:25Z\t2026-04-03T23:15:29Z\n",
+    );
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-144340", "summary.json"), {
+      runId: "20260407-144340",
+      completedAt: "2026-04-07T14:53:16.745Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-144340", "watchlist-full.json"), {
+      decision: "NO_TRADE",
+      summary: { buy: 0, watch: 0, noBuy: 96 },
+      focus: {},
+      strategies: { dipBuyer: { buy: [], watch: [], noBuy: [] }, canslim: { buy: [], watch: [], noBuy: [] } },
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+    });
+
+    expect(data.market.state).toBe("degraded");
+    expect(data.market.message).toContain("Latest trading run 20260407-144340 finished NO_TRADE");
+    expect(data.market.data?.posture).toBe("Stand aside");
+    expect(data.market.data?.alertSummary).toBe("Latest trading run 20260407-144340: BUY 0 · WATCH 0 · NO_BUY 96");
+    expect(data.market.warnings).toContain("Latest trading run 20260407-144340 is newer than this market brief.");
+    expect(data.workflow.state).toBe("degraded");
+    expect(data.workflow.message).toContain("Latest trading run 20260407-144340 completed after this workflow artifact");
+    expect(data.workflow.warnings).toContain("Latest trading run 20260407-144340 is newer than this workflow artifact.");
+  });
 });
 
 describe("formatRelativeAge", () => {
