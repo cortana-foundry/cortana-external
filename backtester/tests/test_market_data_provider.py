@@ -7,7 +7,11 @@ import pandas as pd
 import requests
 import pytest
 
-from data.market_data_provider import MarketDataError, MarketDataProvider
+from data.market_data_provider import (
+    DEFAULT_MARKET_DATA_CACHE_DIR,
+    MarketDataError,
+    MarketDataProvider,
+)
 
 
 def _frame() -> pd.DataFrame:
@@ -37,6 +41,16 @@ def test_service_provider_happy_path(tmp_path):
     assert result.source == "schwab"
     assert result.status == "ok"
     assert not result.frame.empty
+
+
+def test_default_cache_dir_is_backtester_relative_not_cwd(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MARKET_DATA_CACHE_DIR", raising=False)
+
+    provider = MarketDataProvider(max_retries=0)
+
+    assert provider.cache_dir == DEFAULT_MARKET_DATA_CACHE_DIR
+    assert provider.cache_dir.is_absolute()
 
 
 def test_service_metadata_and_status_passthrough(tmp_path):

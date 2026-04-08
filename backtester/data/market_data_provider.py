@@ -15,6 +15,9 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+BACKTESTER_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_MARKET_DATA_CACHE_DIR = BACKTESTER_ROOT / ".cache" / "market_data"
+
 
 class MarketDataError(RuntimeError):
     """Market data provider error.
@@ -61,7 +64,8 @@ class MarketDataProvider:
     ):
         self.providers = [p.strip().lower() for p in provider_order.split(",") if p.strip()]
         self.service_base_url = os.getenv("MARKET_DATA_SERVICE_URL", service_base_url).rstrip("/")
-        self.cache_dir = Path(cache_dir or os.getenv("MARKET_DATA_CACHE_DIR", ".cache/market_data")).expanduser()
+        configured_cache_dir = cache_dir or os.getenv("MARKET_DATA_CACHE_DIR")
+        self.cache_dir = Path(configured_cache_dir).expanduser() if configured_cache_dir else DEFAULT_MARKET_DATA_CACHE_DIR
         self.cache_ttl_seconds = int(cache_ttl_seconds)
         self.max_retries = int(max_retries)
         self.backoff_base_seconds = float(backoff_base_seconds)
