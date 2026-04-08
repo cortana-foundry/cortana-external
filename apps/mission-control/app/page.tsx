@@ -149,8 +149,8 @@ export default async function Home() {
       {/* ── Row 3: Today Stats + Fitness ── */}
       <Animate delay={0.20}>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr] [&>a]:block [&>a]:h-full [&_[data-slot=card]]:h-full">
-          <Link href="/services"><TodayStatsCard /></Link>
-          <Link href="/mjolnir"><FitnessCard /></Link>
+          <Link href="/services"><TodayStatsCard className="h-full" /></Link>
+          <Link href="/mjolnir"><FitnessCard className="h-full" /></Link>
         </div>
       </Animate>
 

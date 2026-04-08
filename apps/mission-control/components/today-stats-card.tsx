@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CheckCircle2, ShieldCheck, Activity, BrainCircuit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 type TodayStatsResponse = {
   source: "cortana" | "app";
@@ -19,7 +20,7 @@ type TodayStatsResponse = {
 
 const POLL_MS = 45_000;
 
-export function TodayStatsCard() {
+export function TodayStatsCard({ className }: { className?: string } = {}) {
   const [data, setData] = useState<TodayStatsResponse | null>(null);
   const [error, setError] = useState(false);
 
@@ -84,7 +85,7 @@ export function TodayStatsCard() {
   }, [data]);
 
   return (
-    <Card className="flex flex-col">
+    <Card className={cn("flex flex-col", className)}>
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Today&apos;s stats</CardTitle>
