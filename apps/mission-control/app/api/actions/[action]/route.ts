@@ -120,6 +120,29 @@ const runChaosTest = async () => {
   }
 
   try {
+    const response = await fetch("http://127.0.0.1:3033/tonal/health", { cache: "no-store" });
+    const output = await response.text();
+    const body = readObject(tryParseJson(output));
+    const status = typeof body.status === "string" ? body.status.toLowerCase() : null;
+    const authenticated = body.authenticated === true;
+    const passed = response.ok && (status === "ok" || status === "healthy" || authenticated);
+
+    checks.push({
+      name: "Tonal",
+      passed,
+      details: authenticated
+        ? `Connected · ${status ?? "ok"}`
+        : `HTTP ${response.status}${status ? ` · ${status}` : ""} · not authenticated`,
+    });
+  } catch (error) {
+    checks.push({
+      name: "Tonal",
+      passed: false,
+      details: error instanceof Error ? error.message : "Failed to check Tonal service",
+    });
+  }
+
+  try {
     const output = execSync("openclaw gateway status", {
       encoding: "utf8",
       timeout: 5000,

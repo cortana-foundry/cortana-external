@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CheckCircle2, ShieldCheck, Activity, BrainCircuit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 type TodayStatsResponse = {
   source: "cortana" | "app";
@@ -84,15 +85,20 @@ export function TodayStatsCard({ className }: { className?: string } = {}) {
   }, [data]);
 
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
-          Today&apos;s stats
-          <Badge variant="outline">refresh {POLL_MS / 1000}s</Badge>
-        </CardTitle>
+    <Card className={cn("flex flex-col", className)}>
+      <CardHeader className="gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">Today&apos;s stats</CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">refresh {POLL_MS / 1000}s</Badge>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString()}` : "Loading…"}
+        </p>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-5">
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {items.map((item) => {
             const Icon = item.icon;
             const highlight = item.emphasizeOnNonZero && item.value > 0;
@@ -111,19 +117,16 @@ export function TodayStatsCard({ className }: { className?: string } = {}) {
                   <span className="leading-tight">{item.label}</span>
                 </div>
                 <p className={`text-2xl font-semibold tracking-tight ${highlight ? "text-emerald-200" : "text-foreground"}`}>
-                  {item.value}
+                  {data ? item.value : "—"}
                 </p>
               </div>
             );
           })}
         </div>
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            {data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString()}` : "Loading…"}
-          </span>
-          <span>{data ? `source: ${data.source} db` : ""}</span>
-        </div>
+        {data && (
+          <p className="mt-auto text-xs text-muted-foreground">source: {data.source} db</p>
+        )}
 
         {error ? (
           <p className="text-xs text-amber-400">Stats temporarily unavailable. Retrying…</p>

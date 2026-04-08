@@ -5,7 +5,7 @@ import { stat } from "node:fs/promises";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const LANCEDB_PATH = "/Users/hd/.openclaw/memory/lancedb/memories.lance";
+const LANCEDB_PATH = `${process.env.HOME ?? "/Users/hd"}/.openclaw/memory/lancedb/memories.lance`;
 
 export async function GET() {
   let postgres = false;

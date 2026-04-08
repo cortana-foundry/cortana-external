@@ -1,4 +1,5 @@
 import { Activity, Dumbbell, Moon, Scale, TrendingUp, Weight } from "lucide-react";
+import { Animate } from "@/components/animate";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -271,6 +272,7 @@ export default async function FitnessPage() {
       <AutoRefresh />
 
       {/* ── Header ── */}
+      <Animate delay={0.04}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-0.5">
           <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Mjolnir</p>
@@ -283,8 +285,10 @@ export default async function FitnessPage() {
           <span className="font-mono text-[10px]">{formatTimestamp(response.generatedAt)}</span>
         </div>
       </div>
+      </Animate>
 
       {/* ═══ VITALS ROW ═══ */}
+      <Animate delay={0.10}>
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Left: Recovery + Sleep Combined */}
         <VitalsCard recovery={data.recovery} sleep={data.sleep} />
@@ -292,6 +296,7 @@ export default async function FitnessPage() {
         {/* Right: Today's Activity */}
         <ActivityCard workouts={data.workouts} />
       </section>
+      </Animate>
 
       {/* ═══ 3. TRAINING BLOCK ═══ */}
       {programResponse.status === "ok" && (() => {
@@ -538,6 +543,7 @@ export default async function FitnessPage() {
 
       {/* ═══ 6. RECENT TONAL SESSIONS ═══ */}
       {data.tonal?.available && data.tonal.recentWorkouts.length > 0 && (
+        <Animate delay={0.34}>
         <section>
           <div className="mb-3 flex items-center gap-2">
             <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
@@ -581,6 +587,7 @@ export default async function FitnessPage() {
             ))}
           </div>
         </section>
+        </Animate>
       )}
 
       {/* ═══ 7. TRENDS ═══ */}

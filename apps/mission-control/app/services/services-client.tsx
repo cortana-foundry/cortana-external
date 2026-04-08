@@ -182,25 +182,30 @@ export default function ServicesClient() {
     setCollapsedSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   };
 
-  if (loading && !data) return <p className="py-8 text-sm text-muted-foreground">Loading service configuration...</p>;
-  if (!data) return <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">{error ?? "Services workspace unavailable."}</div>;
+  if (!data && !loading) return <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">{error ?? "Services workspace unavailable."}</div>;
+
+  const isLoading = loading && !data;
 
   return (
     <div className="space-y-4">
       {/* ── Action bar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">
-            {data.sections.length} config groups · {data.files.length} env files · Updated {formatUpdatedAt(data.generatedAt)}
-          </span>
+          {isLoading ? (
+            <div className="h-3 w-56 animate-pulse rounded bg-muted/50" />
+          ) : data ? (
+            <span className="text-xs text-muted-foreground">
+              {data.sections.length} config groups · {data.files.length} env files · Updated {formatUpdatedAt(data.generatedAt)}
+            </span>
+          ) : null}
           {dirtyCount > 0 && <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge>}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isSaving}>
-            <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isSaving || isLoading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", (isRefreshing || isLoading) && "animate-spin")} />
             Refresh
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving || dirtyCount === 0}>
+          <Button size="sm" onClick={handleSave} disabled={isSaving || dirtyCount === 0 || isLoading}>
             <Save className="h-3.5 w-3.5" />
             {isSaving ? "Saving..." : `Save${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
           </Button>
@@ -213,29 +218,39 @@ export default function ServicesClient() {
 
       {/* ── OAuth quick actions ── */}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => handleAuth("schwab-auth-url")} disabled={authAction != null}>
+        <Button variant="outline" size="sm" onClick={() => handleAuth("schwab-auth-url")} disabled={authAction != null || isLoading}>
           <ExternalLink className="h-3.5 w-3.5" /> Schwab OAuth
         </Button>
-        <Button variant="outline" size="sm" onClick={() => handleAuth("whoop-auth-url")} disabled={authAction != null}>
+        <Button variant="outline" size="sm" onClick={() => handleAuth("whoop-auth-url")} disabled={authAction != null || isLoading}>
           <ExternalLink className="h-3.5 w-3.5" /> Whoop OAuth
         </Button>
       </div>
 
       {/* ── Health strip ── */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {data.health.slice(0, 4).map((item) => (
-          <HealthCard key={item.id} item={item} />
-        ))}
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border/50 bg-card/40 p-3 animate-pulse">
+              <div className="h-3 w-24 rounded bg-muted/50" />
+              <div className="mt-2 h-4 w-32 rounded bg-muted/50" />
+              <div className="mt-1 h-3 w-40 rounded bg-muted/40" />
+            </div>
+          ))
+        ) : data ? (
+          data.health.slice(0, 4).map((item) => (
+            <HealthCard key={item.id} item={item} />
+          ))
+        ) : null}
       </div>
 
       {/* ── Additional health (collapsible) ── */}
-      {data.health.length > 4 && (
+      {data && data.health.length > 4 && (
         <details className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-            {data.health.length - 4} more health checks
+            {(data?.health.length ?? 0) - 4} more health checks
           </summary>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {data.health.slice(4).map((item) => (
+            {data?.health.slice(4).map((item) => (
               <HealthCard key={item.id} item={item} />
             ))}
           </div>
@@ -243,7 +258,33 @@ export default function ServicesClient() {
       )}
 
       {/* ── Config sections (collapsible) ── */}
-      {data.sections.map((section) => {
+      {isLoading && (
+        Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-border/50 bg-card/30 animate-pulse">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-32 rounded bg-muted/50" />
+                  <div className="h-4 w-14 rounded-full bg-muted/40" />
+                </div>
+                <div className="h-3 w-48 rounded bg-muted/40" />
+              </div>
+              <div className="h-4 w-4 rounded bg-muted/30" />
+            </div>
+            <div className="border-t border-border/40 px-4 py-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                {Array.from({ length: i === 0 ? 4 : 3 }).map((_, j) => (
+                  <div key={j} className="space-y-1.5 rounded-lg border border-border/30 bg-muted/5 p-3">
+                    <div className="h-3 w-20 rounded bg-muted/40" />
+                    <div className="h-8 w-full rounded bg-muted/30" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+      {data?.sections.map((section) => {
         const dirty = sectionDirtyCount(section, drafts, clearRequested);
         const isCollapsed = collapsedSections.has(section.id);
 
@@ -289,15 +330,17 @@ export default function ServicesClient() {
       })}
 
       {/* ── Env files (collapsible) ── */}
-      <details className="rounded-lg border border-border/50 bg-card/30 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-semibold">
-          Env file inventory
-          <span className="ml-2 text-xs font-normal text-muted-foreground">{data.files.length} files</span>
-        </summary>
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          {data.files.map((file) => <EnvFileCard key={file.id} file={file} />)}
-        </div>
-      </details>
+      {data && (
+        <details className="rounded-lg border border-border/50 bg-card/30 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Env file inventory
+            <span className="ml-2 text-xs font-normal text-muted-foreground">{data.files.length} files</span>
+          </summary>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {data.files.map((file) => <EnvFileCard key={file.id} file={file} />)}
+          </div>
+        </details>
+      )}
 
       {/* ── Post-save guidance ── */}
       <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
@@ -306,7 +349,7 @@ export default function ServicesClient() {
           <GuideItem icon={Database} title="Mission Control" body="Restart after .env.local changes." />
           <GuideItem icon={PlugZap} title="External Service" body="Restart after root .env changes." />
           <GuideItem icon={ShieldCheck} title="OAuth" body="Keep TLS paths aligned with callback URLs." />
-          <GuideItem icon={Sparkles} title="Docs" body={data.openclawDocsPath} />
+          <GuideItem icon={Sparkles} title="Docs" body={data?.openclawDocsPath ?? "—"} />
         </div>
       </div>
     </div>
@@ -414,6 +457,33 @@ function GuideItem({ icon: Icon, title, body }: { icon: React.ComponentType<{ cl
         <p className="font-medium">{title}</p>
         <p className="text-muted-foreground">{body}</p>
       </div>
+    </div>
+  );
+}
+
+function ConfigLoading() {
+  return (
+    <div className="space-y-3 py-4 animate-pulse">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="rounded-lg border border-border/50 bg-card/30 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 rounded bg-muted/50" />
+              <div className="h-4 w-36 rounded bg-muted/60" />
+            </div>
+            <div className="h-3 w-3 rounded bg-muted/40" />
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: i === 1 ? 3 : 2 }).map((_, j) => (
+              <div key={j} className="rounded-lg border border-border/40 bg-card/40 p-3">
+                <div className="h-3 w-20 rounded bg-muted/50" />
+                <div className="mt-2 h-4 w-32 rounded bg-muted/50" />
+                <div className="mt-1 h-3 w-40 rounded bg-muted/40" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

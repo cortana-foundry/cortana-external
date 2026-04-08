@@ -73,17 +73,34 @@ export const getEvents = async () => {
 export const getDashboardSummary = async () => {
   noStore();
   await refreshOpenClawState();
-  const [agents, runs, events] = await Promise.all([
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [agents, runs, runs24h, events, events24h] = await Promise.all([
     getAgents({ refreshRuns: false }),
+    /* Recent runs for the table — no time filter */
     prisma.run.findMany({
       include: { agent: true },
       orderBy: latestRunOrder,
       take: 10,
     }),
+    /* Runs in the last 24h — for metric cards only */
+    prisma.run.findMany({
+      where: { startedAt: { gte: twentyFourHoursAgo } },
+      include: { agent: true },
+      orderBy: latestRunOrder,
+      take: 50,
+    }),
+    /* Recent events for the feed — no time filter */
     prisma.event.findMany({
       include: { agent: true },
       orderBy: { createdAt: "desc" },
       take: 8,
+    }),
+    /* Events in the last 24h — for metric cards only */
+    prisma.event.findMany({
+      where: { createdAt: { gte: twentyFourHoursAgo } },
+      include: { agent: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
     }),
   ]);
 
@@ -97,7 +114,7 @@ export const getDashboardSummary = async () => {
     { total: 0, byStatus: {} as Record<AgentStatus, number> }
   );
 
-  const runCounts = runs.reduce<{ total: number; byStatus: Record<RunStatus, number> }>(
+  const runCounts = runs24h.reduce<{ total: number; byStatus: Record<RunStatus, number> }>(
     (acc, run) => {
       acc.total += 1;
       const status = run.status as RunStatus;
@@ -107,7 +124,7 @@ export const getDashboardSummary = async () => {
     { total: 0, byStatus: {} as Record<RunStatus, number> }
   );
 
-  const alertCounts = events.reduce<{ total: number; bySeverity: Record<Severity, number> }>(
+  const alertCounts = events24h.reduce<{ total: number; bySeverity: Record<Severity, number> }>(
     (acc, event) => {
       acc.total += 1;
       const severity = event.severity as Severity;
