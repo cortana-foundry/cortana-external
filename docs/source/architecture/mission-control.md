@@ -1,46 +1,158 @@
-# Mission Control (v1) — Architecture Overview
+# Mission Control — Architecture Overview
 
-## Goals
-- Provide a single pane to monitor Cortana agents, their runs/jobs, and health events.
-- Keep v1 lightweight: local PostgreSQL, Prisma ORM, and a Next.js/shadcn UI with server components.
-- Make data portable: API routes mirror server actions so other services can consume the same tables.
+Mission Control is the local operator surface for the Cortana system.
 
-## Stack & Components
-- **Next.js (App Router, TypeScript)** — UI + API routes.
-- **shadcn/ui + Tailwind v4** — UI primitives and theming.
-- **PostgreSQL** — source of truth for agents, runs/jobs, and alerts/events.
-- **Prisma** — schema, migrations, and database client.
-- **Seed data** — known agents (Huragok, Oracle, Researcher, Librarian, Monitor) plus sample runs/events.
+Its job is not to replace the source repos or the runtime. Its job is to make the current system legible:
 
-## Data Model (Prisma/Postgres)
-- **Agent**: id, name, role, description, capabilities, status (active/idle/degraded/offline), healthScore, lastSeen, timestamps.
-- **Run**: id, agentId (nullable FK), jobType, status (queued/running/completed/failed/cancelled), summary, payload/result JSON, startedAt/completedAt, timestamps.
-- **Event**: id, agentId (nullable FK), runId (nullable FK), type, severity (info/warning/critical), message, metadata JSON, createdAt, acknowledged.
+- what is running
+- what failed
+- what needs approval
+- what the task board says
+- what the docs and memory layers currently contain
 
-## App Surfaces
-- **Dashboard (/)**: stats tiles, agent health widgets, recent runs table, alerts feed, quick API references.
-- **Agents (/agents)**: roster with roles, capabilities, health scores, and last-seen times.
-- **Jobs (/jobs)**: recent runs with status, timing, ownership, launch-phase confidence, and fallback transparency badges.
-- **API routes**: `/api/dashboard`, `/api/agents`, `/api/runs`, `/api/events` (JSON from Postgres via Prisma).
+## Core Responsibilities
 
-## Reliability/Autonomy Foundations (Tasks #46-#50)
-1. **Two-phase launch confirmation protocol**
-   - Lifecycle ingestion tracks phase-1 (`queued`) and phase-2 (`running`) confirmations.
-   - If a run reports `running` without queued evidence, Mission Control emits a warning and labels launch as unconfirmed.
-2. **Stale UI state guard + auto-reconcile**
-   - OpenClaw run-store sync applies TTL reconciliation and marks stale in-flight runs as `external_status=stale`.
-   - Reconciliation emits explicit events for operator auditability.
-3. **Task Board source-of-truth reconciliation**
-   - Periodic comparison between dedicated Cortana DB and app DB task tables.
-   - Drift is surfaced in Task Board warning banners with sample mismatches.
-4. **Fallback transparency layer**
-   - Provider/model/auth routing path is extracted from run metadata and rendered in Jobs + Agent Detail.
-   - Fallback execution paths are explicitly badged.
-5. **Evidence-graded status messaging**
-   - Run status confidence is classified (`high|medium|low`) and shown in operational views.
+Mission Control currently owns these operator surfaces:
 
-## Phased Rollout
-1) **v1 (this PR)**: local Postgres schema + migrations, seed data, dashboard/agents/jobs pages, basic API routes, setup docs.
-2) **v1.1**: add auth (if required), filters/search, pagination, and uptime/latency charts; wire to real agent emitters.
-3) **v1.2**: notifications/escalations, acknowledgements on events, SLA tracking, and simple write APIs for agents to log runs/events.
-4) **v2**: multi-environment support (staging/prod), richer analytics (MTTA/MTTR), role-based access, and plug-in transport for remote deployments.
+- dashboard and run visibility
+- jobs and agent execution history
+- approvals inbox
+- council session review
+- docs browser
+- long-term memory browser
+- services and runtime control views
+
+The app is an execution-plane UI, not just a read-only dashboard.
+
+## Stack
+
+- **Next.js (App Router, TypeScript)** for UI and API routes
+- **shadcn/ui + Tailwind v4** for UI primitives
+- **PostgreSQL + Prisma** for Mission Control-owned state
+- **filesystem reads** for repo docs and memory views
+- **read-through integration to Cortana DB** for shared task-board and governance state
+
+## Main Data Boundaries
+
+Mission Control reads from multiple sources on purpose.
+
+### Mission Control database
+
+Mission Control-owned Postgres tables store app-local state such as:
+
+- agents
+- runs
+- events
+- approvals
+- council records
+- related operator metadata
+
+This is the app's primary UI database.
+
+### Cortana database
+
+Mission Control reads Cortana-owned task and governance state through `CORTANA_DATABASE_URL` when available.
+
+That split matters:
+
+- `cortana` remains the owner of the real task board
+- Mission Control is the visibility and control surface
+
+### Repo and runtime files
+
+Mission Control also reads:
+
+- docs from `cortana` and `cortana-external`
+- long-term memory files from `cortana`
+- selected runtime and service state files
+
+This is why the docs and memories pages are filesystem-backed rather than purely DB-backed.
+
+## Current App Surfaces
+
+### Dashboard
+
+High-level operator view for:
+
+- recent runs
+- alerts and event feed
+- agent health
+- current system totals
+
+### Jobs
+
+Run and execution view for:
+
+- queued, running, completed, failed, and stale work
+- confidence-graded lifecycle status
+- fallback-path visibility
+- sub-agent ingestion state
+
+### Approvals
+
+Human-in-the-loop control surface for:
+
+- pending approval requests
+- approve/reject/resume flow
+- Telegram-linked approval handling
+
+### Council
+
+Deliberation view for:
+
+- council sessions
+- member responses
+- synthesis and decision trace
+
+### Docs
+
+Markdown browser over the repo docs and knowledge layers.
+
+### Memories
+
+Browser for durable memory files from `cortana`.
+
+### Services
+
+Operational surface for:
+
+- service health
+- agent roster
+- selected runtime controls and environment-backed actions
+
+## Integration Patterns
+
+### OpenClaw run ingestion
+
+Mission Control supports both:
+
+- push-style lifecycle ingestion from OpenClaw events
+- pull-style reconciliation from local run-state artifacts
+
+This is how the UI avoids becoming stale when webhook-style delivery is missing or delayed.
+
+### Task-board reconciliation
+
+Mission Control treats the Cortana task system as source of truth and reconciles what it shows against that source instead of silently inventing local state.
+
+### Filesystem-backed knowledge access
+
+Docs and memory views intentionally read straight from repo files so the operator can inspect current text, not a lagging copy.
+
+## Reliability Principles
+
+Mission Control should make operator truth clearer, not noisier.
+
+Key rules:
+
+- show fallback paths explicitly
+- mark stale execution state instead of pretending it is live
+- keep source ownership visible
+- prefer read-through truth over duplicated cached truth
+- keep manual approval and audit trails first-class
+
+## Source Docs
+
+- app README: `/Users/hd/Developer/cortana-external/apps/mission-control/README.md`
+- current-state page: `/Users/hd/Developer/cortana-external/knowledge/domains/mission-control/current-state.md`
+- council background jobs: `/Users/hd/Developer/cortana-external/apps/mission-control/docs/source/architecture/council-background-jobs.md`
