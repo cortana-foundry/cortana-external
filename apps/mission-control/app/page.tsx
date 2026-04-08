@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDashboardSummary } from "@/lib/data";
+import { Animate } from "@/components/animate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -91,68 +92,79 @@ export default async function Home() {
   return (
     <div className="space-y-4">
       {/* ── Row 1: Header ── */}
-      <div className="space-y-1">
-        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Cortana Ops</p>
-        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Mission Control</h1>
-        <p className="text-sm text-muted-foreground">
-          Live view of agents, jobs, and health signals.
-        </p>
-      </div>
+      <Animate delay={0.04}>
+        <div className="space-y-1">
+          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Cortana Ops</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Mission Control</h1>
+          <p className="text-sm text-muted-foreground">
+            Live view of agents, jobs, and health signals.
+          </p>
+        </div>
+      </Animate>
 
       {/* ── Row 1b: Live Indicators ── */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Link href="/services"><HeartbeatPulse /></Link>
-        <Link href="/services"><ThinkingIndicator /></Link>
-        <Link href="/services"><DbStatus /></Link>
-        <Link href="/services"><AutonomyGauge /></Link>
-      </div>
+      <Animate delay={0.08}>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <Link href="/services"><HeartbeatPulse /></Link>
+          <Link href="/services"><ThinkingIndicator /></Link>
+          <Link href="/services"><DbStatus /></Link>
+          <Link href="/services"><AutonomyGauge /></Link>
+        </div>
+      </Animate>
 
       {/* ── Row 2: Key Metrics Strip ── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricCard
-          label="Agents"
-          value={String(totalAgents)}
-          detail={degradedAgents === 0 ? `${activeAgents} active` : `${activeAgents} active · ${degradedAgents} degraded`}
-          tone={degradedAgents > 0 ? "amber" : "emerald"}
-          href="/services?tab=agents"
-        />
-        <MetricCard
-          label="Active Runs"
-          value={String(activeRuns)}
-          detail={`${runningRuns} running · ${queuedRuns} queued`}
-          tone={activeRuns > 0 ? "emerald" : "neutral"}
-          href="/jobs"
-        />
-        <MetricCard
-          label="Alerts (24h)"
-          value={String(openAlerts)}
-          detail={`${data.metrics.alerts.total} total logged`}
-          tone={openAlerts > 0 ? "red" : "emerald"}
-          href="/services"
-        />
-        <MetricCard
-          label="Failed (24h)"
-          value={String(data.metrics.runs.byStatus.failed || 0)}
-          detail={`${data.metrics.runs.total} total tracked`}
-          tone={(data.metrics.runs.byStatus.failed || 0) > 0 ? "red" : "emerald"}
-          href="/jobs"
-        />
-      </div>
+      <Animate delay={0.14}>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <MetricCard
+            label="Agents"
+            value={String(totalAgents)}
+            detail={degradedAgents === 0 ? `${activeAgents} active` : `${activeAgents} active · ${degradedAgents} degraded`}
+            tone={degradedAgents > 0 ? "amber" : "emerald"}
+            href="/services?tab=agents"
+          />
+          <MetricCard
+            label="Active Runs"
+            value={String(activeRuns)}
+            detail={`${runningRuns} running · ${queuedRuns} queued`}
+            tone={activeRuns > 0 ? "emerald" : "neutral"}
+            href="/jobs"
+          />
+          <MetricCard
+            label="Alerts (24h)"
+            value={String(openAlerts)}
+            detail={`${data.metrics.alerts.total} total logged`}
+            tone={openAlerts > 0 ? "red" : "emerald"}
+            href="/services"
+          />
+          <MetricCard
+            label="Failed (24h)"
+            value={String(data.metrics.runs.byStatus.failed || 0)}
+            detail={`${data.metrics.runs.total} total tracked`}
+            tone={(data.metrics.runs.byStatus.failed || 0) > 0 ? "red" : "emerald"}
+            href="/jobs"
+          />
+        </div>
+      </Animate>
 
       {/* ── Row 3: Today Stats + Fitness ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
-        <Link href="/services" className="block"><TodayStatsCard /></Link>
-        <Link href="/mjolnir" className="block"><FitnessCard /></Link>
-      </div>
+      <Animate delay={0.20}>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr] [&>a]:block [&>a]:h-full [&_[data-slot=card]]:h-full">
+          <Link href="/services"><TodayStatsCard /></Link>
+          <Link href="/mjolnir"><FitnessCard /></Link>
+        </div>
+      </Animate>
 
       {/* ── Row 4: Reliability + Quick Actions ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
-        <Link href="/services" className="block"><ReliabilitySloCard /></Link>
-        <QuickActionsCard />
-      </div>
+      <Animate delay={0.26}>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
+          <Link href="/services" className="block"><ReliabilitySloCard /></Link>
+          <QuickActionsCard />
+        </div>
+      </Animate>
 
       {/* ── Row 5: Runs + Activity Feed ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[3fr_2fr] xl:items-stretch">
+      <Animate delay={0.32}>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[3fr_2fr] xl:items-stretch">
         {/* Runs */}
         <Card className="gap-3 py-4">
           <CardHeader className="gap-1 px-5">
@@ -243,7 +255,8 @@ export default async function Home() {
             <ActivityFeed />
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </Animate>
     </div>
   );
 }

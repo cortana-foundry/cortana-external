@@ -188,7 +188,7 @@ export function FitnessCard() {
   const recoveryUi = recoveryTone[recoveryStatus];
 
   return (
-    <Card>
+    <Card className="flex flex-col">
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Mjolnir snapshot</CardTitle>
@@ -203,10 +203,10 @@ export function FitnessCard() {
           {generatedAt ? `Updated ${new Date(generatedAt).toLocaleTimeString()}` : "Latest Whoop signal"}
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-1 flex-col gap-4">
         {error ? <p className="text-xs text-amber-400">{error} Retrying…</p> : null}
         {loading && !data ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             {Array.from({ length: 4 }).map((_, index) => (
               <div
                 key={`fitness-loading-${index}`}
@@ -219,7 +219,7 @@ export function FitnessCard() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col rounded-lg border border-border/60 bg-card/50 p-3">
               <p className="min-h-[1.5rem] text-xs uppercase tracking-wide text-muted-foreground">Recovery score</p>
               <p className="font-mono text-2xl font-semibold text-foreground">

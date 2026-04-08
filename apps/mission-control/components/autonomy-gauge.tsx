@@ -59,7 +59,8 @@ export function AutonomyGauge() {
     };
   }, [fetchAutonomy]);
 
-  const score = Math.max(0, Math.min(100, Math.round(payload.score)));
+  const isFallback = payload.source === "fallback";
+  const score = isFallback ? 0 : Math.max(0, Math.min(100, Math.round(payload.score)));
   const progress = useMemo(() => score / 100, [score]);
   const dashOffset = CIRCUMFERENCE * (1 - progress);
 
@@ -73,7 +74,9 @@ export function AutonomyGauge() {
         <div className="relative shrink-0">
           <svg width={SIZE} height={SIZE} className="rotate-[-90deg]">
             <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} stroke="rgba(148, 163, 184, 0.2)" strokeWidth={STROKE} fill="none" />
-            <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} stroke="url(#autonomyGaugeStroke)" strokeWidth={STROKE} fill="none" strokeLinecap="round" strokeDasharray={CIRCUMFERENCE} strokeDashoffset={dashOffset} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+            {!isFallback && (
+              <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} stroke="url(#autonomyGaugeStroke)" strokeWidth={STROKE} fill="none" strokeLinecap="round" strokeDasharray={CIRCUMFERENCE} strokeDashoffset={dashOffset} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+            )}
             <defs>
               <linearGradient id="autonomyGaugeStroke" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#06b6d4" />
@@ -82,15 +85,19 @@ export function AutonomyGauge() {
             </defs>
           </svg>
           <div className="absolute inset-0 grid place-items-center">
-            <p className="text-sm font-semibold text-cyan-200">{score}</p>
+            <p className="text-sm font-semibold text-cyan-200">{isFallback ? "—" : score}</p>
           </div>
         </div>
         <div className="min-w-0">
           <p className="text-xs font-medium text-foreground">Autonomy</p>
-          <div className="flex items-center gap-1">
-            <span className={`text-xs ${trend.tone}`}>{trend.arrow}</span>
-            <span className="text-xs text-muted-foreground">{trend.label} {deltaLabel}</span>
-          </div>
+          {isFallback ? (
+            <span className="text-[10px] text-amber-400">No data</span>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className={`text-xs ${trend.tone}`}>{trend.arrow}</span>
+              <span className="text-xs text-muted-foreground">{trend.label} {deltaLabel}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

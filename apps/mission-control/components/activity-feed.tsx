@@ -109,7 +109,10 @@ export function ActivityFeed() {
         className="max-h-[600px] overflow-x-hidden overflow-y-auto rounded-md border bg-zinc-950/70 p-2 font-mono text-xs"
       >
         {orderedEvents.length === 0 ? (
-          <p className="px-1 py-2 text-muted-foreground">No activity yet.</p>
+          <div className="px-1 py-2 text-muted-foreground">
+            <p>No activity in window.</p>
+            <p className="mt-1 text-[10px] text-muted-foreground/60">Polling every {POLL_MS / 1000}s{source ? ` · ${source} db` : " · connecting…"}</p>
+          </div>
         ) : (
           <div className="space-y-1">
             {orderedEvents.map((event: ActivityEvent) => (

@@ -71,7 +71,11 @@ function renderActionResult(action: ActionKey, data: unknown) {
             <div className={check.passed ? "text-emerald-300" : "text-destructive"}>
               {check.passed ? "PASS" : "FAIL"} · {check.name}
             </div>
-            <div className="mt-1 whitespace-pre-wrap text-muted-foreground">{check.details}</div>
+            <div className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-muted-foreground">
+              {typeof check.details === "string" && check.details.length > 200
+                ? check.details.slice(0, 200) + "…"
+                : check.details}
+            </div>
           </div>
         ))}
       </div>

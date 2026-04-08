@@ -1,4 +1,5 @@
 import { Activity, BedDouble, Dumbbell, Heart, Moon, Scale, Timer, TrendingUp, Weight, Zap } from "lucide-react";
+import { Animate } from "@/components/animate";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -160,19 +161,21 @@ export default async function FitnessPage() {
       <AutoRefresh />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Mjolnir</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Health & Recovery</h1>
-          <p className="text-sm text-muted-foreground">Daily recovery, sleep, and workout signals from Whoop.</p>
+      <Animate delay={0.04}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Mjolnir</p>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Health & Recovery</h1>
+            <p className="text-sm text-muted-foreground">Daily recovery, sleep, and workout signals from Whoop.</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={response.cached ? "outline" : "success"} className="text-[10px]">
+              {response.cached ? "cached" : "live"}
+            </Badge>
+            <span>{formatTimestamp(response.generatedAt)}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant={response.cached ? "outline" : "success"} className="text-[10px]">
-            {response.cached ? "cached" : "live"}
-          </Badge>
-          <span>{formatTimestamp(response.generatedAt)}</span>
-        </div>
-      </div>
+      </Animate>
 
       {/* ── Active Alerts ── */}
       {data.alerts.length > 0 && (
@@ -186,6 +189,7 @@ export default async function FitnessPage() {
       )}
 
       {/* ── Hero: Recovery Ring + Sleep Overview ── */}
+      <Animate delay={0.10}>
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Recovery Ring Card */}
         <Card className="gap-3 py-4">
@@ -244,8 +248,10 @@ export default async function FitnessPage() {
           </CardContent>
         </Card>
       </section>
+      </Animate>
 
       {/* ── Workouts ── */}
+      <Animate delay={0.16}>
       <section>
         <div className="mb-3 flex items-center gap-2">
           <Dumbbell className="h-4 w-4 text-orange-500 dark:text-orange-400" />
@@ -266,8 +272,10 @@ export default async function FitnessPage() {
           </div>
         )}
       </section>
+      </Animate>
 
       {/* ── Body Metrics + Tonal Strength ── */}
+      <Animate delay={0.22}>
       <section className="grid grid-cols-1 gap-4">
         {/* Body Metrics */}
         <Card className="gap-3 py-4">
@@ -337,9 +345,11 @@ export default async function FitnessPage() {
           </CardContent>
         </Card>
       </section>
+      </Animate>
 
       {/* ── Tonal Recent Workouts ── */}
       {data.tonal?.available && data.tonal.recentWorkouts.length > 0 && (
+        <Animate delay={0.34}>
         <section>
           <div className="mb-3 flex items-center gap-2">
             <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
@@ -386,9 +396,11 @@ export default async function FitnessPage() {
             ))}
           </div>
         </section>
+        </Animate>
       )}
 
       {/* ── Trends + Alert History ── */}
+      <Animate delay={0.40}>
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Trends */}
         <Card className="gap-3 py-4">
@@ -468,6 +480,7 @@ export default async function FitnessPage() {
           </CardContent>
         </Card>
       </section>
+      </Animate>
     </div>
   );
 }
