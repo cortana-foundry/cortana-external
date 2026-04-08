@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 type RiskLevel = "p0" | "p1" | "p2" | "p3";
 
 type ApprovalTelegramNotificationInput = {
@@ -8,7 +12,12 @@ type ApprovalTelegramNotificationInput = {
   rationale?: string | null;
 };
 
-const TELEGRAM_CHAT_ID = "8171372724";
+const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), ".openclaw", "openclaw.json");
+
+type ApprovalTelegramRouting = {
+  botToken: string | null;
+  chatId: string | null;
+};
 
 const escapeHtml = (value: string): string =>
   value
@@ -20,6 +29,32 @@ const escapeHtml = (value: string): string =>
 
 const getMissionControlBaseUrl = (): string =>
   process.env.MISSION_CONTROL_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
+
+const readApprovalTelegramRouting = (): ApprovalTelegramRouting => {
+  const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || null;
+  const envChatId = process.env.TELEGRAM_CHAT_ID?.trim() || null;
+  if (envToken && envChatId) {
+    return { botToken: envToken, chatId: envChatId };
+  }
+
+  try {
+    const cfg = JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_PATH, "utf8"));
+    const approvals = cfg?.channels?.telegram?.systemRouting?.approvals;
+    const accountId = String(approvals?.accountId || "default");
+    const botToken = envToken
+      ?? cfg?.channels?.telegram?.accounts?.[accountId]?.botToken
+      ?? cfg?.channels?.telegram?.accounts?.default?.botToken
+      ?? null;
+    const chatId = envChatId
+      ?? (approvals?.chatId !== undefined && approvals?.chatId !== null ? String(approvals.chatId) : null)
+      ?? (Array.isArray(cfg?.channels?.telegram?.allowFrom) && cfg.channels.telegram.allowFrom[0] !== undefined
+        ? String(cfg.channels.telegram.allowFrom[0])
+        : null);
+    return { botToken: botToken ? String(botToken) : null, chatId };
+  } catch {
+    return { botToken: envToken, chatId: envChatId };
+  }
+};
 
 const getApprovalMessageText = (input: ApprovalTelegramNotificationInput): string => {
   const risk = input.riskLevel.toUpperCase();
@@ -38,13 +73,13 @@ const getApprovalMessageText = (input: ApprovalTelegramNotificationInput): strin
 };
 
 export async function sendApprovalTelegramNotification(input: ApprovalTelegramNotificationInput): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!token) {
-    console.warn("[notify] TELEGRAM_BOT_TOKEN is not configured; skipping Telegram notification");
+  const routing = readApprovalTelegramRouting();
+  if (!routing.botToken || !routing.chatId) {
+    console.warn("[notify] Approval Telegram routing is not configured; skipping Telegram notification");
     return;
   }
 
-  const endpoint = `https://api.telegram.org/bot${token}/sendMessage`;
+  const endpoint = `https://api.telegram.org/bot${routing.botToken}/sendMessage`;
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -52,7 +87,7 @@ export async function sendApprovalTelegramNotification(input: ApprovalTelegramNo
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
+      chat_id: routing.chatId,
       text: getApprovalMessageText(input),
       parse_mode: "HTML",
       disable_web_page_preview: true,
