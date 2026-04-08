@@ -304,11 +304,12 @@ describe("TradingOpsDashboard", () => {
             watch: [liveRow("MSFT", "MSFT", "MSFT", 427.9, 1.98)],
           },
         },
-        meta: {
-          runId: "20260403-163103",
-          decision: "WATCH",
-          focusTicker: "ABBV",
-          isAfterHours: false,
+      meta: {
+        runId: "20260403-163103",
+        runLabel: "Apr 3, 12:38 PM",
+        decision: "WATCH",
+        focusTicker: "ABBV",
+        isAfterHours: false,
         },
         warnings: [],
       });
@@ -318,6 +319,7 @@ describe("TradingOpsDashboard", () => {
       expect(container).toHaveTextContent("Streamer connected");
       expect(container).toHaveTextContent("DOW");
       expect(container).toHaveTextContent("NASDAQ");
+      expect(container).toHaveTextContent("Apr 3, 12:38 PM");
     });
 
     const liveTab = screen.getByRole("tab", { name: "Live" });
@@ -359,6 +361,7 @@ describe("TradingOpsDashboard", () => {
           },
           meta: {
             runId: "20260403-163103",
+            runLabel: "Apr 3, 12:38 PM",
             decision: "WATCH",
             focusTicker: "ABBV",
             isAfterHours: false,

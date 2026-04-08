@@ -28,6 +28,7 @@ describe("GET /api/trading-ops/live/stream", () => {
       },
       meta: {
         runId: "20260408-193126",
+        runLabel: "Apr 8, 3:31 PM",
         decision: "WATCH",
         focusTicker: "ABBV",
         isAfterHours: false,

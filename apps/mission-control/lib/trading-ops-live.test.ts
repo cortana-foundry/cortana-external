@@ -110,6 +110,7 @@ describe("trading ops live loader", () => {
     expect(data.watchlists.dipBuyer.watch.map((row) => row.symbol)).toEqual(["ACHV", "ADM"]);
     expect(data.watchlists.canslim.buy.map((row) => row.symbol)).toEqual(["NVDA"]);
     expect(data.meta.runId).toBe("20260408-163130");
+    expect(data.meta.runLabel).toBe("Apr 8, 12:31 PM");
   });
 
   it("keeps symbols visible and marks them degraded when streamer is down or quotes are missing", async () => {
@@ -216,6 +217,7 @@ describe("trading ops live loader", () => {
       symbol: "ABBV",
       state: "degraded",
     });
+    expect(data.meta.runLabel).toBe("Apr 8, 3:31 PM");
   });
 });
 

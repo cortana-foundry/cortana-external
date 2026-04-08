@@ -73,6 +73,7 @@ export type TradingOpsLiveData = {
   };
   meta: {
     runId: string | null;
+    runLabel: string | null;
     decision: string | null;
     focusTicker: string | null;
     isAfterHours: boolean;
@@ -126,6 +127,7 @@ export async function loadTradingOpsLiveData(
     },
     meta: {
       runId: tradingRun.data?.runId ?? null,
+      runLabel: tradingRun.data?.runLabel ?? null,
       decision: tradingRun.data?.decision ?? null,
       focusTicker: tradingRun.data?.focusTicker ?? null,
       isAfterHours: isAfterHoursSession(),

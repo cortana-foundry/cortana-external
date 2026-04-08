@@ -222,7 +222,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 </div>
                 <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  <Metric label="Latest run" value={liveData.meta.runId ?? "No latest run"} />
+                  <Metric
+                    label="Latest run"
+                    value={liveData.meta.runLabel ?? liveData.meta.runId ?? "No latest run"}
+                  />
                   <Metric label="Decision" value={liveData.meta.decision ?? "No decision yet"} />
                   <Metric
                     label="Last refresh"
@@ -392,16 +395,16 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Live ── */}
         <TabsContent value="live" className="space-y-3">
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-            <ArtifactPanel title="Live tape" artifact={liveArtifact}>
-              {liveData ? (
-                <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
-                  <LiveTapeGrid rows={liveData.tape.rows} />
-                </div>
-              ) : null}
-            </ArtifactPanel>
+          <ArtifactPanel title="Live tape" artifact={liveArtifact}>
+            {liveData ? (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
+                <LiveTapeGrid rows={liveData.tape.rows} />
+              </div>
+            ) : null}
+          </ArtifactPanel>
 
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
             <ArtifactPanel title="Streamer status" artifact={liveArtifact}>
               {liveData ? (
                 <div className="space-y-2 text-sm">
@@ -439,9 +442,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 </div>
               ) : null}
             </ArtifactPanel>
-          </section>
 
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <ArtifactPanel title="CANSLIM live watchlist" artifact={liveArtifact}>
               {liveData ? (
                 <div className="space-y-3">
@@ -627,24 +628,22 @@ function badgeVariantForStreamer(streamer: TradingOpsLiveData["streamer"]) {
 
 function CompactTapeStrip({ rows }: { rows: LiveQuoteRow[] }) {
   return (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <div className="flex min-w-max gap-2">
-        {rows.map((row) => (
-          <div
-            key={`${row.symbol}-${row.sourceSymbol}`}
-            className="min-w-[118px] rounded-md border border-border/50 bg-muted/20 px-2 py-2"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs font-semibold">{row.label}</span>
-              <QuoteStateBadge row={row} compact />
-            </div>
-            <p className="mt-1 font-mono text-sm font-medium">{formatQuotePrice(row.price)}</p>
-            <p className={`text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
-              {formatQuoteChange(row.changePercent)}
-            </p>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+      {rows.map((row) => (
+        <div
+          key={`${row.symbol}-${row.sourceSymbol}`}
+          className="min-w-0 rounded-md border border-border/50 bg-muted/20 px-3 py-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-xs font-semibold">{row.label}</span>
+            <QuoteStateBadge row={row} compact />
           </div>
-        ))}
-      </div>
+          <p className="mt-2 font-mono text-sm font-medium">{formatQuotePrice(row.price)}</p>
+          <p className={`text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
+            {formatQuoteChange(row.changePercent)}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

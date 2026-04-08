@@ -168,6 +168,7 @@ export type TradingOpsLiveData = {
   };
   meta: {
     runId: string | null;
+    runLabel: string | null;
     decision: string | null;
     focusTicker: string | null;
     isAfterHours: boolean;
