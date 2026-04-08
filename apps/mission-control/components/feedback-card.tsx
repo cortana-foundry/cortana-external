@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,7 +62,6 @@ export function FeedbackCard({
   highlighted?: boolean;
   initiallyExpanded?: boolean;
 }) {
-  const router = useRouter();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [actionType, setActionType] = useState("patch");
@@ -75,6 +73,8 @@ export function FeedbackCard({
   const [workflowStatus, setWorkflowStatus] = useState<FeedbackWorkflowStatus>(feedback.status);
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>(feedback.remediationStatus);
   const [remediationNotes, setRemediationNotes] = useState(feedback.remediationNotes ?? "");
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackInfo, setFeedbackInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!highlighted) return;
@@ -82,19 +82,36 @@ export function FeedbackCard({
     cardRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
   }, [highlighted]);
 
+  const loadFeedback = async () => {
+    const response = await fetch(`/api/feedback/${feedback.id}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Unable to refresh feedback (${response.status})`);
+    }
+
+    const payload = (await response.json()) as FeedbackItem;
+    setActions(payload.actions || []);
+    setWorkflowStatus(payload.status);
+    setRemediationStatus(payload.remediationStatus);
+    setRemediationNotes(payload.remediationNotes ?? "");
+  };
+
   useEffect(() => {
     if (!expanded) return;
     let alive = true;
 
     const load = async () => {
-      const response = await fetch(`/api/feedback/${feedback.id}`, { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as FeedbackItem;
-      if (!alive) return;
-      setActions(payload.actions || []);
-      setWorkflowStatus(payload.status);
-      setRemediationStatus(payload.remediationStatus);
-      setRemediationNotes(payload.remediationNotes ?? "");
+      try {
+        const response = await fetch(`/api/feedback/${feedback.id}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as FeedbackItem;
+        if (!alive) return;
+        setActions(payload.actions || []);
+        setWorkflowStatus(payload.status);
+        setRemediationStatus(payload.remediationStatus);
+        setRemediationNotes(payload.remediationNotes ?? "");
+      } catch {
+        if (!alive) return;
+      }
     };
 
     load();
@@ -108,14 +125,23 @@ export function FeedbackCard({
   const addAction = async () => {
     try {
       setSubmitting(true);
-      await fetch(`/api/feedback/${feedback.id}/actions`, {
+      setFeedbackError(null);
+      setFeedbackInfo(null);
+      const response = await fetch(`/api/feedback/${feedback.id}/actions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ actionType, actionRef: actionRef || null, description: description || null, status }),
       });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || `Add action failed (${response.status})`);
+      }
       setDescription("");
       setActionRef("");
-      router.refresh();
+      await loadFeedback();
+      setFeedbackInfo("Action added.");
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : "Failed to add action");
     } finally {
       setSubmitting(false);
     }
@@ -125,6 +151,8 @@ export function FeedbackCard({
     const nextRemediation = workflowToRemediation[nextStatus];
     try {
       setSubmitting(true);
+      setFeedbackError(null);
+      setFeedbackInfo(null);
       const response = await fetch(`/api/feedback/${feedback.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -136,10 +164,23 @@ export function FeedbackCard({
           resolvedBy: nextRemediation === "resolved" ? "mission-control-ui" : null,
         }),
       });
-      if (!response.ok) return;
-      setWorkflowStatus(nextStatus);
-      setRemediationStatus(nextRemediation);
-      router.refresh();
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || `Workflow update failed (${response.status})`);
+      }
+      const payload = (await response.json()) as { item?: FeedbackItem };
+      if (payload.item) {
+        setActions(payload.item.actions || []);
+        setWorkflowStatus(payload.item.status);
+        setRemediationStatus(payload.item.remediationStatus);
+        setRemediationNotes(payload.item.remediationNotes ?? "");
+      } else {
+        setWorkflowStatus(nextStatus);
+        setRemediationStatus(nextRemediation);
+      }
+      setFeedbackInfo("Workflow updated.");
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : "Failed to update workflow");
     } finally {
       setSubmitting(false);
     }
@@ -148,6 +189,8 @@ export function FeedbackCard({
   const saveRemediationNotes = async () => {
     try {
       setSubmitting(true);
+      setFeedbackError(null);
+      setFeedbackInfo(null);
       const response = await fetch(`/api/feedback/${feedback.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -159,8 +202,22 @@ export function FeedbackCard({
           resolvedBy: remediationStatus === "resolved" ? "mission-control-ui" : null,
         }),
       });
-      if (!response.ok) return;
-      router.refresh();
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || `Save notes failed (${response.status})`);
+      }
+      const payload = (await response.json()) as { item?: FeedbackItem };
+      if (payload.item) {
+        setActions(payload.item.actions || []);
+        setWorkflowStatus(payload.item.status);
+        setRemediationStatus(payload.item.remediationStatus);
+        setRemediationNotes(payload.item.remediationNotes ?? "");
+      } else {
+        await loadFeedback();
+      }
+      setFeedbackInfo("Notes saved.");
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : "Failed to save notes");
     } finally {
       setSubmitting(false);
     }
@@ -198,6 +255,8 @@ export function FeedbackCard({
 
       {expanded && (
         <CardContent className="space-y-4">
+          {feedbackError ? <p className="text-sm text-destructive">{feedbackError}</p> : null}
+          {!feedbackError && feedbackInfo ? <p className="text-sm text-muted-foreground">{feedbackInfo}</p> : null}
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workflow stage</p>
             <div className="mt-2 flex flex-wrap gap-2">
