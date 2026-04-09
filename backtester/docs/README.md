@@ -22,6 +22,8 @@ In the LLM wiki model:
 - [Roadmap](./source/roadmap/roadmap.md)
 - [Session handoff](./source/guide/session-handoff.md)
 - [Market-data service reference](./source/reference/market-data-service-reference.md)
+- [Trading cron base/enrichment/notify decoupling PRD](./source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
+- [Polymarket market intelligence PRD](./source/prd/prd-polymarket-market-intelligence.md)
 - [Schwab OAuth reauth runbook](./source/runbook/schwab-oauth-reauth-runbook.md)
 - [Trading Ops QA runbook](./source/runbook/trading-ops-qa-runbook.md)
 - [Knowledge overview](../../knowledge/domains/backtester/overview.md)
