@@ -88,7 +88,7 @@ export function DocsSidebar({
               onClick={() => onSelectFile(file.id)}
               aria-pressed={isActive}
               className={cn("docs-nav-file", isActive && "docs-nav-file-active")}
-              style={{ paddingLeft: `${(depth + (node.children.length > 0 || depth > 0 ? 1 : 0)) * 10 + 4}px` }}
+              style={{ paddingLeft: `${(depth + 1) * 10 + 4}px` }}
             >
               <span className="truncate">{basename(file.name)}</span>
             </button>
