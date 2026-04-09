@@ -34,7 +34,7 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loadi
         </>
       }
     >
-      <SystemStatsClient />
+      <SystemStatsClient hideHeader />
 
       <SectionCard
         icon={<PlugZap className="h-4 w-4" />}
