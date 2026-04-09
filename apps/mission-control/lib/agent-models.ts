@@ -22,7 +22,7 @@ const formatModelDisplayName = (key: string) => {
 
 const AGENT_ROLES: Record<string, { name: string; role: string; capabilities: string }> = {
   main: { name: "Cortana", role: "Command Deck", capabilities: "Triage, routing, synthesis, escalation" },
-  huragok: { name: "Huragok", role: "Systems Engineer", capabilities: "Code, infra, debugging, PRs, CI" },
+  huragok: { name: "Hera", role: "Systems Engineer", capabilities: "Code, infra, debugging, PRs, CI" },
   researcher: { name: "Researcher", role: "Scout", capabilities: "Research, news, evidence gathering" },
   oracle: { name: "Oracle", role: "Forecaster", capabilities: "Market pulse, portfolio, risk analysis" },
   monitor: { name: "Monitor", role: "Guardian", capabilities: "Health, cron delivery, drift, incidents" },
