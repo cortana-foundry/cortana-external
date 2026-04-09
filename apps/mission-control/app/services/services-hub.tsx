@@ -178,6 +178,14 @@ export default function ServicesHub() {
     return () => { cancelled = true; };
   }, [activeTab, logsLoaded]);
 
+  const refreshSessions = React.useCallback(() => {
+    setSessionsLoaded(false);
+  }, []);
+
+  const refreshLogs = React.useCallback(() => {
+    setLogsLoaded(false);
+  }, []);
+
   const coreAgents = agents.filter((a) => !WORKER_IDS.has(a.id));
   const workerAgents = agents.filter((a) => WORKER_IDS.has(a.id));
 
@@ -244,10 +252,11 @@ export default function ServicesHub() {
             usage={usage}
             loading={sessionsLoading && !sessionsLoaded}
             error={sessionsError}
+            onRefresh={refreshSessions}
           />
         )}
         {activeTab === "logs" && (
-          <LogsTab logs={logs} loading={logsLoading && !logsLoaded} error={logsError} />
+          <LogsTab logs={logs} loading={logsLoading && !logsLoaded} error={logsError} onRefresh={refreshLogs} />
         )}
       </div>
     </div>

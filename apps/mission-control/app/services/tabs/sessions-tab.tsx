@@ -1,9 +1,11 @@
 import {
   DollarSign,
   LineChart,
+  RefreshCw,
   Timer,
   Users,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { TabLayout, SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
 import type { SessionData, CouncilSessionSummary, UsageData } from "./shared";
@@ -14,12 +16,14 @@ export function SessionsTab({
   usage,
   loading,
   error,
+  onRefresh,
 }: {
   sessions: SessionData[];
   councilSessions: CouncilSessionSummary[];
   usage: UsageData | null;
   loading?: boolean;
   error?: string | null;
+  onRefresh?: () => void;
 }) {
   const totalTokens = sessions.reduce((s, x) => s + (x.totalTokens ?? 0), 0);
 
@@ -29,6 +33,11 @@ export function SessionsTab({
       subtitle="Cost, token usage, and active session analytics"
       loading={loading}
       error={error}
+      actions={onRefresh && (
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+        </Button>
+      )}
       stats={usage ? (
         <>
           <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatMoney(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />
