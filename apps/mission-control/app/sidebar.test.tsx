@@ -130,5 +130,13 @@ describe("Sidebar", () => {
     fireEvent.click(expandBtn);
 
     expect(storageMock.setItem).toHaveBeenCalledWith("mc-sidebar-collapsed", "false");
+    expect(document.cookie).toContain("mc-sidebar-collapsed=false");
+  });
+
+  it("respects the server-provided initial collapsed state", () => {
+    render(<Sidebar initialCollapsed />);
+
+    expect(screen.getByText("MC")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
   });
 });
