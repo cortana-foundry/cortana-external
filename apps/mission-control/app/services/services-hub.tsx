@@ -14,7 +14,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
-import { TabLayout, TabLoading, RefreshButton } from "./tabs/shared";
+import { TabLayout, TabLoading } from "./tabs/shared";
 import type {
   SerializedAgent,
   CouncilSessionSummary,
@@ -181,11 +181,6 @@ export default function ServicesHub() {
     return () => { cancelled = true; };
   }, [activeTab, logsLoaded]);
 
-  const [cronRefreshKey, setCronRefreshKey] = React.useState(0);
-  const refreshCron = React.useCallback(() => {
-    setCronRefreshKey((k) => k + 1);
-  }, []);
-
   const refreshData = React.useCallback(() => {
     setDataLoaded(false);
   }, []);
@@ -252,9 +247,8 @@ export default function ServicesHub() {
             <TabLayout
               title="Cron Jobs"
               subtitle="Review schedules, trigger runs, and adjust delivery settings"
-              actions={<RefreshButton onClick={refreshCron} />}
             >
-              <CronClient hideHeader refreshKey={cronRefreshKey} />
+              <CronClient hideHeader />
             </TabLayout>
           </React.Suspense>
         )}
