@@ -111,6 +111,49 @@ export function TabShell({ loading, error, onRetry, children }: {
   return <>{children}</>;
 }
 
+export function SectionCard({ icon, title, count, subtitle, children, className }: {
+  icon?: React.ReactNode;
+  title: string;
+  count?: number | string;
+  subtitle?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`rounded-lg border border-border/50 bg-card/30 ${className ?? ""}`}>
+      <div className="flex items-center justify-between gap-2 px-5 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-muted-foreground">{icon}</span>}
+            <h3 className="text-sm font-semibold uppercase tracking-wide">{title}</h3>
+          </div>
+          {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
+        </div>
+        {count != null && (
+          <span className="shrink-0 rounded-full border border-border/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {count}
+          </span>
+        )}
+      </div>
+      <div className="border-t border-border/30 px-5 py-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function ListRow({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/10 px-3 py-2 transition-colors hover:bg-muted/20 ${className ?? ""}`}>
+      {children}
+    </div>
+  );
+}
+
+export function EmptyState({ message }: { message: string }) {
+  return <p className="py-6 text-center text-sm text-muted-foreground">{message}</p>;
+}
+
 export function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {
   return (
     <div className="rounded-lg border border-border/50 bg-card/60 p-3">
