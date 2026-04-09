@@ -115,36 +115,61 @@ export function useDocs() {
     setMobileTocOpen(false);
   }, [selectedFileId]);
 
-  /* initial collapse state */
+  /* initial collapse state — restore from localStorage or compute defaults */
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (tree.length === 0) return;
-    setCollapsedFolders((prev) => {
-      if (prev.size > 0) return prev;
-      const next = new Set(prev);
-      for (const { root } of tree) {
-        for (const fullPath of collectFolderPaths(root)) {
-          next.add(fullPath);
+    if (tree.length === 0 || initializedRef.current) return;
+    initializedRef.current = true;
+
+    // Try restoring from localStorage
+    let restored = false;
+    try {
+      const savedFolders = localStorage.getItem("docs-collapsed-folders");
+      const savedSections = localStorage.getItem("docs-collapsed-sections");
+      const savedServices = localStorage.getItem("docs-collapsed-services");
+      if (savedFolders) {
+        setCollapsedFolders(new Set(JSON.parse(savedFolders) as string[]));
+        restored = true;
+      }
+      if (savedSections) {
+        setCollapsedSections(new Set(JSON.parse(savedSections) as string[]));
+        restored = true;
+      }
+      if (savedServices) {
+        setCollapsedServices(new Set(JSON.parse(savedServices) as string[]));
+      }
+    } catch { /* localStorage unavailable */ }
+
+    if (!restored) {
+      // Default: collapse all folders, open ancestors of selected file
+      setCollapsedFolders((prev) => {
+        const next = new Set(prev);
+        for (const { root } of tree) {
+          for (const fullPath of collectFolderPaths(root)) {
+            next.add(fullPath);
+          }
         }
-      }
-      for (const fullPath of collectAncestorFolderPaths(selectedFile)) {
-        next.delete(fullPath);
-      }
-      return next;
-    });
+        for (const fullPath of collectAncestorFolderPaths(selectedFile)) {
+          next.delete(fullPath);
+        }
+        return next;
+      });
+      // Default: collapse all sections except the active one
+      setCollapsedSections(() => {
+        const next = new Set<string>();
+        for (const { group, sections } of groupedTree) {
+          for (const { section } of sections) {
+            const key = getSectionKey(group, section);
+            if (key !== activeSectionKey) next.add(key);
+          }
+        }
+        return next;
+      });
+    }
+
     setActiveGroupTab((prev) => {
       if (prev) return prev;
       return activeGroup ?? groupedTree[0]?.group ?? null;
-    });
-    setCollapsedSections((prev) => {
-      if (prev.size > 0) return prev;
-      const next = new Set<string>();
-      for (const { group, sections } of groupedTree) {
-        for (const { section } of sections) {
-          const key = getSectionKey(group, section);
-          if (key !== activeSectionKey) next.add(key);
-        }
-      }
-      return next;
     });
   }, [tree, groupedTree, selectedFile, activeGroup, activeSectionKey]);
 
@@ -182,6 +207,21 @@ export function useDocs() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileSidebarOpen]);
 
+  /* ── persist collapsed state ── */
+  const persistTimerRef = useRef(0);
+  useEffect(() => {
+    // Skip persistence until initial state is loaded
+    if (tree.length === 0) return;
+    clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = window.setTimeout(() => {
+      try {
+        localStorage.setItem("docs-collapsed-folders", JSON.stringify([...collapsedFolders]));
+        localStorage.setItem("docs-collapsed-sections", JSON.stringify([...collapsedSections]));
+        localStorage.setItem("docs-collapsed-services", JSON.stringify([...collapsedServices]));
+      } catch { /* localStorage unavailable */ }
+    }, 300);
+  }, [collapsedFolders, collapsedSections, collapsedServices, tree]);
+
   /* ── actions ── */
   const toggleFolder = useCallback((fullPath: string) => {
     setCollapsedFolders((prev) => {
@@ -213,6 +253,41 @@ export function useDocs() {
       else next.add(service);
       return next;
     });
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    const allFolders = new Set<string>();
+    for (const { root } of tree) {
+      for (const fullPath of collectFolderPaths(root)) {
+        allFolders.add(fullPath);
+      }
+    }
+    setCollapsedFolders(allFolders);
+    const allSections = new Set<string>();
+    for (const { group, sections } of groupedTree) {
+      for (const { section } of sections) {
+        allSections.add(getSectionKey(group, section));
+      }
+    }
+    setCollapsedSections(allSections);
+    const allServices = new Set<string>();
+    const extGroup = groupedTree.find(({ group }) => group === "cortana-external");
+    if (extGroup) {
+      for (const { section } of extGroup.sections) {
+        const group = getSectionGroup(section);
+        if (group === "cortana-external") {
+          const service = section.replace(/^cortana-external /, "").split(" ")[0];
+          if (service) allServices.add(service);
+        }
+      }
+    }
+    setCollapsedServices(allServices);
+  }, [tree, groupedTree]);
+
+  const expandAll = useCallback(() => {
+    setCollapsedFolders(new Set());
+    setCollapsedSections(new Set());
+    setCollapsedServices(new Set());
   }, []);
 
   const selectFile = useCallback((id: string) => {
@@ -255,5 +330,7 @@ export function useDocs() {
     toggleSection,
     toggleService,
     selectFile,
+    collapseAll,
+    expandAll,
   };
 }

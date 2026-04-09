@@ -361,6 +361,24 @@
 
 /* ── Documentation portal ── */
 
+.docs-thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.docs-thin-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.docs-thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.docs-thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 4px;
+}
+
 @layer utilities {
   .docs-prose {
     @apply prose prose-slate max-w-none dark:prose-invert
@@ -509,7 +527,7 @@
   }
 
   .docs-nav-file-active {
-    @apply text-primary font-medium;
+    @apply text-primary font-medium bg-primary/8 border border-primary/15;
   }
 
   /* ── Vertical guide line ── */

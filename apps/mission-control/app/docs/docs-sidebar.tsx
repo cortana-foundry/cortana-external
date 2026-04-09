@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, FileText, Folder, FolderOpen, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { DocFile, TreeNode, SectionTree, SectionGroup, ServiceGroup } from "./docs-types";
+import type { DocFile, TreeNode, SectionTree, SectionGroup } from "./docs-types";
 import {
   sortFolderNodes,
   getSectionLabel,
@@ -34,6 +34,8 @@ type DocsSidebarProps = {
   onToggleSection: (group: string, section: string) => void;
   onToggleService: (service: string) => void;
   onSelectFile: (id: string) => void;
+  onCollapseAll?: () => void;
+  onExpandAll?: () => void;
 };
 
 export function DocsSidebar({
@@ -55,6 +57,8 @@ export function DocsSidebar({
   onToggleSection,
   onToggleService,
   onSelectFile,
+  onCollapseAll,
+  onExpandAll,
 }: DocsSidebarProps) {
   const renderNode = (node: TreeNode, depth: number) => {
     const isSearching = searchQuery.length > 0;
@@ -63,6 +67,7 @@ export function DocsSidebar({
       <div key={node.fullPath}>
         {sortFolderNodes(node.children).map((child) => {
           const isCollapsed = !isSearching && collapsedFolders.has(child.fullPath);
+          const fileCount = countNodeFiles(child);
           return (
             <div key={child.fullPath}>
               <button
@@ -72,7 +77,16 @@ export function DocsSidebar({
                 style={{ paddingLeft: `${depth * 10 + 4}px` }}
               >
                 <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", !isCollapsed && "rotate-90")} />
-                <span className="truncate text-muted-foreground">{child.name}</span>
+                {isCollapsed
+                  ? <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                  : <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                }
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.name}</span>
+                {fileCount > 0 && (
+                  <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/70">
+                    {fileCount}
+                  </span>
+                )}
               </button>
               {!isCollapsed && renderNode(child, depth + 1)}
             </div>
@@ -90,6 +104,7 @@ export function DocsSidebar({
               className={cn("docs-nav-file", isActive && "docs-nav-file-active")}
               style={{ paddingLeft: `${(depth + 1) * 10 + 4}px` }}
             >
+              <FileText className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground/50")} />
               <span className="truncate">{basename(file.name)}</span>
             </button>
           );
@@ -121,7 +136,11 @@ export function DocsSidebar({
           </span>
         </button>
 
-        {!sectionCollapsed && renderNode(root, 0)}
+        {!sectionCollapsed && (
+          <div className="ml-3 border-l border-border/40">
+            {renderNode(root, 0)}
+          </div>
+        )}
       </div>
     );
   };
@@ -130,10 +149,8 @@ export function DocsSidebar({
     const { standalone, services } = groupSectionsIntoServices(activeGroupSections);
     return (
       <div className="space-y-1.5">
-        {/* Standalone sections (e.g. Repo Docs) */}
         {standalone.map(({ section, root }) => renderSection(section, root))}
 
-        {/* Service groups */}
         {services.map(({ service, sections }) => {
           const serviceCollapsed = searchQuery.length === 0 && collapsedServices.has(service);
           const totalFiles = sections.reduce((sum, { root }) => sum + countNodeFiles(root), 0);
@@ -152,7 +169,7 @@ export function DocsSidebar({
               </button>
 
               {!serviceCollapsed && (
-                <div className="ml-2 space-y-0.5">
+                <div className="ml-3 border-l border-border/40 space-y-0.5">
                   {sections.map(({ section, root }) => renderSection(section, root))}
                 </div>
               )}
@@ -170,26 +187,51 @@ export function DocsSidebar({
   );
 
   const isServiceGrouped = activeGroupTab === "cortana-external";
+  const showTree = !listLoading && files.length > 0 && tree.length > 0;
 
   return (
     <nav className="space-y-3">
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search docs..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="h-8 pl-8 pr-8 text-sm"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => onSearchChange("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+      {/* Search + collapse/expand */}
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search docs..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="h-8 pl-8 pr-8 text-sm"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {showTree && onCollapseAll && onExpandAll && (
+          <div className="flex shrink-0">
+            <button
+              type="button"
+              onClick={onCollapseAll}
+              className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-muted/40"
+              aria-label="Collapse all"
+              title="Collapse all"
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onExpandAll}
+              className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-muted/40"
+              aria-label="Expand all"
+              title="Expand all"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
 
