@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { TabLayout, SectionCard, EmptyState } from "./shared";
 import type { LogEntry } from "./shared";
 
-export function LogsTab({ logs }: { logs: LogEntry[] }) {
+export function LogsTab({ logs, loading, error }: { logs: LogEntry[]; loading?: boolean; error?: string | null }) {
   const severityVariant = (s: string) => {
     const n = s.toLowerCase();
     if (["critical", "error", "failed"].some((k) => n.includes(k))) return "destructive" as const;
@@ -18,6 +18,8 @@ export function LogsTab({ logs }: { logs: LogEntry[] }) {
     <TabLayout
       title="Logs"
       subtitle="Last 24h · max 100"
+      loading={loading}
+      error={error}
       badge={<Badge variant="outline" className="text-[10px]">{logs.length} entries</Badge>}
     >
       <SectionCard

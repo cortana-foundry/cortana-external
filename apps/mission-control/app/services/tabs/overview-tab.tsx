@@ -15,7 +15,7 @@ import type { SerializedAgent, CouncilSessionSummary, UsageData, Tab } from "./s
 
 import SystemStatsClient from "@/app/system-stats/system-stats-client";
 
-export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { agents: SerializedAgent[]; councilSessions: CouncilSessionSummary[]; usage: UsageData | null; onSwitchTab: (tab: Tab) => void }) {
+export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loading, error }: { agents: SerializedAgent[]; councilSessions: CouncilSessionSummary[]; usage: UsageData | null; onSwitchTab: (tab: Tab) => void; loading?: boolean; error?: string | null }) {
   const activeAgents = agents.filter((a) => a.status === "active").length;
   const runningCouncil = councilSessions.filter((s) => s.status === "running").length;
 
@@ -23,6 +23,8 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { a
     <TabLayout
       title="Overview"
       subtitle="System health, agents, and council activity"
+      loading={loading}
+      error={error}
       stats={
         <>
           <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={`${activeAgents}/${agents.length}`} sub="active" />

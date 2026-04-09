@@ -4,13 +4,15 @@ import { StatusBadge } from "@/components/status-badge";
 import { TabLayout, SectionCard, EmptyState } from "./shared";
 import type { SerializedAgent } from "./shared";
 
-export function AgentsTab({ coreAgents, workerAgents }: { coreAgents: SerializedAgent[]; workerAgents: SerializedAgent[] }) {
+export function AgentsTab({ coreAgents, workerAgents, loading, error }: { coreAgents: SerializedAgent[]; workerAgents: SerializedAgent[]; loading?: boolean; error?: string | null }) {
   const total = coreAgents.length + workerAgents.length;
 
   return (
     <TabLayout
       title="Agents"
       subtitle="Execution workers and core agent directory"
+      loading={loading}
+      error={error}
       badge={<Badge variant="outline" className="text-[10px]">{total} registered</Badge>}
     >
       {workerAgents.length > 0 && (

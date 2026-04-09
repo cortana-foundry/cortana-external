@@ -12,10 +12,14 @@ export function SessionsTab({
   sessions,
   councilSessions,
   usage,
+  loading,
+  error,
 }: {
   sessions: SessionData[];
   councilSessions: CouncilSessionSummary[];
   usage: UsageData | null;
+  loading?: boolean;
+  error?: string | null;
 }) {
   const totalTokens = sessions.reduce((s, x) => s + (x.totalTokens ?? 0), 0);
 
@@ -23,6 +27,8 @@ export function SessionsTab({
     <TabLayout
       title="Sessions"
       subtitle="Cost, token usage, and active session analytics"
+      loading={loading}
+      error={error}
       stats={usage ? (
         <>
           <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatMoney(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />

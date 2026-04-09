@@ -111,17 +111,19 @@ export function TabShell({ loading, error, onRetry, children }: {
   return <>{children}</>;
 }
 
-export function TabLayout({ title, subtitle, badge, actions, stats, children }: {
+export function TabLayout({ title, subtitle, badge, actions, stats, loading, error, children }: {
   title: string;
   subtitle?: string;
   badge?: React.ReactNode;
   actions?: React.ReactNode;
   stats?: React.ReactNode;
+  loading?: boolean;
+  error?: string | null;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      {/* Header zone */}
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* Header zone — always visible */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -140,16 +142,22 @@ export function TabLayout({ title, subtitle, badge, actions, stats, children }: 
       </div>
 
       {/* Stats zone */}
-      {stats && (
+      {!loading && !error && stats && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {stats}
         </div>
       )}
 
       {/* Content zone */}
-      <div className="space-y-4">
-        {children}
-      </div>
+      {error ? (
+        <TabError message={error} />
+      ) : loading ? (
+        <TabLoading />
+      ) : (
+        <div className="space-y-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

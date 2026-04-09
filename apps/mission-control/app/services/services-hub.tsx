@@ -14,7 +14,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
-import { TabLayout, TabLoading, TabShell } from "./tabs/shared";
+import { TabLayout, TabLoading } from "./tabs/shared";
 import type {
   SerializedAgent,
   CouncilSessionSummary,
@@ -217,9 +217,7 @@ export default function ServicesHub() {
       {/* Tab content */}
       <div className="min-h-[50vh]">
         {activeTab === "overview" && (
-          <TabShell loading={dataLoading} error={dataError}>
-            <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} />
-          </TabShell>
+          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} loading={dataLoading} error={dataError} />
         )}
         {activeTab === "config" && (
           <React.Suspense fallback={<TabLoading />}>
@@ -227,9 +225,7 @@ export default function ServicesHub() {
           </React.Suspense>
         )}
         {activeTab === "agents" && (
-          <TabShell loading={dataLoading} error={dataError}>
-            <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} />
-          </TabShell>
+          <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} loading={dataLoading} error={dataError} />
         )}
         {activeTab === "cron" && (
           <React.Suspense fallback={<TabLoading />}>
@@ -242,18 +238,16 @@ export default function ServicesHub() {
           </React.Suspense>
         )}
         {activeTab === "sessions" && (
-          <TabShell loading={sessionsLoading && !sessionsLoaded} error={sessionsError}>
-            <SessionsTab
-              sessions={sessions}
-              councilSessions={councilSessions}
-              usage={usage}
-            />
-          </TabShell>
+          <SessionsTab
+            sessions={sessions}
+            councilSessions={councilSessions}
+            usage={usage}
+            loading={sessionsLoading && !sessionsLoaded}
+            error={sessionsError}
+          />
         )}
         {activeTab === "logs" && (
-          <TabShell loading={logsLoading && !logsLoaded} error={logsError}>
-            <LogsTab logs={logs} />
-          </TabShell>
+          <LogsTab logs={logs} loading={logsLoading && !logsLoaded} error={logsError} />
         )}
       </div>
     </div>
