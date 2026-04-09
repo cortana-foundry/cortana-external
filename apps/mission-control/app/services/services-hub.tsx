@@ -81,6 +81,7 @@ export default function ServicesHub() {
         const [agentsRes, councilRes] = await Promise.allSettled([
           fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
           fetch("/api/council", { cache: "no-store" }).then((r) => r.json()),
+          new Promise((r) => setTimeout(r, 400)),
         ]);
         if (cancelled) return;
 
