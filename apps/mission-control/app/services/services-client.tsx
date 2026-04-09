@@ -461,29 +461,3 @@ function GuideItem({ icon: Icon, title, body }: { icon: React.ComponentType<{ cl
   );
 }
 
-function ConfigLoading() {
-  return (
-    <div className="space-y-3 py-4 animate-pulse">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="rounded-lg border border-border/50 bg-card/30 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-4 rounded bg-muted/50" />
-              <div className="h-4 w-36 rounded bg-muted/60" />
-            </div>
-            <div className="h-3 w-3 rounded bg-muted/40" />
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: i === 1 ? 3 : 2 }).map((_, j) => (
-              <div key={j} className="rounded-lg border border-border/40 bg-card/40 p-3">
-                <div className="h-3 w-20 rounded bg-muted/50" />
-                <div className="mt-2 h-4 w-32 rounded bg-muted/50" />
-                <div className="mt-1 h-3 w-40 rounded bg-muted/40" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}

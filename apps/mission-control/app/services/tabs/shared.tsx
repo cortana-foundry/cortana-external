@@ -60,33 +60,55 @@ export { formatInt, formatCost as formatMoney } from "@/lib/format-utils";
 
 /* ── shared components ── */
 
-export function TabLoading() {
+export function TabLoading({ cards = 4, rows = 3 }: { cards?: number; rows?: number } = {}) {
   return (
-    <div className="space-y-3 py-4">
-      <div className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
-        <div className="h-3 w-48 animate-pulse rounded bg-muted/60" />
-        <div className="flex gap-2">
-          <div className="h-7 w-20 animate-pulse rounded bg-muted/60" />
-          <div className="h-7 w-16 animate-pulse rounded bg-muted/60" />
-        </div>
-      </div>
+    <div className="space-y-3 py-4 animate-pulse">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
+        {Array.from({ length: cards }).map((_, i) => (
           <div key={i} className="rounded-lg border border-border/50 bg-card/40 p-3">
-            <div className="h-3 w-24 animate-pulse rounded bg-muted/60" />
-            <div className="mt-2 h-4 w-32 animate-pulse rounded bg-muted/60" />
-            <div className="mt-1 h-3 w-40 animate-pulse rounded bg-muted/60" />
+            <div className="h-3 w-24 rounded bg-muted/60" />
+            <div className="mt-2 h-4 w-32 rounded bg-muted/60" />
+            <div className="mt-1 h-3 w-40 rounded bg-muted/60" />
           </div>
         ))}
       </div>
-      {[1, 2, 3].map((i) => (
+      {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="rounded-lg border border-border/50 bg-card/30 p-4">
-          <div className="h-4 w-36 animate-pulse rounded bg-muted/60" />
-          <div className="mt-1 h-3 w-64 animate-pulse rounded bg-muted/60" />
+          <div className="h-4 w-36 rounded bg-muted/60" />
+          <div className="mt-2 h-3 w-full max-w-md rounded bg-muted/60" />
         </div>
       ))}
     </div>
   );
+}
+
+export function TabError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+      <p className="text-sm font-medium text-destructive">Something went wrong</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-2 text-sm font-medium text-primary hover:underline"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function TabShell({ loading, error, onRetry, children }: {
+  loading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  children: React.ReactNode;
+}) {
+  if (error) return <TabError message={error} onRetry={onRetry} />;
+  if (loading) return <TabLoading />;
+  return <>{children}</>;
 }
 
 export function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {

@@ -2,7 +2,7 @@ import { ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { LogEntry } from "./shared";
 
-export function LogsTab({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
+export function LogsTab({ logs }: { logs: LogEntry[] }) {
   const severityVariant = (s: string) => {
     const n = s.toLowerCase();
     if (["critical", "error", "failed"].some((k) => n.includes(k))) return "destructive" as const;
@@ -24,16 +24,7 @@ export function LogsTab({ logs, loading }: { logs: LogEntry[]; loading: boolean 
         <span className="text-[11px] text-muted-foreground">Last 24h · max 100</span>
       </div>
 
-      {loading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="rounded-lg border border-border/50 bg-card/40 p-3">
-              <div className="h-3 w-48 animate-pulse rounded bg-muted/60" />
-              <div className="mt-2 h-4 w-full animate-pulse rounded bg-muted/60" />
-            </div>
-          ))}
-        </div>
-      ) : logs.length === 0 ? (
+      {logs.length === 0 ? (
         <p className="py-8 text-sm text-muted-foreground">No log entries in the last 24 hours.</p>
       ) : (
         <div className="space-y-1.5">

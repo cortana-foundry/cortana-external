@@ -12,12 +12,10 @@ import type { SessionData, CouncilSessionSummary, UsageData } from "./shared";
 
 export function SessionsTab({
   sessions,
-  sessionsLoading,
   councilSessions,
   usage,
 }: {
   sessions: SessionData[];
-  sessionsLoading: boolean;
   councilSessions: CouncilSessionSummary[];
   usage: UsageData | null;
 }) {
@@ -32,7 +30,7 @@ export function SessionsTab({
             <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatMoney(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />
             <StatCard icon={<LineChart className="h-4 w-4" />} label="Input Tokens" value={formatInt(usage.totals.inputTokens)} sub="24h window" />
             <StatCard icon={<LineChart className="h-4 w-4" />} label="Output Tokens" value={formatInt(usage.totals.outputTokens)} sub="24h window" />
-            <StatCard icon={<Timer className="h-4 w-4" />} label="Active Sessions" value={String(sessions.length)} sub={sessionsLoading ? "loading..." : `${formatInt(totalTokens)} tokens`} />
+            <StatCard icon={<Timer className="h-4 w-4" />} label="Active Sessions" value={String(sessions.length)} sub={`${formatInt(totalTokens)} tokens`} />
           </div>
 
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -86,9 +84,7 @@ export function SessionsTab({
           </div>
         </CardHeader>
         <CardContent className="px-5">
-          {sessionsLoading ? (
-            <p className="py-4 text-sm text-muted-foreground">Loading sessions...</p>
-          ) : sessions.length === 0 ? (
+          {sessions.length === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">No active sessions.</p>
           ) : (
             <div className="space-y-2">
