@@ -112,7 +112,10 @@ export function CronClient({ hideHeader = false, refreshKey = 0 }: { hideHeader?
     try {
       setLoading(true);
       setError(null);
-      const payload = await fetchCronJobs();
+      const [payload] = await Promise.all([
+        fetchCronJobs(),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
       const nextJobs = payload.jobs ?? [];
       cachedJobs = nextJobs;
       cachedJobsAt = Date.now();
