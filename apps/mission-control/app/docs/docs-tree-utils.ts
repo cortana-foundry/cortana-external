@@ -2,7 +2,7 @@ import type { DocFile, TreeNode, SectionTree, SectionGroup, ServiceGroup } from 
 
 /* ── constants ── */
 
-const SECTION_GROUP_ORDER = ["cortana-external", "OpenClaw"] as const;
+const SECTION_GROUP_ORDER = ["cortana-external", "Cortana"] as const;
 
 const SERVICE_ORDER = ["Mission Control", "External Service", "Backtester"] as const;
 
@@ -31,7 +31,7 @@ export function collectFolderPaths(node: TreeNode): string[] {
 }
 
 export function getSectionGroup(section: string): string {
-  if (section.startsWith("OpenClaw ")) return "OpenClaw";
+  if (section.startsWith("OpenClaw ")) return "Cortana";
   return "cortana-external";
 }
 
