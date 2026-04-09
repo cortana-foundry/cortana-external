@@ -207,7 +207,7 @@ It does not include:
 - full CANSLIM or Dip Buyer scans
 - Telegram delivery logic
 
-Typed consumer-field guidance lives in [consumer-contracts.md](/Users/hd/Developer/cortana-external/backtester/docs/source/reference/consumer-contracts.md).
+Typed consumer-field guidance lives in [consumer-contracts.md](docs/source/reference/consumer-contracts.md).
 
 ## Workflow Wrappers
 

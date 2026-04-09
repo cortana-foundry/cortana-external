@@ -360,4 +360,50 @@ describe("DocsClient", () => {
       );
     });
   });
+
+  it("resolves repo-level external knowledge links into backtester docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "External Knowledge:domains/backtester/overview.md",
+              name: "domains/backtester/overview.md",
+              path: "/Users/hd/Developer/cortana-external/knowledge/domains/backtester/overview.md",
+              section: "External Knowledge",
+            },
+            {
+              id: "Backtester Docs:source/guide/backtester-study-guide.md",
+              name: "source/guide/backtester-study-guide.md",
+              path: "/Users/hd/Developer/cortana-external/backtester/docs/source/guide/backtester-study-guide.md",
+              section: "Backtester Docs",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "overview.md",
+          content: "# Backtester Overview\n\n- [Study guide](../../../backtester/docs/source/guide/backtester-study-guide.md)",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "ok", name: "backtester-study-guide.md", content: "# Study guide" })
+      );
+
+    render(<DocsClient />);
+
+    const studyGuideLink = await screen.findByRole("link", { name: /study guide/i });
+    fireEvent.click(studyGuideLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=Backtester%20Docs%3Asource%2Fguide%2Fbacktester-study-guide.md",
+        { cache: "no-store" },
+      );
+    });
+  });
 });

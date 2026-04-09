@@ -15,4 +15,4 @@
 - [Repo-level source docs](../../docs/README.md)
 - [Backtester source docs](../../backtester/docs/README.md)
 - [Mission Control source docs](../../apps/mission-control/docs/README.md)
-- [Backtester planning index](../../backtester/planning/README.md)
+- [Backtester roadmap source](../../backtester/docs/source/roadmap/roadmap.md)
