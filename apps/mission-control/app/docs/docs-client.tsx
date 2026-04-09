@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, List, Menu, X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, List, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useDocs } from "./use-docs";
@@ -10,6 +11,7 @@ import { DocsContent } from "./docs-content";
 
 export default function DocsClient() {
   const docs = useDocs();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   if (docs.listError) {
     return (
@@ -59,7 +61,7 @@ export default function DocsClient() {
 
   return (
     <div className="space-y-4">
-      <DocsHeader />
+      <DocsHeader sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((c) => !c)} />
 
       {/* Mobile top bar */}
       <div className="flex items-center gap-2 md:hidden">
@@ -97,9 +99,16 @@ export default function DocsClient() {
       )}
 
       {/* Three-column grid */}
-      <div className="md:grid md:grid-cols-[16rem_minmax(0,1fr)] md:gap-6 xl:grid-cols-[16rem_minmax(0,1fr)_11rem] xl:gap-10">
+      <div
+        className={cn(
+          "transition-[grid-template-columns] duration-300 ease-in-out md:grid md:gap-6 xl:gap-10",
+          sidebarCollapsed
+            ? "md:grid-cols-[0px_minmax(0,1fr)] xl:grid-cols-[0px_minmax(0,1fr)_11rem]"
+            : "md:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_11rem]",
+        )}
+      >
         {/* Left sidebar (desktop) */}
-        <aside className="hidden md:block">
+        <aside className={cn("hidden md:block overflow-hidden transition-opacity duration-300", sidebarCollapsed ? "opacity-0 pointer-events-none" : "opacity-100")}>
           <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto rounded-lg border border-border/50 bg-card/30 p-3">
             {sidebarContent}
           </div>
@@ -107,6 +116,7 @@ export default function DocsClient() {
 
         {/* Center content */}
         <div className="min-w-0">
+
           {/* Mobile/tablet TOC accordion */}
           {docs.headings.length > 0 && (
             <div className="mb-4 xl:hidden">
@@ -129,16 +139,21 @@ export default function DocsClient() {
             </div>
           )}
 
-          <DocsContent
-            selectedFile={docs.selectedFile}
-            files={docs.files}
-            content={docs.content}
-            contentLoading={docs.contentLoading}
-            contentError={docs.contentError}
-            breadcrumbs={docs.breadcrumbs}
-            contentRef={docs.contentRef}
-            onNavigate={docs.selectFile}
-          />
+          {/* Content card */}
+          <div className={cn("rounded-xl border border-border/40 bg-card shadow-sm transition-[max-width] duration-300", sidebarCollapsed ? "mx-auto max-w-4xl" : "")}>
+            <div className="docs-content-wrapper px-4 py-5 md:px-6 md:py-6">
+              <DocsContent
+                selectedFile={docs.selectedFile}
+                files={docs.files}
+                content={docs.content}
+                contentLoading={docs.contentLoading}
+                contentError={docs.contentError}
+                breadcrumbs={docs.breadcrumbs}
+                contentRef={docs.contentRef}
+                onNavigate={docs.selectFile}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Right TOC rail (desktop only) */}
@@ -152,16 +167,28 @@ export default function DocsClient() {
   );
 }
 
-function DocsHeader() {
+function DocsHeader({ sidebarCollapsed, onToggleSidebar }: { sidebarCollapsed?: boolean; onToggleSidebar?: () => void }) {
   return (
     <div className="space-y-1">
       <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
         Docs Library
       </p>
       <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Documentation</h1>
-      <p className="text-sm text-muted-foreground">
-        Browse markdown documentation grouped by repo ownership across cortana-external and OpenClaw.
-      </p>
+      <div className="flex items-center gap-2">
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="hidden md:inline-flex shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/40"
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+        )}
+        <p className="text-sm text-muted-foreground">
+          Browse markdown documentation grouped by repo ownership across cortana-external and OpenClaw.
+        </p>
+      </div>
     </div>
   );
 }

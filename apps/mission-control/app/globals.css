@@ -380,6 +380,86 @@
       prose-img:rounded-lg prose-img:border;
   }
 
+  /* ── Docs content layout ── */
+
+  .docs-content-wrapper {
+    @apply mx-auto max-w-3xl;
+  }
+
+  /* ── Shiki dual-theme support ── */
+
+  .shiki,
+  .shiki span {
+    color: var(--shiki-light);
+    background-color: var(--shiki-light-bg);
+  }
+
+  .dark .shiki,
+  .dark .shiki span {
+    color: var(--shiki-dark);
+    background-color: var(--shiki-dark-bg);
+  }
+
+  /* ── Code block container ── */
+
+  .docs-code-block {
+    @apply relative rounded-lg border border-border/70 overflow-hidden;
+  }
+
+  .docs-code-block pre {
+    @apply m-0 overflow-x-auto !bg-transparent;
+  }
+
+  .docs-code-block code {
+    @apply text-[0.8125rem] leading-relaxed;
+    font-family: "Hasklug Nerd Font", "Hasklug Nerd Font Mono", "Hasklig", "Fira Code", "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  /* ── Copy button ── */
+
+  .docs-copy-btn {
+    @apply absolute top-2 right-2 z-10
+      flex items-center justify-center
+      rounded-md border border-border/50 bg-background/80 backdrop-blur-sm
+      p-1.5 text-muted-foreground
+      opacity-0 transition-opacity
+      hover:text-foreground;
+  }
+
+  .docs-code-block:hover .docs-copy-btn {
+    @apply opacity-100;
+  }
+
+  /* ── Heading anchor links ── */
+
+  .docs-heading-anchor {
+    @apply ml-2 inline-flex items-center text-muted-foreground/0
+      transition-colors;
+  }
+
+  *:hover > .docs-heading-anchor {
+    @apply text-muted-foreground/50;
+  }
+
+  .docs-heading-anchor:hover {
+    color: var(--color-primary);
+  }
+
+  /* ── Mermaid diagrams ── */
+
+  .docs-mermaid {
+    @apply flex justify-center py-4 overflow-x-auto;
+  }
+
+  .docs-mermaid svg {
+    @apply max-w-full h-auto;
+  }
+
+  .docs-mermaid-error {
+    @apply rounded-lg border border-amber-200 bg-amber-50/50
+      p-4 dark:border-amber-800 dark:bg-amber-950/30;
+  }
+
   /* ── Segmented group control ── */
 
   .docs-segment-bar {
