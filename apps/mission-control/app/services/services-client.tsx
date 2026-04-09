@@ -35,6 +35,11 @@ type WorkspaceRouteResponse =
   | { status: "error"; message: string };
 
 const POLL_MS = 45_000;
+const CACHE_MAX_AGE_MS = 5 * 60_000;
+
+/* ── module-level cache so data survives tab switches ── */
+let cachedWorkspace: WorkspaceData | null = null;
+let cachedAt = 0;
 
 const toneStyles: Record<WorkspaceHealthTone, { badge: React.ComponentProps<typeof Badge>["variant"]; dot: string; border: string }> = {
   healthy: { badge: "success", dot: "bg-emerald-500", border: "border-l-emerald-500 dark:border-l-emerald-400" },
@@ -101,10 +106,12 @@ function buildUpdates(data: WorkspaceData, drafts: Record<string, string>, clear
 /* ── main component ── */
 
 export default function ServicesClient() {
-  const [data, setData] = React.useState<WorkspaceData | null>(null);
-  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [data, setData] = React.useState<WorkspaceData | null>(() => cachedWorkspace);
+  const [drafts, setDrafts] = React.useState<Record<string, string>>(() =>
+    cachedWorkspace ? hydrateDrafts(cachedWorkspace) : {},
+  );
   const [clearRequested, setClearRequested] = React.useState<Record<string, boolean>>({});
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(!cachedWorkspace);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [isSaving, startSaving] = React.useTransition();
@@ -114,17 +121,23 @@ export default function ServicesClient() {
 
   const loadWorkspace = React.useCallback(async (options?: { preserveDrafts?: boolean }) => {
     const nextData = await requestWorkspace();
+    cachedWorkspace = nextData;
+    cachedAt = Date.now();
     setData(nextData);
     if (!options?.preserveDrafts) { setDrafts(hydrateDrafts(nextData)); setClearRequested({}); }
   }, []);
 
   React.useEffect(() => {
     let active = true;
+    const cacheAge = Date.now() - cachedAt;
+    if (cachedWorkspace && cacheAge < CACHE_MAX_AGE_MS) return;
     const run = async () => {
       try {
         setLoading(true); setError(null);
         const nextData = await requestWorkspace();
         if (!active) return;
+        cachedWorkspace = nextData;
+        cachedAt = Date.now();
         setData(nextData); setDrafts(hydrateDrafts(nextData)); setClearRequested({});
       } catch (e) { if (active) setError(e instanceof Error ? e.message : "Failed to load."); }
       finally { if (active) setLoading(false); }
@@ -155,6 +168,8 @@ export default function ServicesClient() {
       void (async () => {
         try {
           const nextData = await requestWorkspace({ method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
+          cachedWorkspace = nextData;
+          cachedAt = Date.now();
           setData(nextData); setDrafts(hydrateDrafts(nextData)); setClearRequested({});
           setNotice("Configuration saved. Restart the affected service to apply env changes.");
         } catch (e) { setError(e instanceof Error ? e.message : "Save failed."); }
