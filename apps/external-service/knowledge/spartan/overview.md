@@ -1,15 +1,15 @@
 # Spartan Overview
 
-Spartan is the fitness coaching domain inside `cortana`.
+Spartan is the fitness coaching domain spanning `cortana` (identity, cron, tools) and `cortana-external` (external service, data providers).
 
 ## What Exists Now
 
 The Spartan lane is no longer just a plan. It already has:
 
-- a dedicated identity scaffold under `identities/spartan/`
+- a dedicated identity scaffold under `cortana/identities/spartan/`
 - live cron coverage for fitness summaries and checks
-- artifact builders and fitness persistence tooling in `tools/fitness/`
-- external service support from `cortana-external`
+- artifact builders and fitness persistence tooling in `cortana/tools/fitness/`
+- external service support from `cortana-external/apps/external-service/`
 
 So the active Spartan docs should be read as system summaries and operator guidance, not as speculative product planning.
 
@@ -26,17 +26,8 @@ The system is trying to act as a reliable, evidence-backed fitness coach that ca
 ## Current Reading Path
 
 - [Roadmap](./roadmap.md)
-- [Planning index](../../../docs/source/planning/spartan/README.md)
-- [Operator guide](../../../docs/source/planning/spartan/usage/README.md)
 
 ## Archive Boundary
 
-The per-epic PRD, Tech Spec, and Implementation triplets are already implemented and now live under `docs/archive/planning/spartan/`.
+The per-epic PRD, Tech Spec, and Implementation triplets are already implemented and live under `apps/external-service/docs/archive/planning/spartan/`.
 The active source surface is intentionally much smaller.
-
-## Primary Source Docs
-
-- [Planning index](../../../docs/source/planning/spartan/README.md)
-- [Program index](../../../docs/source/planning/spartan/roadmap/spartan-fitness-program-index.md)
-- [Fitness roadmap](../../../docs/source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md)
-- [Operator guide](../../../docs/source/planning/spartan/usage/README.md)

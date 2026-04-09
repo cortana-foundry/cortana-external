@@ -35,7 +35,6 @@ The current live emphasis should stay on:
 
 ## Primary Source Docs
 
-- [Planning index](../../../docs/source/planning/spartan/README.md)
-- [Program index](../../../docs/source/planning/spartan/roadmap/spartan-fitness-program-index.md)
-- [Fitness roadmap](../../../docs/source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md)
-- [Spartan archive planning](../../../docs/archive/planning/spartan/)
+- [Spartan overview](./overview.md)
+- [Archived planning sets](../../docs/archive/planning/spartan/)
+- Planning index and detailed roadmap live in `cortana/docs/source/planning/spartan/`

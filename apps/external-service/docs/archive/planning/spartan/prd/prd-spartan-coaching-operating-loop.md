@@ -193,9 +193,9 @@ Existing runtime evidence:
 
 Related docs:
 
-- [Program Index](../../../../source/planning/spartan/roadmap/spartan-fitness-program-index.md)
+- Program Index (see cortana/docs/source/planning/spartan/roadmap/)
 - [Training Intelligence PRD](./prd-spartan-training-intelligence.md)
-- [Ultimate Fitness Trainer Roadmap](../../../../source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md)
+- Ultimate Fitness Trainer Roadmap (see cortana/docs/source/planning/spartan/roadmap/)
 
 ### Open Questions
 
