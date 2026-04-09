@@ -316,4 +316,48 @@ describe("DocsClient", () => {
       );
     });
   });
+
+  it("resolves absolute filesystem links into OpenClaw knowledge docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "OpenClaw Research:derived/spartan/README.md",
+              name: "derived/spartan/README.md",
+              path: "/Users/hd/Developer/cortana/research/derived/spartan/README.md",
+              section: "OpenClaw Research",
+            },
+            {
+              id: "OpenClaw Knowledge:domains/spartan/overview.md",
+              name: "domains/spartan/overview.md",
+              path: "/Users/hd/Developer/cortana/knowledge/domains/spartan/overview.md",
+              section: "OpenClaw Knowledge",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "README.md",
+          content: "# Spartan Derived Research\n\n- [Spartan overview](/Users/hd/Developer/cortana/knowledge/domains/spartan/overview.md)",
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "overview.md", content: "# Overview" }));
+
+    render(<DocsClient />);
+
+    const overviewLink = await screen.findByRole("link", { name: /spartan overview/i });
+    fireEvent.click(overviewLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=OpenClaw%20Knowledge%3Adomains%2Fspartan%2Foverview.md",
+        { cache: "no-store" },
+      );
+    });
+  });
 });

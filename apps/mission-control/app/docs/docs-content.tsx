@@ -38,9 +38,26 @@ const DOC_ROOT_PREFIXES = [
   "cortana-external",
 ] as const;
 
+function normalizeDocHref(href: string): string {
+  const withoutHash = href.split("#")[0] ?? href;
+  const withoutQuery = withoutHash.split("?")[0] ?? withoutHash;
+  try {
+    return decodeURIComponent(withoutQuery);
+  } catch {
+    return withoutQuery;
+  }
+}
+
 function resolveDocHref(currentName: string | null, href: string, files: DocFile[]): DocFile | null {
+  const normalizedHref = normalizeDocHref(href);
+
+  if (normalizedHref.startsWith("/")) {
+    const exactPath = files.find((f) => f.path === normalizedHref);
+    if (exactPath) return exactPath;
+  }
+
   const currentDir = currentName ? currentName.split("/").slice(0, -1).join("/") : "";
-  const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
+  const parts = [...(currentDir ? currentDir.split("/") : []), ...normalizedHref.split("/")];
   const resolved: string[] = [];
 
   for (const part of parts) {
