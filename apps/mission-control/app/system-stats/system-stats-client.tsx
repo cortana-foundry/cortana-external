@@ -102,38 +102,45 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
   const [snapshotAt, setSnapshotAt] = useState<number>(() => cachedData ? cachedAt : Date.now());
 
   const fetchStats = useCallback(async () => {
-    const [heartbeatResult, thinkingResult, dbResult, sessionsResult] = await Promise.allSettled([
+    const errors: string[] = [];
+
+    /* Fast lane: heartbeat, thinking, db — render as soon as these land */
+    const fastDone = Promise.allSettled([
       fetchJson<HeartbeatPayload>("/api/heartbeat-status"),
       fetchJson<ThinkingPayload>("/api/thinking-status"),
       fetchJson<DbStatusPayload>("/api/db-status"),
-      fetchJson<SessionsPayload>(`/api/sessions?minutes=${SESSION_WINDOW_MINUTES}`),
-    ]);
-
-    const errors: string[] = [];
-
-    setData((prev) => {
-      const next = { ...prev };
-
-      if (heartbeatResult.status === "fulfilled") next.heartbeat = heartbeatResult.value;
-      else errors.push("heartbeat");
-
-      if (thinkingResult.status === "fulfilled") next.thinking = thinkingResult.value;
-      else errors.push("gateway");
-
-      if (dbResult.status === "fulfilled") next.db = dbResult.value;
-      else errors.push("db");
-
-      if (sessionsResult.status === "fulfilled") next.sessions = sessionsResult.value;
-      else errors.push("sessions");
-
-      cachedData = next;
-      cachedAt = Date.now();
-      return next;
+    ]).then(([heartbeatResult, thinkingResult, dbResult]) => {
+      setData((prev) => {
+        const next = { ...prev };
+        if (heartbeatResult.status === "fulfilled") next.heartbeat = heartbeatResult.value;
+        else errors.push("heartbeat");
+        if (thinkingResult.status === "fulfilled") next.thinking = thinkingResult.value;
+        else errors.push("gateway");
+        if (dbResult.status === "fulfilled") next.db = dbResult.value;
+        else errors.push("db");
+        cachedData = next;
+        cachedAt = Date.now();
+        return next;
+      });
+      setSnapshotAt(Date.now());
+      setLoading(false);
     });
 
-    setSnapshotAt(Date.now());
+    /* Slow lane: sessions — arrives independently without blocking the UI */
+    const slowDone = fetchJson<SessionsPayload>(`/api/sessions?minutes=${SESSION_WINDOW_MINUTES}`)
+      .then((sessions) => {
+        setData((prev) => {
+          const next = { ...prev, sessions };
+          cachedData = next;
+          cachedAt = Date.now();
+          return next;
+        });
+        setSnapshotAt(Date.now());
+      })
+      .catch(() => { errors.push("sessions"); });
+
+    await Promise.allSettled([fastDone, slowDone]);
     setError(errors.length > 0 ? `Partial data: ${errors.join(", ")}` : null);
-    setLoading(false);
   }, []);
 
   useEffect(() => {

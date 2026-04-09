@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -331,6 +332,7 @@ export function CronClient({ hideHeader = false, refreshKey = 0 }: { hideHeader?
                 </SelectContent>
               </Select>
               <Button variant="outline" onClick={loadJobs} disabled={loading}>
+                {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Refresh
               </Button>
               <Button onClick={openCreate}>Create cron</Button>
