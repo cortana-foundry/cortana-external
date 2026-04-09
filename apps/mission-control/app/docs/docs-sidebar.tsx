@@ -276,7 +276,17 @@ export function DocsSidebar({
 
       {/* Section tree */}
       {listLoading ? (
-        <p className="px-2 py-4 text-sm text-muted-foreground">Loading docs...</p>
+        <div className="space-y-3 px-2 py-2" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Loading docs...</span>
+          {["84%", "72%", "88%", "76%", "69%", "82%", "61%"].map((width, index) => (
+            <div key={index} className="flex items-center gap-3">
+              <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted/35" />
+              <div className="h-5 animate-pulse rounded bg-muted/35" style={{ width }} />
+              <div className="ml-auto h-7 w-9 shrink-0 animate-pulse rounded-full bg-muted/25" />
+            </div>
+          ))}
+          <div className="min-h-56 rounded-xl border border-border/30 bg-muted/8" />
+        </div>
       ) : files.length === 0 ? (
         <p className="px-2 py-4 text-sm text-muted-foreground">No markdown files found.</p>
       ) : tree.length === 0 ? (

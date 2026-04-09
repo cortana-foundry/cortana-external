@@ -215,7 +215,17 @@ export function DocsContent({
       {/* Content */}
       <div ref={contentRef}>
         {contentLoading ? (
-          <p className="py-8 text-sm text-muted-foreground">Loading content...</p>
+          <div className="space-y-4 py-2" aria-live="polite" aria-busy="true">
+            <span className="sr-only">Loading content...</span>
+            <div className="h-6 w-40 animate-pulse rounded bg-muted/45" />
+            <div className="h-4 w-full animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-muted/28" />
+            <div className="h-28 animate-pulse rounded-xl bg-muted/16" />
+            <div className="h-4 w-full animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-muted/28" />
+            <div className="min-h-[32rem] animate-pulse rounded-2xl bg-muted/10" />
+          </div>
         ) : contentError ? (
           <p className="py-8 text-sm text-muted-foreground">{contentError}</p>
         ) : !content.trim() ? (
