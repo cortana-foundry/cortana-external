@@ -387,8 +387,8 @@
   }
 
   .docs-segment-tab {
-    @apply flex-1 rounded-md px-2.5 py-1 text-center text-xs font-medium
-      text-muted-foreground transition-all hover:text-foreground;
+    @apply flex-1 rounded-md px-2.5 py-1.5 text-center text-xs font-medium
+      whitespace-nowrap text-muted-foreground transition-all hover:text-foreground;
   }
 
   .docs-segment-tab-active {

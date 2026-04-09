@@ -53,7 +53,7 @@ export function getSectionLabel(section: string): string {
 }
 
 export function getGroupLabel(group: string): string {
-  if (group === "cortana-external") return "cortana-external";
+  if (group === "cortana-external") return "External";
   return group;
 }
 
