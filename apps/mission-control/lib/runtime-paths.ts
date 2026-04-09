@@ -48,6 +48,26 @@ export function getKnowledgePath(): string {
   return readEnvPath("KNOWLEDGE_PATH") ?? path.join(getCortanaSourceRepo(), "knowledge");
 }
 
+export function getCorticalLoopPath(): string {
+  return readEnvPath("CORTICAL_LOOP_PATH") ?? path.join(getCortanaSourceRepo(), "cortical-loop");
+}
+
+export function getHooksPath(): string {
+  return readEnvPath("HOOKS_PATH") ?? path.join(getCortanaSourceRepo(), "hooks");
+}
+
+export function getImmuneSystemPath(): string {
+  return readEnvPath("IMMUNE_SYSTEM_PATH") ?? path.join(getCortanaSourceRepo(), "immune-system");
+}
+
+export function getProprioceptionPath(): string {
+  return readEnvPath("PROPRIOCEPTION_PATH") ?? path.join(getCortanaSourceRepo(), "proprioception");
+}
+
+export function getSaePath(): string {
+  return readEnvPath("SAE_PATH") ?? path.join(getCortanaSourceRepo(), "sae");
+}
+
 export function getAgentModelsPath(): string {
   return readEnvPath("AGENT_MODELS_PATH") ?? path.join(getCortanaSourceRepo(), "config", "agent-models.json");
 }

@@ -42,9 +42,7 @@ export function getSectionGroup(section: string): string {
 
 export function getSectionLabel(section: string): string {
   if (section === "External Docs") return "Repo Docs";
-  if (section === "OpenClaw Docs") return "Docs";
-  if (section === "OpenClaw Knowledge") return "Knowledge";
-  if (section === "OpenClaw Research") return "Research";
+  if (section.startsWith("OpenClaw ")) return section.replace("OpenClaw ", "");
   return section;
 }
 

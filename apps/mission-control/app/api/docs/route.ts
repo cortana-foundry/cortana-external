@@ -1,7 +1,17 @@
 import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getDocsPath, getExternalResearchPath, getKnowledgePath, getResearchPath } from "@/lib/runtime-paths";
+import {
+  getCorticalLoopPath,
+  getDocsPath,
+  getExternalResearchPath,
+  getHooksPath,
+  getImmuneSystemPath,
+  getKnowledgePath,
+  getProprioceptionPath,
+  getResearchPath,
+  getSaePath,
+} from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,6 +41,11 @@ const DOC_SECTION_ORDER = [
   "OpenClaw Docs",
   "OpenClaw Knowledge",
   "OpenClaw Research",
+  "OpenClaw Cortical Loop",
+  "OpenClaw Immune System",
+  "OpenClaw Proprioception",
+  "OpenClaw SAE",
+  "OpenClaw Hooks",
 ] as const;
 
 function isArchiveDocName(name: string): boolean {
@@ -145,6 +160,11 @@ async function listAllDocs(): Promise<DocEntry[]> {
     collectDocs(getDocsPath(), "OpenClaw Docs"),
     collectDocs(getKnowledgePath(), "OpenClaw Knowledge"),
     collectDocs(getResearchPath(), "OpenClaw Research"),
+    collectOptionalDocs(getCorticalLoopPath(), "OpenClaw Cortical Loop"),
+    collectOptionalDocs(getImmuneSystemPath(), "OpenClaw Immune System"),
+    collectOptionalDocs(getProprioceptionPath(), "OpenClaw Proprioception"),
+    collectOptionalDocs(getSaePath(), "OpenClaw SAE"),
+    collectOptionalDocs(getHooksPath(), "OpenClaw Hooks"),
   ]);
 
   const files = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
