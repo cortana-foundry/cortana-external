@@ -1,11 +1,18 @@
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
-import { SectionCard, ListRow, EmptyState } from "./shared";
+import { TabLayout, SectionCard, EmptyState } from "./shared";
 import type { SerializedAgent } from "./shared";
 
 export function AgentsTab({ coreAgents, workerAgents }: { coreAgents: SerializedAgent[]; workerAgents: SerializedAgent[] }) {
+  const total = coreAgents.length + workerAgents.length;
+
   return (
-    <div className="space-y-4">
+    <TabLayout
+      title="Agents"
+      subtitle="Execution workers and core agent directory"
+      badge={<Badge variant="outline" className="text-[10px]">{total} registered</Badge>}
+    >
       {workerAgents.length > 0 && (
         <SectionCard title="Execution Workers" count={workerAgents.length} className="border-primary/25 bg-primary/5">
           <div className="space-y-2">
@@ -77,6 +84,6 @@ export function AgentsTab({ coreAgents, workerAgents }: { coreAgents: Serialized
           </div>
         )}
       </SectionCard>
-    </div>
+    </TabLayout>
   );
 }

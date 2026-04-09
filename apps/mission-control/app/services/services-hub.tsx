@@ -14,7 +14,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
-import { TabLoading, TabShell } from "./tabs/shared";
+import { TabLayout, TabLoading, TabShell } from "./tabs/shared";
 import type {
   SerializedAgent,
   CouncilSessionSummary,
@@ -233,7 +233,12 @@ export default function ServicesHub() {
         )}
         {activeTab === "cron" && (
           <React.Suspense fallback={<TabLoading />}>
-            <CronClient />
+            <TabLayout
+              title="Cron Jobs"
+              subtitle="Review schedules, trigger runs, and adjust delivery settings"
+            >
+              <CronClient hideHeader />
+            </TabLayout>
           </React.Suspense>
         )}
         {activeTab === "sessions" && (

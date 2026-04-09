@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { TabLayout } from "./tabs/shared";
 import type {
   WorkspaceData,
   WorkspaceEnvFile,
@@ -187,20 +188,12 @@ export default function ServicesClient() {
   const isLoading = loading && !data;
 
   return (
-    <div className="space-y-4">
-      {/* ── Action bar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          {isLoading ? (
-            <div className="h-3 w-56 animate-pulse rounded bg-muted/50" />
-          ) : data ? (
-            <span className="text-xs text-muted-foreground">
-              {data.sections.length} config groups · {data.files.length} env files · Updated {formatUpdatedAt(data.generatedAt)}
-            </span>
-          ) : null}
-          {dirtyCount > 0 && <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
+    <TabLayout
+      title="Configuration"
+      subtitle={data ? `${data.sections.length} config groups · ${data.files.length} env files · Updated ${formatUpdatedAt(data.generatedAt)}` : undefined}
+      badge={dirtyCount > 0 ? <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge> : undefined}
+      actions={
+        <>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isSaving || isLoading}>
             <RefreshCw className={cn("h-3.5 w-3.5", (isRefreshing || isLoading) && "animate-spin")} />
             Refresh
@@ -209,8 +202,9 @@ export default function ServicesClient() {
             <Save className="h-3.5 w-3.5" />
             {isSaving ? "Saving..." : `Save${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
           </Button>
-        </div>
-      </div>
+        </>
+      }
+    >
 
       {/* ── Notices ── */}
       {error && <div className="rounded-lg border border-red-200 bg-red-50/70 px-4 py-2.5 text-sm text-red-900 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200">{error}</div>}
@@ -352,7 +346,7 @@ export default function ServicesClient() {
           <GuideItem icon={Sparkles} title="Docs" body={data?.openclawDocsPath ?? "—"} />
         </div>
       </div>
-    </div>
+    </TabLayout>
   );
 }
 

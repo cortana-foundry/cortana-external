@@ -111,6 +111,49 @@ export function TabShell({ loading, error, onRetry, children }: {
   return <>{children}</>;
 }
 
+export function TabLayout({ title, subtitle, badge, actions, stats, children }: {
+  title: string;
+  subtitle?: string;
+  badge?: React.ReactNode;
+  actions?: React.ReactNode;
+  stats?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Header zone */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            {badge}
+          </div>
+          {subtitle && (
+            <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
+          )}
+        </div>
+        {actions && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {actions}
+          </div>
+        )}
+      </div>
+
+      {/* Stats zone */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {stats}
+        </div>
+      )}
+
+      {/* Content zone */}
+      <div className="space-y-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function SectionCard({ icon, title, count, subtitle, children, className }: {
   icon?: React.ReactNode;
   title: string;

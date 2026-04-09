@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import { SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
+import { TabLayout, SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
 import type { SerializedAgent, CouncilSessionSummary, UsageData, Tab } from "./shared";
 
 import SystemStatsClient from "@/app/system-stats/system-stats-client";
@@ -20,15 +20,19 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { a
   const runningCouncil = councilSessions.filter((s) => s.status === "running").length;
 
   return (
-    <div className="space-y-4">
+    <TabLayout
+      title="Overview"
+      subtitle="System health, agents, and council activity"
+      stats={
+        <>
+          <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={`${activeAgents}/${agents.length}`} sub="active" />
+          <StatCard icon={<Clock className="h-4 w-4" />} label="Council" value={String(councilSessions.length)} sub={`${runningCouncil} running`} />
+          <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={usage ? formatMoney(usage.totals.estimatedCost) : "—"} sub={usage ? `${formatInt(usage.totals.sessions)} sessions` : ""} />
+          <StatCard icon={<LineChart className="h-4 w-4" />} label="Tokens (24h)" value={usage ? formatInt(usage.totals.totalTokens) : "—"} sub={usage ? `in: ${formatInt(usage.totals.inputTokens)}` : ""} />
+        </>
+      }
+    >
       <SystemStatsClient />
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={`${activeAgents}/${agents.length}`} sub="active" />
-        <StatCard icon={<Clock className="h-4 w-4" />} label="Council" value={String(councilSessions.length)} sub={`${runningCouncil} running`} />
-        <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={usage ? formatMoney(usage.totals.estimatedCost) : "—"} sub={usage ? `${formatInt(usage.totals.sessions)} sessions` : ""} />
-        <StatCard icon={<LineChart className="h-4 w-4" />} label="Tokens (24h)" value={usage ? formatInt(usage.totals.totalTokens) : "—"} sub={usage ? `in: ${formatInt(usage.totals.inputTokens)}` : ""} />
-      </div>
 
       <SectionCard
         icon={<PlugZap className="h-4 w-4" />}
@@ -100,7 +104,7 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { a
           </div>
         </SectionCard>
       )}
-    </div>
+    </TabLayout>
   );
 }
 

@@ -1,6 +1,6 @@
 import { ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { SectionCard, EmptyState } from "./shared";
+import { TabLayout, SectionCard, EmptyState } from "./shared";
 import type { LogEntry } from "./shared";
 
 export function LogsTab({ logs }: { logs: LogEntry[] }) {
@@ -15,12 +15,15 @@ export function LogsTab({ logs }: { logs: LogEntry[] }) {
   const timeFmt = new Intl.DateTimeFormat("en-US", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
   return (
-    <div className="space-y-4">
+    <TabLayout
+      title="Logs"
+      subtitle="Last 24h · max 100"
+      badge={<Badge variant="outline" className="text-[10px]">{logs.length} entries</Badge>}
+    >
       <SectionCard
         icon={<ScrollText className="h-4 w-4" />}
         title="System Logs"
         count={`${logs.length} entries`}
-        subtitle="Last 24h · max 100"
       >
         {logs.length === 0 ? (
           <EmptyState message="No log entries in the last 24 hours." />
@@ -46,6 +49,6 @@ export function LogsTab({ logs }: { logs: LogEntry[] }) {
           </div>
         )}
       </SectionCard>
-    </div>
+    </TabLayout>
   );
 }

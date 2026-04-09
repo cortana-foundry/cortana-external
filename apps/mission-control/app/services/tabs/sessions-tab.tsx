@@ -5,7 +5,7 @@ import {
   Users,
 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import { SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
+import { TabLayout, SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
 import type { SessionData, CouncilSessionSummary, UsageData } from "./shared";
 
 export function SessionsTab({
@@ -20,16 +20,18 @@ export function SessionsTab({
   const totalTokens = sessions.reduce((s, x) => s + (x.totalTokens ?? 0), 0);
 
   return (
-    <div className="space-y-4">
-      {usage && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <TabLayout
+      title="Sessions"
+      subtitle="Cost, token usage, and active session analytics"
+      stats={usage ? (
+        <>
           <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatMoney(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />
           <StatCard icon={<LineChart className="h-4 w-4" />} label="Input Tokens" value={formatInt(usage.totals.inputTokens)} sub="24h window" />
           <StatCard icon={<LineChart className="h-4 w-4" />} label="Output Tokens" value={formatInt(usage.totals.outputTokens)} sub="24h window" />
           <StatCard icon={<Timer className="h-4 w-4" />} label="Active Sessions" value={String(sessions.length)} sub={`${formatInt(totalTokens)} tokens`} />
-        </div>
-      )}
-
+        </>
+      ) : undefined}
+    >
       {usage && (
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <SectionCard title="By Model">
@@ -117,6 +119,6 @@ export function SessionsTab({
           </div>
         </SectionCard>
       )}
-    </div>
+    </TabLayout>
   );
 }

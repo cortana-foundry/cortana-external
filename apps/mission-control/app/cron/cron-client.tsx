@@ -80,7 +80,7 @@ const parseJobToForm = (job: CronJob): FormState => {
   };
 };
 
-export function CronClient() {
+export function CronClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const [jobs, setJobs] = React.useState<CronJob[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -273,24 +273,26 @@ export function CronClient() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-            Cron Scheduler
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">Cron editor</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review schedules, trigger runs, and adjust delivery settings.
-          </p>
+    <div className={hideHeader ? "space-y-6" : "mx-auto max-w-6xl space-y-6"}>
+      {!hideHeader && (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
+              Cron Scheduler
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">Cron editor</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review schedules, trigger runs, and adjust delivery settings.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">Total {summary.total}</Badge>
+            <Badge variant="success">Enabled {summary.enabled}</Badge>
+            <Badge variant="outline">Disabled {summary.disabled}</Badge>
+            {summary.errors > 0 && <Badge variant="destructive">Errors {summary.errors}</Badge>}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">Total {summary.total}</Badge>
-          <Badge variant="success">Enabled {summary.enabled}</Badge>
-          <Badge variant="outline">Disabled {summary.disabled}</Badge>
-          {summary.errors > 0 && <Badge variant="destructive">Errors {summary.errors}</Badge>}
-        </div>
-      </div>
+      )}
 
       <Card>
         <CardHeader className="gap-3">
