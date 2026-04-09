@@ -1,6 +1,6 @@
 # Scoring Calibration Note
 
-This phase centralizes the small set of tuning values behind the current risk-scoring and evaluation stack in [`backtester/scoring_tuning.py`](../../../scoring_tuning.py). The goal is reviewable calibration, not a broad config system.
+This phase centralizes the small set of tuning values behind the current risk-scoring and evaluation stack in [`backtester/scoring_tuning.py`](../../scoring_tuning.py). The goal is reviewable calibration, not a broad config system.
 
 ## What is now tuneable
 
@@ -13,9 +13,9 @@ This phase centralizes the small set of tuning values behind the current risk-sc
 
 ## Where these values are used
 
-- [`backtester/data/confidence.py`](../../../data/confidence.py)
-- [`backtester/data/adverse_regime.py`](../../../data/adverse_regime.py)
-- [`backtester/evaluation/comparison.py`](../../../evaluation/comparison.py)
+- [`backtester/data/confidence.py`](../../data/confidence.py)
+- [`backtester/data/adverse_regime.py`](../../data/adverse_regime.py)
+- [`backtester/evaluation/comparison.py`](../../evaluation/comparison.py)
 
 ## Boundaries
 

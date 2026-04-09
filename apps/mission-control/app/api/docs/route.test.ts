@@ -218,15 +218,15 @@ describe("GET /api/docs", () => {
     expect(response.status).toBe(200);
     expect(payload.files).toEqual([
       {
-        id: "Backtester Docs:docs/README.md",
-        name: "docs/README.md",
-        path: path.join(backtesterDocsRoot, "README.md"),
+        id: "Backtester Docs:backtester-README.md",
+        name: "backtester-README.md",
+        path: path.join(backtesterRoot, "README.md"),
         section: "Backtester Docs",
       },
       {
         id: "Backtester Docs:README.md",
         name: "README.md",
-        path: path.join(backtesterRoot, "README.md"),
+        path: path.join(backtesterDocsRoot, "README.md"),
         section: "Backtester Docs",
       },
     ]);

@@ -16,5 +16,5 @@ Primary source docs:
 - [Session handoff](../../../backtester/docs/source/guide/session-handoff.md)
 - [Trading cron base/enrichment/notify decoupling PRD](../../../backtester/docs/source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
 - [Polymarket market intelligence PRD](../../../backtester/docs/source/prd/prd-polymarket-market-intelligence.md)
-- [Market-data service reference](../../../backtester/docs/source/reference/market-data-service-reference.md)
+- [Market-data service reference](../../../backtester/knowledge/reference/market-data-service-reference.md)
 - [Schwab OAuth reauth runbook](../../../backtester/docs/source/runbook/schwab-oauth-reauth-runbook.md)

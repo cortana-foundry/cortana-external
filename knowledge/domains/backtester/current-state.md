@@ -14,4 +14,4 @@ Start here:
 
 - [Operator manual](../../../backtester/README.md)
 - [Study guide](../../../backtester/docs/source/guide/backtester-study-guide.md)
-- [Market-data service reference](../../../backtester/docs/source/reference/market-data-service-reference.md)
+- [Market-data service reference](../../../backtester/knowledge/reference/market-data-service-reference.md)

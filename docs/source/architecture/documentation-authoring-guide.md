@@ -78,10 +78,8 @@ Use `apps/mission-control/docs/` when the doc only belongs to Mission Control.
 
 Paths:
 - `apps/mission-control/docs/source/architecture/`
-- `apps/mission-control/docs/source/notes/`
 
 Use `architecture/` for durable technical docs.
-Use `notes/` for idea dumps or future-work notes.
 
 ### Backtester source docs
 
@@ -91,9 +89,9 @@ Paths:
 - `backtester/docs/source/guide/`
 - `backtester/docs/source/architecture/`
 - `backtester/docs/source/prd/`
-- `backtester/docs/source/reference/`
 - `backtester/docs/source/runbook/`
 - `backtester/docs/source/roadmap/`
+- `backtester/knowledge/reference/` — compact references and API/runtime notes
 
 Use:
 - `guide/` for conceptual learning docs and handoff docs

@@ -28,7 +28,7 @@
    - Lifecycle ingestion tracks phase-1 (`queued`) and phase-2 (`running`) confirmations.
    - If a run reports `running` without queued evidence, Mission Control emits a warning and labels launch as unconfirmed.
 2. **Stale UI state guard + auto-reconcile**
-   - OpenClaw run-store sync applies TTL reconciliation and marks stale in-flight runs as `external_status=stale`.
+   - Cortana run-store sync applies TTL reconciliation and marks stale in-flight runs as `external_status=stale`.
    - Reconciliation emits explicit events for operator auditability.
 3. **Task Board source-of-truth reconciliation**
    - Periodic comparison between dedicated Cortana DB and app DB task tables.

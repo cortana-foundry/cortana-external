@@ -13,5 +13,5 @@ Main examples in this repo:
 Start here:
 
 - [Repo README](../../../README.md)
-- [Backtester market-data service reference](../../../backtester/docs/source/reference/market-data-service-reference.md)
+- [Backtester market-data service reference](../../../backtester/knowledge/reference/market-data-service-reference.md)
 - [Gateway uptime recovery runbook](../../../docs/archive/runbook/gateway-uptime-recovery-v1.md)
