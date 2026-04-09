@@ -11,6 +11,7 @@ import { DocsContent } from "./docs-content";
 
 export default function DocsClient() {
   const docs = useDocs();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   if (docs.listError) {
     return (
@@ -57,8 +58,6 @@ export default function DocsClient() {
       onHeadingClick={docs.setActiveHeadingId}
     />
   );
-
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <div className="space-y-4">
