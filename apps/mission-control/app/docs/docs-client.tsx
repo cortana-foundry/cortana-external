@@ -45,6 +45,11 @@ type SectionTree = {
   root: TreeNode;
 };
 
+type SectionGroup = {
+  group: string;
+  sections: SectionTree[];
+};
+
 /* ── pure helpers ── */
 
 function isArchiveFolderPath(fullPath: string): boolean {
@@ -67,6 +72,28 @@ function collectFolderPaths(node: TreeNode): string[] {
     paths.push(...collectFolderPaths(child));
   }
   return paths;
+}
+
+const SECTION_GROUP_ORDER = ["cortana-external", "OpenClaw"] as const;
+
+function getSectionGroup(section: string): string {
+  if (
+    section === "External Docs" ||
+    section === "Mission Control Research" ||
+    section === "Backtester Docs" ||
+    section === "Backtester Research"
+  ) {
+    return "cortana-external";
+  }
+  return "OpenClaw";
+}
+
+function getSectionLabel(section: string): string {
+  if (section === "External Docs") return "Repo Docs";
+  if (section === "OpenClaw Docs") return "Docs";
+  if (section === "OpenClaw Knowledge") return "Knowledge";
+  if (section === "OpenClaw Research") return "Research";
+  return section;
 }
 
 function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
@@ -106,7 +133,7 @@ function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
 
 function deriveBreadcrumbs(file: DocFile | null): string[] {
   if (!file) return [];
-  return [file.section, ...file.name.split("/")];
+  return [getSectionLabel(file.section), ...file.name.split("/")];
 }
 
 function basename(name: string): string {
@@ -116,6 +143,22 @@ function basename(name: string): string {
 
 function isArchiveFile(file: DocFile): boolean {
   return file.name.split("/").includes("archive");
+}
+
+function groupSectionTrees(sections: SectionTree[]): SectionGroup[] {
+  const grouped = new Map<string, SectionTree[]>();
+  for (const sectionTree of sections) {
+    const group = getSectionGroup(sectionTree.section);
+    const items = grouped.get(group) ?? [];
+    items.push(sectionTree);
+    grouped.set(group, items);
+  }
+
+  return SECTION_GROUP_ORDER.flatMap((group) => {
+    const sectionsForGroup = grouped.get(group);
+    if (!sectionsForGroup || sectionsForGroup.length === 0) return [];
+    return [{ group, sections: sectionsForGroup }];
+  });
 }
 
 /* ── main component ── */
@@ -142,6 +185,7 @@ export default function DocsClient() {
     [files, selectedFileId],
   );
   const tree = React.useMemo(() => buildFolderTree(files, searchQuery), [files, searchQuery]);
+  const groupedTree = React.useMemo(() => groupSectionTrees(tree), [tree]);
   const headings = React.useMemo(() => extractHeadings(content), [content]);
   const breadcrumbs = React.useMemo(() => deriveBreadcrumbs(selectedFile), [selectedFile]);
 
@@ -404,12 +448,19 @@ export default function DocsClient() {
       ) : tree.length === 0 ? (
         <p className="px-2 py-4 text-sm text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</p>
       ) : (
-        tree.map(({ section, root }) => (
-          <div key={section} className="space-y-0.5">
-            <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              {section}
+        groupedTree.map(({ group, sections }) => (
+          <div key={group} className="space-y-3">
+            <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              {group}
             </p>
-            {renderNode(root, 0)}
+            {sections.map(({ section, root }) => (
+              <div key={section} className="space-y-0.5">
+                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  {getSectionLabel(section)}
+                </p>
+                {renderNode(root, 0)}
+              </div>
+            ))}
           </div>
         ))
       )}
@@ -563,7 +614,7 @@ export default function DocsClient() {
                 {basename(selectedFile.name)}
               </h1>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{selectedFile.section}</Badge>
+                <Badge variant="outline">{getSectionLabel(selectedFile.section)}</Badge>
                 <span className="text-xs text-muted-foreground">{selectedFile.path}</span>
               </div>
             </div>
@@ -608,7 +659,7 @@ function DocsHeader() {
       </p>
       <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Documentation</h1>
       <p className="text-sm text-muted-foreground">
-        Browse markdown documentation, knowledge, and research from the external repo, backtester, and OpenClaw knowledge bases.
+        Browse markdown documentation grouped by repo ownership across cortana-external and OpenClaw.
       </p>
     </div>
   );

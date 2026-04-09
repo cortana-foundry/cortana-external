@@ -120,12 +120,15 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("cortana-external")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OpenClaw").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Repo Docs")).toHaveLength(0);
+    expect(screen.getAllByText("Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Knowledge").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Mission Control Research").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Research").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("OpenClaw Knowledge").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("OpenClaw Research").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Research").length).toBeGreaterThan(0);
   });
 
   it("renders search input", async () => {
@@ -164,7 +167,7 @@ describe("DocsClient", () => {
     await screen.findByRole("button", { name: /design/i });
 
     // Breadcrumbs should contain path segments
-    expect(container).toHaveTextContent("External Docs");
+    expect(container).toHaveTextContent("Repo Docs");
     expect(container).toHaveTextContent("source");
     expect(container).toHaveTextContent("arch");
     expect(container).toHaveTextContent("design.md");
