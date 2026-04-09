@@ -14,15 +14,23 @@ import {
   isArchiveFile,
 } from "./docs-tree-utils";
 
+function restoreSet(key: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch { /* localStorage unavailable */ }
+  return new Set();
+}
+
 export function useDocs() {
   const [files, setFiles] = useState<DocFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => restoreSet("docs-collapsed-folders"));
   const [activeGroupTab, setActiveGroupTab] = useState<string | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [collapsedServices, setCollapsedServices] = useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => restoreSet("docs-collapsed-sections"));
+  const [collapsedServices, setCollapsedServices] = useState<Set<string>>(() => restoreSet("docs-collapsed-services"));
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
@@ -65,7 +73,13 @@ export function useDocs() {
         }
         if (active) {
           setFiles(payload.files);
-          const preferred = payload.files.find((file) => !isArchiveFile(file)) ?? payload.files[0] ?? null;
+          // Restore last-viewed doc or pick a default
+          let preferred: DocFile | null = null;
+          try {
+            const savedId = localStorage.getItem("docs-last-viewed");
+            if (savedId) preferred = payload.files.find((f) => f.id === savedId) ?? null;
+          } catch { /* localStorage unavailable */ }
+          if (!preferred) preferred = payload.files.find((file) => !isArchiveFile(file)) ?? payload.files[0] ?? null;
           setSelectedFileId(preferred?.id ?? null);
           setListError(null);
         }
@@ -115,35 +129,18 @@ export function useDocs() {
     setMobileTocOpen(false);
   }, [selectedFileId]);
 
-  /* initial collapse state — restore from localStorage or compute defaults */
+  /* initial collapse state — compute defaults only if localStorage was empty */
   const initializedRef = useRef(false);
   useEffect(() => {
     if (tree.length === 0 || initializedRef.current) return;
     initializedRef.current = true;
 
-    // Try restoring from localStorage
-    let restored = false;
-    try {
-      const savedFolders = localStorage.getItem("docs-collapsed-folders");
-      const savedSections = localStorage.getItem("docs-collapsed-sections");
-      const savedServices = localStorage.getItem("docs-collapsed-services");
-      if (savedFolders) {
-        setCollapsedFolders(new Set(JSON.parse(savedFolders) as string[]));
-        restored = true;
-      }
-      if (savedSections) {
-        setCollapsedSections(new Set(JSON.parse(savedSections) as string[]));
-        restored = true;
-      }
-      if (savedServices) {
-        setCollapsedServices(new Set(JSON.parse(savedServices) as string[]));
-      }
-    } catch { /* localStorage unavailable */ }
+    const hadSaved = collapsedFolders.size > 0 || collapsedSections.size > 0;
 
-    if (!restored) {
+    if (!hadSaved) {
       // Default: collapse all folders, open ancestors of selected file
-      setCollapsedFolders((prev) => {
-        const next = new Set(prev);
+      setCollapsedFolders(() => {
+        const next = new Set<string>();
         for (const { root } of tree) {
           for (const fullPath of collectFolderPaths(root)) {
             next.add(fullPath);
@@ -171,7 +168,7 @@ export function useDocs() {
       if (prev) return prev;
       return activeGroup ?? groupedTree[0]?.group ?? null;
     });
-  }, [tree, groupedTree, selectedFile, activeGroup, activeSectionKey]);
+  }, [tree, groupedTree, selectedFile, activeGroup, activeSectionKey, collapsedFolders.size, collapsedSections.size]);
 
   /* ── scroll-spy ── */
   useEffect(() => {
@@ -293,6 +290,7 @@ export function useDocs() {
   const selectFile = useCallback((id: string) => {
     setSelectedFileId(id);
     setMobileSidebarOpen(false);
+    try { localStorage.setItem("docs-last-viewed", id); } catch { /* */ }
   }, []);
 
   const resolvedGroupTab = activeGroupTab ?? groupedTree[0]?.group ?? null;

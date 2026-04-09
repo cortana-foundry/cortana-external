@@ -409,6 +409,17 @@
     @apply mx-auto max-w-3xl min-w-0;
   }
 
+  /* ── Content fade-in ── */
+
+  @keyframes docs-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .docs-content-fade-in {
+    animation: docs-fade-in 0.3s ease-out;
+  }
+
   /* ── Shiki dual-theme support ── */
 
   .shiki,
@@ -663,5 +674,49 @@
 
   .agent-role-librarian {
     @apply border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-50;
+  }
+}
+
+/* ── Print styles for docs ── */
+
+@media print {
+  /* Hide navigation chrome */
+  nav[aria-label="Main"],
+  aside,
+  .docs-segment-bar,
+  .docs-copy-btn,
+  .docs-heading-anchor,
+  button[aria-label="Back to top"],
+  button[aria-label="Collapse sidebar"],
+  button[aria-label="Show sidebar"],
+  button[aria-label="Hide sidebar"] {
+    display: none !important;
+  }
+
+  /* Remove card styling */
+  .docs-code-block {
+    border-color: #d1d5db !important;
+  }
+
+  /* Full width, no shadows */
+  body {
+    background: white !important;
+  }
+
+  .docs-content-wrapper {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  /* Ensure code blocks don't overflow */
+  pre {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
+
+  /* Avoid page breaks inside code blocks and diagrams */
+  .docs-code-block,
+  .docs-mermaid {
+    break-inside: avoid;
   }
 }

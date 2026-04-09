@@ -36,6 +36,7 @@ type DocsSidebarProps = {
   onSelectFile: (id: string) => void;
   onCollapseAll?: () => void;
   onExpandAll?: () => void;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
 };
 
 export function DocsSidebar({
@@ -59,6 +60,7 @@ export function DocsSidebar({
   onSelectFile,
   onCollapseAll,
   onExpandAll,
+  searchInputRef,
 }: DocsSidebarProps) {
   const renderNode = (node: TreeNode, depth: number) => {
     const isSearching = searchQuery.length > 0;
@@ -81,7 +83,9 @@ export function DocsSidebar({
                   ? <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                   : <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                 }
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.name}</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  <HighlightMatch text={child.name} query={searchQuery} />
+                </span>
                 {fileCount > 0 && (
                   <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/70">
                     {fileCount}
@@ -105,7 +109,9 @@ export function DocsSidebar({
               style={{ paddingLeft: `${(depth + 1) * 10 + 4}px` }}
             >
               <FileText className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground/50")} />
-              <span className="truncate">{basename(file.name)}</span>
+              <span className="truncate">
+                <HighlightMatch text={basename(file.name)} query={searchQuery} />
+              </span>
             </button>
           );
         })}
@@ -187,6 +193,19 @@ export function DocsSidebar({
   );
 
   const isServiceGrouped = activeGroupTab === "cortana-external";
+
+  function HighlightMatch({ text, query }: { text: string; query: string }) {
+    if (!query || query.length < 2) return <>{text}</>;
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return <>{text}</>;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark className="bg-yellow-200/60 dark:bg-yellow-500/30 rounded-sm px-0.5">{text.slice(idx, idx + query.length)}</mark>
+        {text.slice(idx + query.length)}
+      </>
+    );
+  }
   const showTree = !listLoading && files.length > 0 && tree.length > 0;
 
   return (
@@ -196,6 +215,7 @@ export function DocsSidebar({
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchInputRef}
             placeholder="Search docs..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}

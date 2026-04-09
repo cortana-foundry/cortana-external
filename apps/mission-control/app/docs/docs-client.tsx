@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, List, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,38 @@ import { DocsContent } from "./docs-content";
 
 export default function DocsClient() {
   const docs = useDocs();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("docs-sidebar-collapsed") === "true"; } catch { return false; }
+  });
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Persist sidebar collapsed state
+  useEffect(() => {
+    try { localStorage.setItem("docs-sidebar-collapsed", String(sidebarCollapsed)); } catch { /* */ }
+  }, [sidebarCollapsed]);
+
+  /* ── keyboard shortcuts ── */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+
+      // "/" to focus search (when not in an input)
+      if (e.key === "/" && !isInput) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+
+      // Escape to blur search
+      if (e.key === "Escape" && target === searchRef.current) {
+        searchRef.current?.blur();
+        return;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   if (docs.listError) {
     return (
@@ -49,6 +80,7 @@ export default function DocsClient() {
       onSelectFile={docs.selectFile}
       onCollapseAll={docs.collapseAll}
       onExpandAll={docs.expandAll}
+      searchInputRef={searchRef}
     />
   );
 
