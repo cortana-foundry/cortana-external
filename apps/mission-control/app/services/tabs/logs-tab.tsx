@@ -1,7 +1,6 @@
-import { RefreshCw, ScrollText } from "lucide-react";
+import { ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { TabLayout, SectionCard, EmptyState } from "./shared";
+import { TabLayout, SectionCard, EmptyState, RefreshButton } from "./shared";
 import type { LogEntry } from "./shared";
 
 export function LogsTab({ logs, loading, error, onRefresh }: { logs: LogEntry[]; loading?: boolean; error?: string | null; onRefresh?: () => void }) {
@@ -21,11 +20,7 @@ export function LogsTab({ logs, loading, error, onRefresh }: { logs: LogEntry[];
       subtitle="Last 24h · max 100"
       loading={loading}
       error={error}
-      actions={onRefresh && (
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </Button>
-      )}
+      actions={onRefresh && <RefreshButton onClick={onRefresh} loading={loading} />}
       badge={<Badge variant="outline" className="text-[10px]">{logs.length} entries</Badge>}
     >
       <SectionCard

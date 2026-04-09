@@ -14,7 +14,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
-import { TabLayout, TabLoading } from "./tabs/shared";
+import { TabLayout, TabLoading, RefreshButton } from "./tabs/shared";
 import type {
   SerializedAgent,
   CouncilSessionSummary,
@@ -55,6 +55,7 @@ export default function ServicesHub() {
   const [logsLoading, setLogsLoading] = React.useState(false);
   const [logsLoaded, setLogsLoaded] = React.useState(false);
   const [dataLoading, setDataLoading] = React.useState(true);
+  const [dataLoaded, setDataLoaded] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
   const [sessionsLoaded, setSessionsLoaded] = React.useState(false);
@@ -70,6 +71,7 @@ export default function ServicesHub() {
 
   /* Fetch agents + council fast, usage in background (it's slow — CLI subprocess) */
   React.useEffect(() => {
+    if (dataLoaded) return;
     let cancelled = false;
 
     const loadFast = async () => {
@@ -117,6 +119,7 @@ export default function ServicesHub() {
         if (!cancelled) setDataError(e instanceof Error ? e.message : "Failed to load services data.");
       } finally {
         if (!cancelled) setDataLoading(false);
+        if (!cancelled) setDataLoaded(true);
       }
     };
 
@@ -132,7 +135,7 @@ export default function ServicesHub() {
     void loadUsage();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [dataLoaded]);
 
   /* lazy-load sessions when tab is activated */
   React.useEffect(() => {
@@ -177,6 +180,15 @@ export default function ServicesHub() {
     void load();
     return () => { cancelled = true; };
   }, [activeTab, logsLoaded]);
+
+  const [cronRefreshKey, setCronRefreshKey] = React.useState(0);
+  const refreshCron = React.useCallback(() => {
+    setCronRefreshKey((k) => k + 1);
+  }, []);
+
+  const refreshData = React.useCallback(() => {
+    setDataLoaded(false);
+  }, []);
 
   const refreshSessions = React.useCallback(() => {
     setSessionsLoaded(false);
@@ -225,7 +237,7 @@ export default function ServicesHub() {
       {/* Tab content */}
       <div className="min-h-[50vh]">
         {activeTab === "overview" && (
-          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} loading={dataLoading} error={dataError} />
+          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} loading={dataLoading && !dataLoaded} error={dataError} onRefresh={refreshData} />
         )}
         {activeTab === "config" && (
           <React.Suspense fallback={<TabLoading />}>
@@ -240,8 +252,9 @@ export default function ServicesHub() {
             <TabLayout
               title="Cron Jobs"
               subtitle="Review schedules, trigger runs, and adjust delivery settings"
+              actions={<RefreshButton onClick={refreshCron} />}
             >
-              <CronClient hideHeader />
+              <CronClient hideHeader refreshKey={cronRefreshKey} />
             </TabLayout>
           </React.Suspense>
         )}

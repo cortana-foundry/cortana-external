@@ -177,9 +177,12 @@ export default function ServicesClient() {
     });
   };
 
+  const [manualRefreshing, setManualRefreshing] = React.useState(false);
   const handleRefresh = () => {
-    setNotice(null); setError(null);
-    startRefreshing(() => { void loadWorkspace({ preserveDrafts: dirtyCount > 0 }).catch((e) => { setError(e instanceof Error ? e.message : "Refresh failed."); }); });
+    setNotice(null); setError(null); setManualRefreshing(true);
+    void loadWorkspace({ preserveDrafts: dirtyCount > 0 })
+      .catch((e) => { setError(e instanceof Error ? e.message : "Refresh failed."); })
+      .finally(() => setManualRefreshing(false));
   };
 
   const handleAuth = (action: "whoop-auth-url" | "schwab-auth-url") => {
@@ -209,8 +212,8 @@ export default function ServicesClient() {
       badge={dirtyCount > 0 ? <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge> : undefined}
       actions={
         <>
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isSaving || isLoading}>
-            <RefreshCw className={cn("h-3.5 w-3.5", (isRefreshing || isLoading) && "animate-spin")} />
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={manualRefreshing || isSaving || isLoading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", manualRefreshing && "animate-spin")} />
             Refresh
           </Button>
           <Button size="sm" onClick={handleSave} disabled={isSaving || dirtyCount === 0 || isLoading}>

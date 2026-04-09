@@ -10,12 +10,12 @@ import {
   Users,
 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import { TabLayout, SectionCard, ListRow, EmptyState, StatCard, formatInt, formatMoney } from "./shared";
+import { TabLayout, SectionCard, ListRow, EmptyState, StatCard, RefreshButton, formatInt, formatMoney } from "./shared";
 import type { SerializedAgent, CouncilSessionSummary, UsageData, Tab } from "./shared";
 
 import SystemStatsClient from "@/app/system-stats/system-stats-client";
 
-export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loading, error }: { agents: SerializedAgent[]; councilSessions: CouncilSessionSummary[]; usage: UsageData | null; onSwitchTab: (tab: Tab) => void; loading?: boolean; error?: string | null }) {
+export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loading, error, onRefresh }: { agents: SerializedAgent[]; councilSessions: CouncilSessionSummary[]; usage: UsageData | null; onSwitchTab: (tab: Tab) => void; loading?: boolean; error?: string | null; onRefresh?: () => void }) {
   const activeAgents = agents.filter((a) => a.status === "active").length;
   const runningCouncil = councilSessions.filter((s) => s.status === "running").length;
 
@@ -25,6 +25,7 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loadi
       subtitle="System health, agents, and council activity"
       loading={loading}
       error={error}
+      actions={onRefresh && <RefreshButton onClick={onRefresh} loading={loading} />}
       stats={
         <>
           <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={`${activeAgents}/${agents.length}`} sub="active" />

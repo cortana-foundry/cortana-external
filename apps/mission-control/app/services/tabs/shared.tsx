@@ -1,4 +1,7 @@
 import * as React from "react";
+import { RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /* ── types ── */
 
@@ -159,6 +162,14 @@ export function TabLayout({ title, subtitle, badge, actions, stats, loading, err
         </div>
       )}
     </div>
+  );
+}
+
+export function RefreshButton({ onClick, loading }: { onClick: () => void; loading?: boolean }) {
+  return (
+    <Button variant="outline" size="sm" onClick={onClick} disabled={loading}>
+      <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+    </Button>
   );
 }
 

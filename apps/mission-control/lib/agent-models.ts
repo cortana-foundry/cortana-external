@@ -51,7 +51,7 @@ export function getAgentProfiles(): AgentProfile[] {
       .filter((p) => !p.id.startsWith("cron-"))
       .map((p) => {
         const meta = AGENT_ROLES[p.id] ?? { name: p.id, role: "Agent", capabilities: "" };
-        const modelKey = modelMap[meta.name] ?? p.model ?? null;
+        const modelKey = p.model ?? modelMap[meta.name] ?? null;
         return {
           id: p.id,
           name: meta.name,

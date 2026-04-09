@@ -80,9 +80,16 @@ const parseJobToForm = (job: CronJob): FormState => {
   };
 };
 
-export function CronClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
-  const [jobs, setJobs] = React.useState<CronJob[]>([]);
-  const [loading, setLoading] = React.useState(true);
+const CACHE_MAX_AGE_MS = 5 * 60_000;
+let cachedJobs: CronJob[] | null = null;
+let cachedJobsAt = 0;
+
+/** @internal test-only — reset module cache between tests */
+export function __resetCronCache() { cachedJobs = null; cachedJobsAt = 0; }
+
+export function CronClient({ hideHeader = false, refreshKey = 0 }: { hideHeader?: boolean; refreshKey?: number } = {}) {
+  const [jobs, setJobs] = React.useState<CronJob[]>(() => cachedJobs ?? []);
+  const [loading, setLoading] = React.useState(!cachedJobs);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
@@ -105,7 +112,10 @@ export function CronClient({ hideHeader = false }: { hideHeader?: boolean } = {}
       setLoading(true);
       setError(null);
       const payload = await fetchCronJobs();
-      setJobs(payload.jobs ?? []);
+      const nextJobs = payload.jobs ?? [];
+      cachedJobs = nextJobs;
+      cachedJobsAt = Date.now();
+      setJobs(nextJobs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load cron jobs.");
     } finally {
@@ -114,8 +124,11 @@ export function CronClient({ hideHeader = false }: { hideHeader?: boolean } = {}
   }, []);
 
   React.useEffect(() => {
+    if (refreshKey > 0) { cachedJobs = null; cachedJobsAt = 0; }
+    const cacheAge = Date.now() - cachedJobsAt;
+    if (cachedJobs && cacheAge < CACHE_MAX_AGE_MS) return;
     void loadJobs();
-  }, [loadJobs]);
+  }, [loadJobs, refreshKey]);
 
   React.useEffect(() => {
     if (!success) return;
