@@ -30,6 +30,7 @@ type DocContentResponse =
 const getRepoRoot = () => path.resolve(process.cwd(), "..", "..");
 const getBacktesterRoot = () => path.resolve(process.cwd(), "..", "..", "backtester");
 const getExternalDocsRoot = () => path.join(getRepoRoot(), "docs");
+const getExternalKnowledgeRoot = () => path.join(getRepoRoot(), "knowledge");
 const getMcDocsRoot = () => path.join(process.cwd(), "docs");
 const getMcKnowledgeRoot = () => path.join(process.cwd(), "knowledge");
 const getMcResearchRoot = () => path.join(process.cwd(), "research");
@@ -41,6 +42,7 @@ const toDocId = (section: string, relativePath: string) => `${section}:${relativ
 const toPosixPath = (value: string) => value.split(path.sep).join("/");
 const DOC_SECTION_ORDER = [
   "External Docs",
+  "External Knowledge",
   "Mission Control Docs",
   "Mission Control Knowledge",
   "Mission Control Research",
@@ -162,6 +164,7 @@ async function listExternalResearchDocs(researchRoot: string): Promise<DocEntry[
 async function listAllDocs(): Promise<DocEntry[]> {
   const results = await Promise.allSettled([
     collectDocs(getExternalDocsRoot(), "External Docs"),
+    collectOptionalDocs(getExternalKnowledgeRoot(), "External Knowledge"),
     collectOptionalDocs(getMcDocsRoot(), "Mission Control Docs"),
     collectOptionalDocs(getMcKnowledgeRoot(), "Mission Control Knowledge"),
     collectOptionalDocs(getMcResearchRoot(), "Mission Control Research"),

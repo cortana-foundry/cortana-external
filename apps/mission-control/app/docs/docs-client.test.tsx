@@ -166,8 +166,9 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByRole("button", { name: /\ba\b/i });
-    expect(screen.getAllByPlaceholderText("Search docs...").length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText("Search docs...").length).toBeGreaterThan(0);
+    });
   });
 
   it("renders breadcrumbs for selected file", async () => {
@@ -210,19 +211,18 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByRole("button", { name: /docs/i });
-    await screen.findByRole("button", { name: /source/i });
+    await screen.findByText("source");
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+      expect(screen.queryByText("new")).not.toBeInTheDocument();
+      expect(screen.queryByText("old")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /source/i }));
-    expect(await screen.findByRole("button", { name: /new/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("source"));
+    expect(await screen.findByText("new")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /archive/i }));
+    fireEvent.click(screen.getByText("archive"));
 
-    expect(await screen.findByRole("button", { name: /old/i })).toBeInTheDocument();
+    expect(await screen.findByText("old")).toBeInTheDocument();
   });
 
   it("resolves knowledge links into OpenClaw research docs", async () => {
@@ -312,6 +312,96 @@ describe("DocsClient", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/docs?file=OpenClaw%20Docs%3Asource%2Fplanning%2Fspartan%2Froadmap%2Ffitness-trainer-roadmap-2026-04-04.md",
+        { cache: "no-store" },
+      );
+    });
+  });
+
+  it("resolves absolute filesystem links into OpenClaw knowledge docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "OpenClaw Research:derived/spartan/README.md",
+              name: "derived/spartan/README.md",
+              path: "/Users/hd/Developer/cortana/research/derived/spartan/README.md",
+              section: "OpenClaw Research",
+            },
+            {
+              id: "OpenClaw Knowledge:domains/spartan/overview.md",
+              name: "domains/spartan/overview.md",
+              path: "/Users/hd/Developer/cortana/knowledge/domains/spartan/overview.md",
+              section: "OpenClaw Knowledge",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "README.md",
+          content: "# Spartan Derived Research\n\n- [Spartan overview](/Users/hd/Developer/cortana/knowledge/domains/spartan/overview.md)",
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "overview.md", content: "# Overview" }));
+
+    render(<DocsClient />);
+
+    const overviewLink = await screen.findByRole("link", { name: /spartan overview/i });
+    fireEvent.click(overviewLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=OpenClaw%20Knowledge%3Adomains%2Fspartan%2Foverview.md",
+        { cache: "no-store" },
+      );
+    });
+  });
+
+  it("resolves repo-level external knowledge links into backtester docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "External Knowledge:domains/backtester/overview.md",
+              name: "domains/backtester/overview.md",
+              path: "/Users/hd/Developer/cortana-external/knowledge/domains/backtester/overview.md",
+              section: "External Knowledge",
+            },
+            {
+              id: "Backtester Docs:source/guide/backtester-study-guide.md",
+              name: "source/guide/backtester-study-guide.md",
+              path: "/Users/hd/Developer/cortana-external/backtester/docs/source/guide/backtester-study-guide.md",
+              section: "Backtester Docs",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "overview.md",
+          content: "# Backtester Overview\n\n- [Study guide](../../../backtester/docs/source/guide/backtester-study-guide.md)",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "ok", name: "backtester-study-guide.md", content: "# Study guide" })
+      );
+
+    render(<DocsClient />);
+
+    const studyGuideLink = await screen.findByRole("link", { name: /study guide/i });
+    fireEvent.click(studyGuideLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=Backtester%20Docs%3Asource%2Fguide%2Fbacktester-study-guide.md",
         { cache: "no-store" },
       );
     });

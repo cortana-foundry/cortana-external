@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, List, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,38 @@ import { DocsContent } from "./docs-content";
 
 export default function DocsClient() {
   const docs = useDocs();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("docs-sidebar-collapsed") === "true"; } catch { return false; }
+  });
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Persist sidebar collapsed state
+  useEffect(() => {
+    try { localStorage.setItem("docs-sidebar-collapsed", String(sidebarCollapsed)); } catch { /* */ }
+  }, [sidebarCollapsed]);
+
+  /* ── keyboard shortcuts ── */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+
+      // "/" to focus search (when not in an input)
+      if (e.key === "/" && !isInput) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+
+      // Escape to blur search
+      if (e.key === "Escape" && target === searchRef.current) {
+        searchRef.current?.blur();
+        return;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   if (docs.listError) {
     return (
@@ -47,6 +78,9 @@ export default function DocsClient() {
       onToggleSection={docs.toggleSection}
       onToggleService={docs.toggleService}
       onSelectFile={docs.selectFile}
+      onCollapseAll={docs.collapseAll}
+      onExpandAll={docs.expandAll}
+      searchInputRef={searchRef}
     />
   );
 
@@ -101,7 +135,7 @@ export default function DocsClient() {
       {/* Three-column grid */}
       <div
         className={cn(
-          "transition-[grid-template-columns] duration-300 ease-in-out md:grid md:gap-6 xl:gap-10",
+          "transition-[grid-template-columns] duration-300 ease-in-out md:grid md:items-start md:gap-6 xl:gap-10",
           sidebarCollapsed
             ? "md:grid-cols-[0px_minmax(0,1fr)] xl:grid-cols-[0px_minmax(0,1fr)_11rem]"
             : "md:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_11rem]",
@@ -109,7 +143,7 @@ export default function DocsClient() {
       >
         {/* Left sidebar (desktop) */}
         <aside className={cn("hidden md:block overflow-hidden transition-opacity duration-300", sidebarCollapsed ? "opacity-0 pointer-events-none" : "opacity-100")}>
-          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto rounded-lg border border-border/50 bg-card/30 p-3">
+          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto docs-thin-scrollbar rounded-xl border border-border/40 bg-card shadow-sm p-3">
             {sidebarContent}
           </div>
         </aside>

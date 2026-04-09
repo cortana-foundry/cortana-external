@@ -44,6 +44,7 @@ export function getSectionService(section: string): string | null {
 
 export function getSectionLabel(section: string): string {
   if (section === "External Docs") return "Docs";
+  if (section === "External Knowledge") return "Knowledge";
   // Strip service prefix for service-scoped sections
   for (const service of SERVICE_ORDER) {
     if (section.startsWith(service + " ")) return section.slice(service.length + 1);

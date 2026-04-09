@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import {
   Brain,
   ChevronLeft,
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "mc-sidebar-collapsed";
+const COOKIE_KEY = "mc-sidebar-collapsed";
 
 const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -37,22 +38,50 @@ const links = [
   { href: "/feedback", label: "Feedback", icon: MessageCircle },
 ];
 
-export function Sidebar() {
+const readStoredCollapsed = () => {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY);
+    if (value == null) return null;
+    return value === "true";
+  } catch {
+    return null;
+  }
+};
+
+const persistCollapsed = (collapsed: boolean) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(collapsed));
+  } catch {
+    // Ignore storage failures in restricted contexts.
+  }
+
+  document.cookie = `${COOKIE_KEY}=${collapsed ? "true" : "false"}; Path=/; Max-Age=31536000; SameSite=Lax`;
+};
+
+export function Sidebar({ initialCollapsed = false }: { initialCollapsed?: boolean }) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(STORAGE_KEY) === "true";
-  });
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [ready, setReady] = useState(false);
+
+  useLayoutEffect(() => {
+    const stored = readStoredCollapsed();
+    if (stored != null) {
+      setCollapsed(stored);
+    }
+    setReady(true);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(collapsed));
-  }, [collapsed]);
+    if (!ready) return;
+    persistCollapsed(collapsed);
+  }, [collapsed, ready]);
 
   const desktopWidthClass = collapsed ? "md:w-16" : "md:w-60";
+  const desktopTransitionClass = ready ? "md:transition-[width] md:duration-300" : "md:transition-none";
 
   return (
     <>
-      <div className={cn("hidden shrink-0 w-16 transition-all duration-300 md:block", desktopWidthClass)} />
+      <div className={cn("hidden shrink-0 w-16 md:block", desktopWidthClass, desktopTransitionClass)} />
 
       <div className="fixed inset-x-0 top-0 z-40 border-b border-border bg-background/95 backdrop-blur md:hidden">
         <div className="px-4 py-2 text-sm font-semibold text-foreground">Mission Control</div>
@@ -80,8 +109,9 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 hidden w-16 flex-col overflow-hidden border-r border-border bg-background transition-all duration-300 md:flex",
-          desktopWidthClass
+          "fixed inset-y-0 left-0 z-40 hidden w-16 flex-col overflow-hidden border-r border-border bg-background md:flex",
+          desktopWidthClass,
+          desktopTransitionClass
         )}
       >
         <div className={cn("flex h-14 items-center border-b border-border px-2 md:px-4", collapsed ? "justify-center md:px-2" : "justify-start")}>

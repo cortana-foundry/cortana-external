@@ -3,13 +3,20 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronRight, Hash } from "lucide-react";
+import { ArrowUp, ChevronRight, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getTextContent, slugify } from "@/lib/markdown-utils";
 import { CodeBlock } from "@/components/docs/code-block";
 import type { DocFile } from "./docs-types";
 import { getSectionLabel, basename } from "./docs-tree-utils";
+
+/** Extract all relative .md hrefs from markdown content. */
+function extractMdLinks(markdown: string): string[] {
+  const matches = markdown.match(/\[.*?\]\(((?!http)[^)]+\.md)\)/g);
+  if (!matches) return [];
+  return [...new Set(matches.map((m) => m.replace(/.*\(([^)]+)\)/, "$1")))];
+}
 
 type DocsContentProps = {
   selectedFile: DocFile | null;
@@ -38,16 +45,44 @@ const DOC_ROOT_PREFIXES = [
   "cortana-external",
 ] as const;
 
-function resolveDocHref(currentName: string | null, href: string, files: DocFile[]): DocFile | null {
-  const currentDir = currentName ? currentName.split("/").slice(0, -1).join("/") : "";
-  const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
-  const resolved: string[] = [];
+function normalizeDocHref(href: string): string {
+  const withoutHash = href.split("#")[0] ?? href;
+  const withoutQuery = withoutHash.split("?")[0] ?? withoutHash;
+  try {
+    return decodeURIComponent(withoutQuery);
+  } catch {
+    return withoutQuery;
+  }
+}
 
+function resolveSegments(parts: string[]): string[] {
+  const resolved: string[] = [];
   for (const part of parts) {
     if (part === "..") resolved.pop();
     else if (part !== "." && part !== "") resolved.push(part);
   }
+  return resolved;
+}
 
+function resolveDocHref(currentFile: DocFile | null, href: string, files: DocFile[]): DocFile | null {
+  const normalizedHref = normalizeDocHref(href);
+
+  if (normalizedHref.startsWith("/")) {
+    const exactPath = files.find((f) => f.path === normalizedHref);
+    if (exactPath) return exactPath;
+  }
+
+  if (currentFile?.path) {
+    const currentPathParts = currentFile.path.split("/").slice(0, -1);
+    const resolvedFsParts = resolveSegments([...currentPathParts, ...normalizedHref.split("/")]);
+    const resolvedFsPath = `${currentFile.path.startsWith("/") ? "/" : ""}${resolvedFsParts.join("/")}`;
+    const exactFsPath = files.find((f) => f.path === resolvedFsPath);
+    if (exactFsPath) return exactFsPath;
+  }
+
+  const currentDir = currentFile?.name ? currentFile.name.split("/").slice(0, -1).join("/") : "";
+  const parts = [...(currentDir ? currentDir.split("/") : []), ...normalizedHref.split("/")];
+  const resolved = resolveSegments(parts);
   const targetPath = resolved.join("/");
   const candidates = new Set<string>([targetPath]);
 
@@ -119,7 +154,7 @@ export function DocsContent({
             href={href}
             onClick={(e) => {
               e.preventDefault();
-              const match = resolveDocHref(selectedFile?.name ?? null, href, files);
+              const match = resolveDocHref(selectedFile, href, files);
               if (match) {
                 onNavigate(match.id);
                 window.scrollTo({ top: 0, behavior: "smooth" });
@@ -180,19 +215,106 @@ export function DocsContent({
       {/* Content */}
       <div ref={contentRef}>
         {contentLoading ? (
-          <p className="py-8 text-sm text-muted-foreground">Loading content...</p>
+          <div className="space-y-4 py-2" aria-live="polite" aria-busy="true">
+            <span className="sr-only">Loading content...</span>
+            <div className="h-6 w-40 animate-pulse rounded bg-muted/45" />
+            <div className="h-4 w-full animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-muted/28" />
+            <div className="h-28 animate-pulse rounded-xl bg-muted/16" />
+            <div className="h-4 w-full animate-pulse rounded bg-muted/28" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-muted/28" />
+            <div className="min-h-[32rem] animate-pulse rounded-2xl bg-muted/10" />
+          </div>
         ) : contentError ? (
           <p className="py-8 text-sm text-muted-foreground">{contentError}</p>
         ) : !content.trim() ? (
           <p className="py-8 text-sm text-muted-foreground">No content available.</p>
         ) : (
-          <article className="docs-prose pb-16">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {content}
-            </ReactMarkdown>
-          </article>
+          <div key={selectedFile?.id} className="docs-content-fade-in">
+            <article className="docs-prose pb-8">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {content}
+              </ReactMarkdown>
+            </article>
+            <Backlinks selectedFile={selectedFile} files={files} content={content} onNavigate={onNavigate} />
+          </div>
         )}
       </div>
+
+      {/* Back to top */}
+      <BackToTop />
     </>
+  );
+}
+
+function BackToTop() {
+  const [show, setShow] = React.useState(false);
+
+  React.useEffect(() => {
+    const handler = () => setShow(window.scrollY > 400);
+    window.addEventListener("scroll", handler, { passive: true });
+    return () => window.removeEventListener("scroll", handler);
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      className="fixed bottom-6 right-6 z-40 rounded-full border border-border/50 bg-card p-2.5 text-muted-foreground shadow-lg transition-colors hover:text-foreground hover:bg-muted/40"
+      aria-label="Back to top"
+    >
+      <ArrowUp className="h-4 w-4" />
+    </button>
+  );
+}
+
+function Backlinks({
+  selectedFile,
+  files,
+  content,
+  onNavigate,
+}: {
+  selectedFile: DocFile | null;
+  files: DocFile[];
+  content: string;
+  onNavigate: (id: string) => void;
+}) {
+  const linksOut = React.useMemo(() => {
+    if (!selectedFile || !content) return [];
+    const hrefs = extractMdLinks(content);
+    return hrefs
+      .map((href) => resolveDocHref(selectedFile, href, files))
+      .filter((f): f is DocFile => f !== null);
+  }, [selectedFile, files, content]);
+
+  // Find files that link TO this file (referenced by)
+  // This requires checking all files' content — too expensive client-side
+  // So we only show outgoing links for now
+  if (linksOut.length === 0) return null;
+
+  return (
+    <div className="mt-8 border-t border-border/40 pt-6">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        Links to
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {linksOut.map((file) => (
+          <button
+            key={file.id}
+            type="button"
+            onClick={() => {
+              onNavigate(file.id);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/40"
+          >
+            {basename(file.name)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

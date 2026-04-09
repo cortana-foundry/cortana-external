@@ -44,7 +44,7 @@ describe("trading ops live loader", () => {
       },
     });
 
-    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>(async (input) => {
+    const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/market-data/ops")) {
         return new Response(
@@ -139,7 +139,7 @@ describe("trading ops live loader", () => {
       },
     });
 
-    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>(async (input) => {
+    const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/market-data/ops")) {
         return new Response(

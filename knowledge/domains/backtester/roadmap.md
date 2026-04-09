@@ -4,10 +4,10 @@ Canonical roadmap source:
 
 - [Roadmap](../../../backtester/docs/source/roadmap/roadmap.md)
 
-Planning companions:
+Related source docs:
 
-- [Planning index](../../../backtester/planning/README.md)
-- [Git workflow plan](../../../backtester/planning/docs/git-workflow.md)
+- [Backtester docs front door](../../../backtester/docs/README.md)
+- [Study guide](../../../backtester/docs/source/guide/backtester-study-guide.md)
 
 Workstream artifacts:
 
