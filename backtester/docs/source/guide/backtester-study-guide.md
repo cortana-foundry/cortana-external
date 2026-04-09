@@ -2,6 +2,18 @@
 
 This is a plain-English learning doc for understanding the backtester from the ground up.
 
+## Chapters
+
+- [Chapter 1: Overview And Daily Use](#chapter-1-overview-and-daily-use)
+- [Chapter 2: Core Trading Flow](#chapter-2-core-trading-flow)
+- [Chapter 3: Putting It Together](#chapter-3-putting-it-together)
+- [Operator Aliases](#operator-aliases)
+- [Exact Workflows](#exact-workflows)
+- [Stock Market Brief Snapshot](#stock-market-brief-snapshot)
+- [Operator Surfaces: What To Read First](#operator-surfaces-what-to-read-first)
+- [How To Read The Wrapper Output](#how-to-read-the-wrapper-output)
+- [Full System Diagram](#full-system-diagram)
+
 For the operating plan and next implementation phases, use:
 - [Roadmap](../roadmap/roadmap.md)
 - [Session Handoff](./session-handoff.md)
@@ -20,7 +32,7 @@ The goal is to understand the system in the order it actually thinks:
 5. send alerts
 6. save history so the system can learn later
 
-## Overview
+## Chapter 1: Overview And Daily Use
 
 ### Big Picture
 
@@ -57,6 +69,450 @@ Default routine:
 # Next trading day
 ./scripts/daytime_flow.sh
 ```
+
+### Operator Aliases
+
+These are the main aliases that match the workflows in this guide.
+
+```bash
+alias cday='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/daytime_flow.sh'
+alias cnight='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/nighttime_flow.sh'
+alias cday_nostream='cd /Users/hd/Developer/cortana-external/backtester && SCHWAB_STREAMER_ENABLED=0 ./scripts/daytime_flow.sh'
+alias clive='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/live_watch.sh'
+alias clive4='cd /Users/hd/Developer/cortana-external/backtester && WATCH_SYMBOLS=SPY,QQQ,DIA,NVDA FOCUS_SYMBOL=SPY ./scripts/live_watch.sh'
+alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
+alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
+alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery/sync_bird_auth.sh'
+alias cbreadth='cd /Users/hd/Developer/cortana-external/backtester && uv run python market_brief_snapshot.py --operator'
+alias cbreadth_raw='cd /Users/hd/Developer/cortana-external/backtester && uv run python market_brief_snapshot.py --pretty'
+alias cdip='cd /Users/hd/Developer/cortana-external/backtester && uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+alias cdip_breadth='cd /Users/hd/Developer/cortana-external/backtester && TRADING_INTRADAY_BREADTH_ENABLED=1 uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+alias cdip_breadth_loose='cd /Users/hd/Developer/cortana-external/backtester && TRADING_INTRADAY_BREADTH_ENABLED=1 TRADING_INTRADAY_BREADTH_MAX_BUYS=3 TRADING_INTRADAY_BREADTH_SPY_MIN_PCT=1.0 TRADING_INTRADAY_BREADTH_QQQ_MIN_PCT=1.5 TRADING_INTRADAY_BREADTH_SP500_PCT_UP_MIN=0.65 TRADING_INTRADAY_BREADTH_GROWTH_PCT_UP_MIN=0.60 uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+```
+
+Quick use map:
+
+- `cday`
+  - full daytime operator view
+- `cnight`
+  - full nightly operator view
+- `cbreadth`
+  - fastest market read
+- `cdip`
+  - direct Dip Buyer answer
+- `clive`
+  - quick live tape
+- `cwatch`
+  - quick watchlist pulse
+- `crefresh_watchlists`
+  - refresh Polymarket + X/Twitter watchlist inputs
+- `cxauth`
+  - fix X/Twitter auth when that path breaks
+
+### How To Use The System Day To Day
+
+Do not think of this as one giant command.
+
+Think of it like a small operator loop:
+
+1. read the market
+2. read the strategy posture
+3. monitor only the names that matter
+4. let the system measure itself later
+
+Simple flow:
+
+```mermaid
+flowchart LR
+    A["cbreadth<br/>What is the market doing?"] --> B["cday<br/>What should I pay attention to now?"]
+    B --> C["clive / cwatch<br/>Monitor live names and watchlists"]
+    C --> D["cnight<br/>What changed after the close?"]
+    D --> E["Prediction accuracy + lifecycle review<br/>Did the system age well?"]
+```
+
+What each command is for:
+
+- `cbreadth`
+  - quickest market read
+  - use it for: "Is this a buy environment, a watch environment, or a stand-aside environment?"
+- `cday`
+  - main daytime operator command
+  - use it for: "What should I focus on right now?"
+- `cnight`
+  - main overnight operator command
+  - use it for: "What changed, what settled, and what do I review tomorrow?"
+- `cdip`
+  - direct Dip Buyer read
+  - use it for: "What is Dip Buyer saying without the full wrapper?"
+- `clive`
+  - fast live tape
+  - use it for: "What are the key names doing right now?"
+- `cwatch`
+  - watchlist pulse
+  - use it for: "What is the current saved watchlist doing?"
+
+Beginner examples:
+
+- if `cbreadth` says:
+  - `NO_BUY | CORRECTION`
+  - then do not go searching for bullish meaning somewhere else
+- if `cday` says:
+  - `Alert posture: stand aside`
+  - then it is a status update, not a buy-now alert
+- if `cdip` shows:
+  - `BUY 0 | WATCH 0`
+  - that means the scan ran and found nothing good enough
+- if `cnight` shows:
+  - weak prediction accuracy or weak trade review
+  - that means the learning loop is telling you to trust the system less, not more
+
+### Simple Daily Workflow
+
+This is the easiest way to use the system without overthinking it.
+
+Morning:
+
+- run `cbreadth`
+- then run `cday`
+
+Read it like this:
+
+- first: market regime
+- second: alert posture
+- third: candidate names
+- fourth: warnings
+
+During the session:
+
+- rerun `cbreadth` if the tape changes
+- run `cdip` if you want the direct Dip Buyer view
+- use `clive` or `cwatch` for quick monitoring
+
+After the close:
+
+- run `cnight`
+
+Use `cnight` to answer:
+
+- what the system discovered
+- what settled
+- whether BUY / WATCH / NO_BUY calls are aging well
+- whether the paper trade and governance layers changed
+
+Simple mental model:
+
+```mermaid
+flowchart TD
+    A["Market regime"] --> B["Can we take risk?"]
+    C["Breadth and tape"] --> B
+    B --> D["CANSLIM / Dip Buyer"]
+    D --> E["Prediction is logged"]
+    E --> F["Later settlement"]
+    F --> G["Accuracy, lifecycle, and governance"]
+```
+
+Plain English:
+
+- first decide if the market is healthy enough
+- then see if a strategy likes any names
+- then let the system save that decision
+- later let the system grade whether that decision was actually good
+
+### What To Trust First
+
+When multiple surfaces are talking at once, trust them in this order:
+
+1. market regime
+2. alert posture
+3. warnings / degraded status
+4. candidate names
+5. prediction accuracy and lifecycle review
+
+Why this order matters:
+
+- the regime tells you whether risk is allowed at all
+- the posture tells you whether this is a buy signal or only a review signal
+- the warnings tell you whether the live data path is degraded
+- only after that should you care about the actual stock names
+
+Example:
+
+- `Regime: CORRECTION`
+- `Alert posture: stand aside`
+- `BUY 0`
+
+This means:
+
+- the system is working
+- it is not telling you to buy
+- and the correct action is patience, not override
+
+### Exact Workflows
+
+This section is the practical playbook.
+
+If you only remember one thing, remember this:
+
+- read the market first
+- then read the posture
+- then read the names
+- then decide whether you are acting or only observing
+
+### Workflow 1: Premarket Check
+
+Goal:
+
+- know if the day is likely to be a buy day, a watch day, or a stand-aside day
+
+Run:
+
+```bash
+cbreadth
+cday
+```
+
+What to read first in `cbreadth`:
+
+- headline
+- what this means
+- warnings
+
+What good looks like:
+
+- `CONFIRMED UPTREND`
+- size above `0%`
+- tape is available
+- warnings are minimal
+
+What bad looks like:
+
+- `CORRECTION`
+- size `0%`
+- tape unavailable
+- degraded warnings
+
+What to do:
+
+- if market is healthy:
+  - move on to `cday`
+  - pay attention to candidate names
+- if market is defensive:
+  - still run `cday`
+  - expect status updates, not buy-now calls
+
+What to look out for:
+
+- `provider_cooldown`
+  - live Schwab data is shaky right now
+- stale macro
+  - macro is still useful, but weaker than fresh tape
+- cached regime
+  - the market read is safe, but not fresh
+
+### Workflow 2: Open-Market Check
+
+Goal:
+
+- know whether the live session is strong enough to act
+
+Run:
+
+```bash
+cbreadth
+cdip
+clive
+```
+
+What to look for:
+
+- breadth state
+- tape tone
+- Dip Buyer posture
+- whether any `BUY` names survive
+
+What it means:
+
+- `Intraday breadth: selective-buy`
+  - a small exception is allowed even if the daily regime is still weak
+- `Alert posture: stand aside`
+  - do not buy; just watch
+- `BUY 0 | WATCH 0`
+  - the scan ran and found nothing strong enough
+
+What to do:
+
+- if breadth is weak and posture says stand aside:
+  - do nothing
+- if breadth is strong and Dip Buyer shows a small number of buys:
+  - review only those names
+- if tape is degraded:
+  - trust the degraded warning and wait
+
+What to look out for:
+
+- a hot-sounding header with no actual buys
+  - trust the posture, not the drama
+- `BUY 0`
+  - this means no entry, even if a stock is interesting
+- cooldown warnings
+  - decisions may be slower or more defensive
+
+### Workflow 3: Midday Recheck
+
+Goal:
+
+- see if the market changed enough to change your posture
+
+Run:
+
+```bash
+cbreadth
+cdip
+cwatch
+```
+
+What changed enough to matter:
+
+- tape went from weak to broad and strong
+- breadth changed from inactive/unavailable to selective-buy
+- Dip Buyer moved from no candidates to a few bounded buys
+
+What to do:
+
+- if nothing changed:
+  - do not force a new interpretation
+- if breadth improved:
+  - review the top names only
+- if watchlist names are still weak:
+  - keep waiting
+
+What to look out for:
+
+- one strong stock with weak breadth
+  - that is not enough by itself
+- broad rally but zero surviving buys
+  - the system still does not trust entries yet
+
+### Workflow 4: After-Close Review
+
+Goal:
+
+- understand what the system learned from the day
+
+Run:
+
+```bash
+cnight
+```
+
+What to read first:
+
+- universe summary
+- nightly discovery progress / timing
+- prediction accuracy
+- lifecycle review
+
+What to do:
+
+- check whether the nightly run completed normally
+- check whether predictions are settling
+- check whether trade lifecycle is opening or closing anything
+- check whether the system is improving or getting worse
+
+What to look out for:
+
+- repeated degraded warnings
+  - ops issue, not a strategy issue
+- poor prediction accuracy
+  - trust the strategy less
+- empty lifecycle with no trades
+  - system is being cautious, not necessarily broken
+
+### Workflow 5: Telegram Message Review
+
+Goal:
+
+- confirm that the messages match the underlying machine state
+
+What to compare:
+
+- Telegram alert
+- `cday`
+- `cbreadth`
+- direct strategy output like `cdip`
+
+What a correct message looks like:
+
+- posture matches the actual regime
+- warnings match the actual degraded state
+- no fake urgency when there are no buys
+- focus names match the underlying strategy or fallback source
+
+Bad signs:
+
+- Telegram says buy-now but `BUY 0`
+- message says unavailable when the scan really found nothing
+- message sounds fresh when inputs are cached or stale
+
+What to do:
+
+- if Telegram and local commands disagree:
+  - trust local command output first
+  - then inspect the underlying alert formatter path
+
+### Workflow 6: Ops / Failure Check
+
+Goal:
+
+- know whether a bad result is a market answer or a machine problem
+
+Run:
+
+```bash
+uv run python runtime_health_snapshot.py --pretty
+uv run python pre_open_canary.py
+```
+
+How to read it:
+
+- if runtime health is degraded because of `provider_cooldown`
+  - the system is being defensive on purpose
+- if pre-open canary says `warn`
+  - the market lane is not healthy enough for full trust
+
+What to do:
+
+- wait for cooldown to clear
+- rerun `cbreadth`
+- then rerun `cday` or `cdip`
+
+What to look out for:
+
+- repeated quote failures
+- repeated token refresh failures
+- repeated stale-cache fallback
+
+These are machine problems, not stock picks.
+
+### Fast Decision Ladder
+
+If you are in a hurry, use this ladder:
+
+1. run `cbreadth`
+2. if regime is bad, stop there
+3. if regime is okay, run `cday`
+4. if you want direct strategy detail, run `cdip`
+5. if you are only monitoring, run `clive` or `cwatch`
+6. after the close, run `cnight`
+
+Simple summary:
+
+- `cbreadth` = market answer
+- `cday` = session answer
+- `cdip` = strategy answer
+- `clive` / `cwatch` = monitoring answer
+- `cnight` = learning answer
 
 ### Stock Market Brief Snapshot
 
@@ -544,7 +1000,7 @@ Local Schwab OAuth note:
 - this uses a local HTTPS listener because Schwab requires an `https://` callback
 - use [Schwab OAuth Reauth Runbook](../runbook/schwab-oauth-reauth-runbook.md) for full re-link and troubleshooting steps
 
-## Core Trading Flow
+## Chapter 2: Core Trading Flow
 
 ### Phase 1: Find Stocks
 
@@ -1280,7 +1736,7 @@ Why both fields matter:
 - `% move` tells you how strong the move has been
 - `(x appearances)` tells you whether the move is persistent or just a one-off pop
 
-## Putting It Together
+## Chapter 3: Putting It Together
 
 ### Full System Diagram
 
