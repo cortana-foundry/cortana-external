@@ -3,10 +3,11 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getTextContent, slugify } from "@/lib/markdown-utils";
+import { CodeBlock } from "@/components/docs/code-block";
 import type { DocFile } from "./docs-types";
 import { getSectionLabel, basename } from "./docs-tree-utils";
 
@@ -36,11 +37,30 @@ export function DocsContent({
       const Comp = ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
         const text = getTextContent(children);
         const id = slugify(text);
-        return <Tag id={id} {...props}>{children}</Tag>;
+        return (
+          <Tag id={id} className="group relative" {...props}>
+            {children}
+            <a href={`#${id}`} className="docs-heading-anchor" aria-label="Link to this section">
+              <Hash className="h-4 w-4" />
+            </a>
+          </Tag>
+        );
       };
       Comp.displayName = Tag;
       return Comp;
     };
+
+    const DocPre = ({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) => {
+      if (React.isValidElement(children)) {
+        const childProps = children.props as { className?: string; children?: React.ReactNode };
+        const className = childProps.className ?? "";
+        const lang = className.replace(/^language-/, "") || null;
+        const text = getTextContent(childProps.children);
+        return <CodeBlock code={text} language={lang} />;
+      }
+      return <pre {...props}>{children}</pre>;
+    };
+    DocPre.displayName = "DocPre";
 
     const DocLink = ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
       if (href && !href.startsWith("http") && !href.startsWith("#") && href.endsWith(".md")) {
@@ -78,6 +98,7 @@ export function DocsContent({
     return {
       h1: make("h1"), h2: make("h2"), h3: make("h3"), h4: make("h4"), h5: make("h5"), h6: make("h6"),
       a: DocLink,
+      pre: DocPre,
     };
   }, [selectedFile, files, onNavigate]);
 
