@@ -193,9 +193,27 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
         </div>
       )}
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading system stats...</p> : null}
       {error ? <p className="text-xs text-amber-500">{error}</p> : null}
 
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-3 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-28 rounded bg-muted/60" />
+                  <div className="h-5 w-16 rounded-full bg-muted/50" />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-3 w-full rounded bg-muted/40" />
+                <div className="h-3 w-3/4 rounded bg-muted/40" />
+                <div className="h-3 w-1/2 rounded bg-muted/40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-3">
@@ -316,6 +334,7 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }
