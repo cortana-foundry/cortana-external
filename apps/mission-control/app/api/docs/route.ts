@@ -106,7 +106,7 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
   let files: DocEntry[] = [];
 
   try {
-    files = await collectDocs(docsRoot, "Backtester Docs", backtesterRoot);
+    files = await collectDocs(docsRoot, "Backtester Docs");
   } catch {
     return [];
   }
