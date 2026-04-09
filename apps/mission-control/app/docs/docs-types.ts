@@ -24,3 +24,8 @@ export type SectionGroup = {
   group: string;
   sections: SectionTree[];
 };
+
+export type ServiceGroup = {
+  service: string;
+  sections: SectionTree[];
+};

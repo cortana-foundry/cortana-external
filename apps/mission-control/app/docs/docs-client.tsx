@@ -38,10 +38,12 @@ export default function DocsClient() {
       activeGroupSections={docs.activeGroupSections}
       collapsedFolders={docs.collapsedFolders}
       collapsedSections={docs.collapsedSections}
+      collapsedServices={docs.collapsedServices}
       selectedFile={docs.selectedFile}
       onToggleFolder={docs.toggleFolder}
       onSwitchGroupTab={docs.switchGroupTab}
       onToggleSection={docs.toggleSection}
+      onToggleService={docs.toggleService}
       onSelectFile={docs.selectFile}
     />
   );

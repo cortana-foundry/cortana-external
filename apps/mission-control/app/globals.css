@@ -402,6 +402,13 @@
       font-semibold text-muted-foreground transition-colors hover:text-foreground;
   }
 
+  /* ── Service header (two-level grouping) ── */
+
+  .docs-nav-service {
+    @apply flex w-full items-center gap-1.5 px-1 py-1.5 text-left text-[13px]
+      font-bold text-foreground transition-colors hover:text-foreground/80;
+  }
+
   /* ── Folder row ── */
 
   .docs-nav-folder {

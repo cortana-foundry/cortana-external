@@ -1,8 +1,10 @@
-import type { DocFile, TreeNode, SectionTree, SectionGroup } from "./docs-types";
+import type { DocFile, TreeNode, SectionTree, SectionGroup, ServiceGroup } from "./docs-types";
 
 /* ── constants ── */
 
 const SECTION_GROUP_ORDER = ["cortana-external", "OpenClaw"] as const;
+
+const SERVICE_ORDER = ["Mission Control", "External Service", "Backtester"] as const;
 
 /* ── pure helpers ── */
 
@@ -29,20 +31,24 @@ export function collectFolderPaths(node: TreeNode): string[] {
 }
 
 export function getSectionGroup(section: string): string {
-  if (
-    section === "External Docs" ||
-    section === "Mission Control Research" ||
-    section === "Backtester Docs" ||
-    section === "Backtester Research"
-  ) {
-    return "cortana-external";
+  if (section.startsWith("OpenClaw ")) return "OpenClaw";
+  return "cortana-external";
+}
+
+export function getSectionService(section: string): string | null {
+  for (const service of SERVICE_ORDER) {
+    if (section.startsWith(service + " ")) return service;
   }
-  return "OpenClaw";
+  return null;
 }
 
 export function getSectionLabel(section: string): string {
   if (section === "External Docs") return "Repo Docs";
-  if (section.startsWith("OpenClaw ")) return section.replace("OpenClaw ", "");
+  // Strip service prefix for service-scoped sections
+  for (const service of SERVICE_ORDER) {
+    if (section.startsWith(service + " ")) return section.slice(service.length + 1);
+  }
+  if (section.startsWith("OpenClaw ")) return section.slice(9);
   return section;
 }
 
@@ -104,6 +110,31 @@ export function groupSectionTrees(sections: SectionTree[]): SectionGroup[] {
     if (!sectionsForGroup || sectionsForGroup.length === 0) return [];
     return [{ group, sections: sectionsForGroup }];
   });
+}
+
+export function groupSectionsIntoServices(sections: SectionTree[]): {
+  standalone: SectionTree[];
+  services: ServiceGroup[];
+} {
+  const standalone: SectionTree[] = [];
+  const serviceMap = new Map<string, SectionTree[]>();
+
+  for (const st of sections) {
+    const service = getSectionService(st.section);
+    if (!service) {
+      standalone.push(st);
+    } else {
+      const arr = serviceMap.get(service) ?? [];
+      arr.push(st);
+      serviceMap.set(service, arr);
+    }
+  }
+
+  const services = SERVICE_ORDER
+    .filter((s) => serviceMap.has(s))
+    .map((s) => ({ service: s, sections: serviceMap.get(s)! }));
+
+  return { standalone, services };
 }
 
 export function countNodeFiles(node: TreeNode): number {

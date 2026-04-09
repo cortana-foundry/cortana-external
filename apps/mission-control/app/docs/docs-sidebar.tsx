@@ -4,7 +4,7 @@ import * as React from "react";
 import { ChevronRight, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { DocFile, TreeNode, SectionTree, SectionGroup } from "./docs-types";
+import type { DocFile, TreeNode, SectionTree, SectionGroup, ServiceGroup } from "./docs-types";
 import {
   sortFolderNodes,
   getSectionLabel,
@@ -12,6 +12,7 @@ import {
   getSectionKey,
   countNodeFiles,
   basename,
+  groupSectionsIntoServices,
 } from "./docs-tree-utils";
 
 type DocsSidebarProps = {
@@ -26,10 +27,12 @@ type DocsSidebarProps = {
   activeGroupSections: SectionTree[];
   collapsedFolders: Set<string>;
   collapsedSections: Set<string>;
+  collapsedServices: Set<string>;
   selectedFile: DocFile | null;
   onToggleFolder: (fullPath: string) => void;
   onSwitchGroupTab: (group: string) => void;
   onToggleSection: (group: string, section: string) => void;
+  onToggleService: (service: string) => void;
   onSelectFile: (id: string) => void;
 };
 
@@ -45,10 +48,12 @@ export function DocsSidebar({
   activeGroupSections,
   collapsedFolders,
   collapsedSections,
+  collapsedServices,
   selectedFile,
   onToggleFolder,
   onSwitchGroupTab,
   onToggleSection,
+  onToggleService,
   onSelectFile,
 }: DocsSidebarProps) {
   const renderNode = (node: TreeNode, depth: number) => {
@@ -92,6 +97,79 @@ export function DocsSidebar({
       </div>
     );
   };
+
+  const renderSection = (section: string, root: TreeNode) => {
+    const sectionKey = getSectionKey(activeGroupTab!, section);
+    const sectionCollapsed = searchQuery.length === 0 && collapsedSections.has(sectionKey);
+    const isActiveSection = selectedFile?.section === section;
+    return (
+      <div key={section}>
+        <button
+          type="button"
+          onClick={() => onToggleSection(activeGroupTab!, section)}
+          className={cn(
+            "docs-nav-section",
+            isActiveSection && "text-foreground",
+          )}
+        >
+          <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", !sectionCollapsed && "rotate-90")} />
+          <span className="min-w-0 flex-1 truncate">
+            {getSectionLabel(section)}
+          </span>
+          <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {countNodeFiles(root)}
+          </span>
+        </button>
+
+        {!sectionCollapsed && renderNode(root, 0)}
+      </div>
+    );
+  };
+
+  const renderServiceGrouped = () => {
+    const { standalone, services } = groupSectionsIntoServices(activeGroupSections);
+    return (
+      <div className="space-y-1.5">
+        {/* Standalone sections (e.g. Repo Docs) */}
+        {standalone.map(({ section, root }) => renderSection(section, root))}
+
+        {/* Service groups */}
+        {services.map(({ service, sections }) => {
+          const serviceCollapsed = searchQuery.length === 0 && collapsedServices.has(service);
+          const totalFiles = sections.reduce((sum, { root }) => sum + countNodeFiles(root), 0);
+          return (
+            <div key={service}>
+              <button
+                type="button"
+                onClick={() => onToggleService(service)}
+                className="docs-nav-service"
+              >
+                <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", !serviceCollapsed && "rotate-90")} />
+                <span className="min-w-0 flex-1 truncate">{service}</span>
+                <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  {totalFiles}
+                </span>
+              </button>
+
+              {!serviceCollapsed && (
+                <div className="ml-2 space-y-0.5">
+                  {sections.map(({ section, root }) => renderSection(section, root))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderFlat = () => (
+    <div className="space-y-1.5">
+      {activeGroupSections.map(({ section, root }) => renderSection(section, root))}
+    </div>
+  );
+
+  const isServiceGrouped = activeGroupTab === "cortana-external";
 
   return (
     <nav className="space-y-3">
@@ -141,36 +219,10 @@ export function DocsSidebar({
         <p className="px-2 py-4 text-sm text-muted-foreground">No markdown files found.</p>
       ) : tree.length === 0 ? (
         <p className="px-2 py-4 text-sm text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</p>
+      ) : isServiceGrouped ? (
+        renderServiceGrouped()
       ) : (
-        <div className="space-y-1.5">
-          {activeGroupSections.map(({ section, root }) => {
-            const sectionKey = getSectionKey(activeGroupTab!, section);
-            const sectionCollapsed = searchQuery.length === 0 && collapsedSections.has(sectionKey);
-            const isActiveSection = selectedFile?.section === section;
-            return (
-              <div key={section}>
-                <button
-                  type="button"
-                  onClick={() => onToggleSection(activeGroupTab!, section)}
-                  className={cn(
-                    "docs-nav-section",
-                    isActiveSection && "text-foreground",
-                  )}
-                >
-                  <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", !sectionCollapsed && "rotate-90")} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {getSectionLabel(section)}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-                    {countNodeFiles(root)}
-                  </span>
-                </button>
-
-                {!sectionCollapsed && renderNode(root, 0)}
-              </div>
-            );
-          })}
-        </div>
+        renderFlat()
       )}
     </nav>
   );

@@ -22,6 +22,7 @@ export function useDocs() {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [activeGroupTab, setActiveGroupTab] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedServices, setCollapsedServices] = useState<Set<string>>(new Set());
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
@@ -205,6 +206,15 @@ export function useDocs() {
     });
   }, []);
 
+  const toggleService = useCallback((service: string) => {
+    setCollapsedServices((prev) => {
+      const next = new Set(prev);
+      if (next.has(service)) next.delete(service);
+      else next.add(service);
+      return next;
+    });
+  }, []);
+
   const selectFile = useCallback((id: string) => {
     setSelectedFileId(id);
     setMobileSidebarOpen(false);
@@ -223,6 +233,7 @@ export function useDocs() {
     collapsedFolders,
     activeGroupTab: resolvedGroupTab,
     collapsedSections,
+    collapsedServices,
     activeHeadingId,
     setActiveHeadingId,
     mobileSidebarOpen,
@@ -242,6 +253,7 @@ export function useDocs() {
     toggleFolder,
     switchGroupTab,
     toggleSection,
+    toggleService,
     selectFile,
   };
 }
