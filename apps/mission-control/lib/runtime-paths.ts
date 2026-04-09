@@ -36,6 +36,10 @@ export function getDocsPath(): string {
   return readEnvPath("DOCS_PATH") ?? path.join(getCortanaSourceRepo(), "docs");
 }
 
+export function getResearchPath(): string {
+  return readEnvPath("RESEARCH_PATH") ?? path.join(getCortanaSourceRepo(), "research");
+}
+
 export function getAgentModelsPath(): string {
   return readEnvPath("AGENT_MODELS_PATH") ?? path.join(getCortanaSourceRepo(), "config", "agent-models.json");
 }

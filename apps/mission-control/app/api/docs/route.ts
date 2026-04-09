@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getDocsPath } from "@/lib/runtime-paths";
+import { getDocsPath, getResearchPath } from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +23,12 @@ const getExternalDocsRoot = () => path.join(getRepoRoot(), "docs");
 const toDocId = (section: string, relativePath: string) => `${section}:${relativePath}`;
 
 const toPosixPath = (value: string) => value.split(path.sep).join("/");
-const DOC_SECTION_ORDER = ["External Docs", "Backtester Docs", "OpenClaw Docs"] as const;
+const DOC_SECTION_ORDER = [
+  "External Docs",
+  "Backtester Docs",
+  "OpenClaw Docs",
+  "OpenClaw Research",
+] as const;
 
 function isArchiveDocName(name: string): boolean {
   return name.split("/").includes("archive");
@@ -105,6 +110,7 @@ async function listAllDocs(): Promise<DocEntry[]> {
     collectDocs(getExternalDocsRoot(), "External Docs"),
     listBacktesterDocs(getBacktesterRoot()),
     collectDocs(getDocsPath(), "OpenClaw Docs"),
+    collectDocs(getResearchPath(), "OpenClaw Research"),
   ]);
 
   const files = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));

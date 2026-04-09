@@ -60,11 +60,11 @@ function sortFolderNodes(nodes: TreeNode[]): TreeNode[] {
   });
 }
 
-function collectArchiveFolderPaths(node: TreeNode): string[] {
+function collectFolderPaths(node: TreeNode): string[] {
   const paths: string[] = [];
   for (const child of node.children) {
-    if (isArchiveFolderPath(child.fullPath)) paths.push(child.fullPath);
-    paths.push(...collectArchiveFolderPaths(child));
+    paths.push(child.fullPath);
+    paths.push(...collectFolderPaths(child));
   }
   return paths;
 }
@@ -212,9 +212,10 @@ export default function DocsClient() {
   React.useEffect(() => {
     if (tree.length === 0) return;
     setCollapsedFolders((prev) => {
+      if (prev.size > 0) return prev;
       const next = new Set(prev);
       for (const { root } of tree) {
-        for (const fullPath of collectArchiveFolderPaths(root)) {
+        for (const fullPath of collectFolderPaths(root)) {
           next.add(fullPath);
         }
       }
@@ -607,7 +608,7 @@ function DocsHeader() {
       </p>
       <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Documentation</h1>
       <p className="text-sm text-muted-foreground">
-        Browse markdown documentation from the external repo, backtester, and OpenClaw knowledge bases.
+        Browse markdown documentation and research from the external repo, backtester, and OpenClaw knowledge bases.
       </p>
     </div>
   );

@@ -109,6 +109,7 @@ describe("DocsClient", () => {
           files: [
             { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
             { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
+            { id: "OpenClaw Research:README.md", name: "README.md", path: "/research/README.md", section: "OpenClaw Research" },
           ],
         })
       )
@@ -118,6 +119,7 @@ describe("DocsClient", () => {
 
     expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OpenClaw Research").length).toBeGreaterThan(0);
   });
 
   it("renders search input", async () => {
@@ -162,7 +164,7 @@ describe("DocsClient", () => {
     expect(container).toHaveTextContent("design.md");
   });
 
-  it("keeps archive folders collapsed until clicked", async () => {
+  it("keeps folders collapsed until clicked", async () => {
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(
         jsonResponse({
@@ -177,8 +179,12 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByRole("button", { name: /new/i });
+    await screen.findByRole("button", { name: /source/i });
+    expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /source/i }));
+    expect(await screen.findByRole("button", { name: /new/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /archive/i }));
 
