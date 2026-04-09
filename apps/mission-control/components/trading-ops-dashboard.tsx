@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Gauge, Radar, ShieldCheck, Workflow } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ArtifactState, LiveQuoteRow, LoadState, TradingOpsDashboardData, TradingOpsLiveData } from "@/lib/trading-ops-contract";
+import type { ArtifactState, TradingOpsDashboardData, TradingOpsLiveData } from "@/lib/trading-ops-contract";
 import { formatCurrency as formatMoney, formatOperatorTimestamp, formatPercentDecimal as formatPercent } from "@/lib/format-utils";
 import { Metric, StageChip, StrategyWatchlistSection, ArtifactPanel } from "./trading-ops/shared";
 import { TerminalHeader } from "./trading-ops/terminal-header";
 import { TerminalCell } from "./trading-ops/terminal-cell";
 import { AlertBanner } from "./trading-ops/alert-banner";
 import { OperatorChecklist } from "./trading-ops/operator-checklist";
+import { CompactTapeStrip, LiveTapeGrid, LiveWatchlistGroup } from "./trading-ops/animated-quote";
 import { Badge } from "@/components/ui/badge";
 
 const LIVE_POLL_MS = 15_000;
@@ -626,142 +627,3 @@ function badgeVariantForStreamer(streamer: TradingOpsLiveData["streamer"]) {
   return "info" as const;
 }
 
-function CompactTapeStrip({ rows }: { rows: LiveQuoteRow[] }) {
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-      {rows.map((row) => (
-        <div
-          key={`${row.symbol}-${row.sourceSymbol}`}
-          className="min-w-0 rounded-md border border-border/50 bg-muted/20 px-3 py-3"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-xs font-semibold">{row.label}</span>
-            <QuoteStateBadge row={row} compact />
-          </div>
-          <p className="mt-2 font-mono text-sm font-medium">{formatQuotePrice(row.price)}</p>
-          <p className={`text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
-            {formatQuoteChange(row.changePercent)}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LiveTapeGrid({ rows }: { rows: LiveQuoteRow[] }) {
-  return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-      {rows.map((row) => (
-        <div key={`${row.symbol}-${row.sourceSymbol}`} className="rounded-md border border-border/50 bg-muted/20 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="font-mono text-sm font-semibold">{row.label}</p>
-              <p className="text-[11px] text-muted-foreground">via {row.sourceSymbol}</p>
-            </div>
-            <QuoteStateBadge row={row} />
-          </div>
-          <p className="mt-3 font-mono text-lg font-medium">{formatQuotePrice(row.price)}</p>
-          <p className={`mt-1 text-sm ${quoteChangeTextClass(row.changePercent, row.state)}`}>
-            {formatQuoteChange(row.changePercent)}
-          </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {row.timestamp ? formatOperatorTimestamp(row.timestamp) : "Timestamp unavailable"}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LiveWatchlistGroup({
-  label,
-  rows,
-  empty,
-}: {
-  label: string;
-  rows: LiveQuoteRow[];
-  empty: string;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-mono text-xs font-semibold">{label}</p>
-        <p className="text-[11px] text-muted-foreground">{rows.length} names</p>
-      </div>
-      {rows.length > 0 ? (
-        <div className="space-y-1.5">
-          {rows.map((row) => (
-            <div
-              key={`${label}-${row.symbol}-${row.sourceSymbol}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md border border-border/50 bg-muted/20 px-2 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-mono text-sm font-medium">{row.symbol}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {row.source === "schwab_streamer"
-                    ? "Streamer"
-                    : row.source
-                      ? `Source ${row.source}`
-                      : "Quote unavailable"}
-                </p>
-              </div>
-              <p className="font-mono text-sm">{formatQuotePrice(row.price)}</p>
-              <p className={`font-mono text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
-                {formatQuoteChange(row.changePercent)}
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">{empty}</p>
-      )}
-    </div>
-  );
-}
-
-function QuoteStateBadge({ row, compact = false }: { row: LiveQuoteRow; compact?: boolean }) {
-  return (
-    <Badge variant={badgeVariantForQuoteState(row.state)} className={compact ? "px-1.5 py-0 text-[9px]" : "text-[10px]"}>
-      {quoteBadgeLabel(row)}
-    </Badge>
-  );
-}
-
-function badgeVariantForQuoteState(state: LoadState) {
-  if (state === "ok") return "success" as const;
-  if (state === "degraded") return "warning" as const;
-  if (state === "error") return "destructive" as const;
-  return "outline" as const;
-}
-
-function quoteBadgeLabel(row: LiveQuoteRow): string {
-  if (row.state === "ok" && row.source === "schwab_streamer") return "live";
-  if (row.state === "ok") return "rest";
-  if (row.state === "degraded") return "degraded";
-  if (row.state === "error") return "error";
-  return "missing";
-}
-
-function formatQuotePrice(value: number | null): string {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: value >= 100 ? 2 : 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatQuoteChange(value: number | null): string {
-  if (value == null || Number.isNaN(value)) return "—";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function quoteChangeTextClass(changePercent: number | null, state: LoadState): string {
-  if (state === "error" || state === "missing") return "text-muted-foreground";
-  if (changePercent == null || Number.isNaN(changePercent)) return "text-muted-foreground";
-  if (changePercent > 0) return "text-emerald-600 dark:text-emerald-400";
-  if (changePercent < 0) return "text-red-600 dark:text-red-400";
-  return "text-muted-foreground";
-}
