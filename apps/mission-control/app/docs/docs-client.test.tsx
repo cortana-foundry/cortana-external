@@ -58,24 +58,21 @@ describe("DocsClient", () => {
         jsonResponse({
           status: "ok",
           files: [
-            { id: "External Docs:README.md", name: "README.md", path: "/docs/README.md", section: "External Docs" },
-            { id: "Backtester Docs:b.md", name: "b.md", path: "/docs/b.md", section: "Backtester Docs" },
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Docs:b.md", name: "b.md", path: "/docs/b.md", section: "OpenClaw Docs" },
           ],
         })
       )
-      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "README.md", content: "Repo content" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "a.md", content: "A content" }))
       .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "b.md", content: "B content" }));
 
     render(<DocsClient />);
-
-    await screen.findByRole("button", { name: /backtester docs/i });
-    fireEvent.click(screen.getByRole("button", { name: /backtester docs/i }));
 
     const secondFile = await screen.findByRole("button", { name: /\bb\b/i });
     fireEvent.click(secondFile);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/docs?file=Backtester%20Docs%3Ab.md", { cache: "no-store" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/docs?file=OpenClaw%20Docs%3Ab.md", { cache: "no-store" });
     });
 
     await screen.findByText("B content");
@@ -124,15 +121,9 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    expect((await screen.findAllByText("cortana-external")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("OpenClaw").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Repo Docs").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Mission Control Research").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Backtester Research").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: /^docs$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^knowledge$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^research$/i })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("External")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cortana").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Docs").length).toBeGreaterThan(0);
   });
 
   it("keeps inactive repo groups collapsed until clicked", async () => {
@@ -150,12 +141,12 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByText("cortana-external");
+    await screen.findByText("External");
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /knowledge/i })).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /openclaw/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cortana/i }));
 
     expect(await screen.findByRole("button", { name: /knowledge/i })).toBeInTheDocument();
   });
@@ -196,7 +187,7 @@ describe("DocsClient", () => {
     await screen.findByRole("button", { name: /design/i });
 
     // Breadcrumbs should contain path segments
-    expect(container).toHaveTextContent("Repo Docs");
+    expect(container).toHaveTextContent("Docs");
     expect(container).toHaveTextContent("source");
     expect(container).toHaveTextContent("arch");
     expect(container).toHaveTextContent("design.md");

@@ -117,8 +117,8 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
     const stats = await fs.stat(readmePath);
     if (stats.isFile()) {
       files.unshift({
-        id: toDocId("Backtester Docs", "README.md"),
-        name: "README.md",
+        id: toDocId("Backtester Docs", "backtester-README.md"),
+        name: "backtester-README.md",
         path: readmePath,
         section: "Backtester Docs",
       });
