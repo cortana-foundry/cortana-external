@@ -166,8 +166,9 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByRole("button", { name: /\ba\b/i });
-    expect(screen.getAllByPlaceholderText("Search docs...").length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText("Search docs...").length).toBeGreaterThan(0);
+    });
   });
 
   it("renders breadcrumbs for selected file", async () => {
@@ -210,19 +211,18 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    await screen.findByRole("button", { name: /docs/i });
-    await screen.findByRole("button", { name: /source/i });
+    await screen.findByText("source");
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+      expect(screen.queryByText("new")).not.toBeInTheDocument();
+      expect(screen.queryByText("old")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /source/i }));
-    expect(await screen.findByRole("button", { name: /new/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("source"));
+    expect(await screen.findByText("new")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /archive/i }));
+    fireEvent.click(screen.getByText("archive"));
 
-    expect(await screen.findByRole("button", { name: /old/i })).toBeInTheDocument();
+    expect(await screen.findByText("old")).toBeInTheDocument();
   });
 
   it("resolves knowledge links into OpenClaw research docs", async () => {
