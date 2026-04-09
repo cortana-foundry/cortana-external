@@ -96,6 +96,15 @@ function getSectionLabel(section: string): string {
   return section;
 }
 
+function getGroupLabel(group: string): string {
+  if (group === "cortana-external") return "cortana-external";
+  return group;
+}
+
+function getSectionKey(group: string, section: string): string {
+  return `${group}::${section}`;
+}
+
 function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
   const query = searchQuery.toLowerCase();
   const filtered = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files;
@@ -161,6 +170,22 @@ function groupSectionTrees(sections: SectionTree[]): SectionGroup[] {
   });
 }
 
+function countNodeFiles(node: TreeNode): number {
+  return node.files.length + node.children.reduce((sum, child) => sum + countNodeFiles(child), 0);
+}
+
+function collectAncestorFolderPaths(file: DocFile | null): string[] {
+  if (!file) return [];
+  const segments = file.name.split("/");
+  const ancestors: string[] = [];
+  let current = file.section;
+  for (let i = 0; i < segments.length - 1; i++) {
+    current = `${current}/${segments[i]}`;
+    ancestors.push(current);
+  }
+  return ancestors;
+}
+
 /* ── main component ── */
 
 export default function DocsClient() {
@@ -169,6 +194,8 @@ export default function DocsClient() {
   const [content, setContent] = React.useState<string>("");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [collapsedFolders, setCollapsedFolders] = React.useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
   const [activeHeadingId, setActiveHeadingId] = React.useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
   const [mobileTocOpen, setMobileTocOpen] = React.useState(false);
@@ -188,6 +215,14 @@ export default function DocsClient() {
   const groupedTree = React.useMemo(() => groupSectionTrees(tree), [tree]);
   const headings = React.useMemo(() => extractHeadings(content), [content]);
   const breadcrumbs = React.useMemo(() => deriveBreadcrumbs(selectedFile), [selectedFile]);
+  const activeGroup = React.useMemo(
+    () => (selectedFile ? getSectionGroup(selectedFile.section) : null),
+    [selectedFile],
+  );
+  const activeSectionKey = React.useMemo(
+    () => (selectedFile ? getSectionKey(getSectionGroup(selectedFile.section), selectedFile.section) : null),
+    [selectedFile],
+  );
 
   /* ── data fetching ── */
   React.useEffect(() => {
@@ -263,9 +298,31 @@ export default function DocsClient() {
           next.add(fullPath);
         }
       }
+      for (const fullPath of collectAncestorFolderPaths(selectedFile)) {
+        next.delete(fullPath);
+      }
       return next;
     });
-  }, [tree]);
+    setCollapsedGroups((prev) => {
+      if (prev.size > 0) return prev;
+      const next = new Set<string>();
+      for (const { group } of groupedTree) {
+        if (group !== activeGroup) next.add(group);
+      }
+      return next;
+    });
+    setCollapsedSections((prev) => {
+      if (prev.size > 0) return prev;
+      const next = new Set<string>();
+      for (const { group, sections } of groupedTree) {
+        for (const { section } of sections) {
+          const key = getSectionKey(group, section);
+          if (key !== activeSectionKey) next.add(key);
+        }
+      }
+      return next;
+    });
+  }, [tree, groupedTree, selectedFile, activeGroup, activeSectionKey]);
 
   /* ── scroll-spy ── */
   React.useEffect(() => {
@@ -366,6 +423,25 @@ export default function DocsClient() {
     });
   }, []);
 
+  const toggleGroup = React.useCallback((group: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  }, []);
+
+  const toggleSection = React.useCallback((group: string, section: string) => {
+    const key = getSectionKey(group, section);
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const selectFile = React.useCallback((id: string) => {
     setSelectedFileId(id);
     setMobileSidebarOpen(false);
@@ -449,18 +525,69 @@ export default function DocsClient() {
         <p className="px-2 py-4 text-sm text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</p>
       ) : (
         groupedTree.map(({ group, sections }) => (
-          <div key={group} className="space-y-3">
-            <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              {group}
-            </p>
-            {sections.map(({ section, root }) => (
-              <div key={section} className="space-y-0.5">
-                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  {getSectionLabel(section)}
-                </p>
-                {renderNode(root, 0)}
+          <div key={group} className="space-y-2 rounded-xl border border-border/50 bg-muted/[0.15] p-1.5">
+            <button
+              type="button"
+              onClick={() => toggleGroup(group)}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/40",
+                activeGroup === group && "bg-background/80",
+              )}
+            >
+              {collapsedGroups.has(group) && searchQuery.length === 0 ? (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                {getGroupLabel(group)}
+              </span>
+            </button>
+
+            {!(searchQuery.length === 0 && collapsedGroups.has(group)) && (
+              <div className="space-y-1 pb-1">
+                {sections.map(({ section, root }) => {
+                  const sectionKey = getSectionKey(group, section);
+                  const sectionCollapsed = searchQuery.length === 0 && collapsedSections.has(sectionKey);
+                  const isActiveSection = selectedFile?.section === section;
+                  return (
+                    <div key={section} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection(group, section)}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/40",
+                          isActiveSection && "bg-background/80",
+                        )}
+                      >
+                        {sectionCollapsed ? (
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        {sectionCollapsed ? (
+                          <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {getSectionLabel(section)}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {countNodeFiles(root)}
+                        </span>
+                      </button>
+
+                      {!sectionCollapsed && (
+                        <div className="ml-4 border-l border-border/50 pl-2">
+                          {renderNode(root, 0)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            )}
           </div>
         ))
       )}
