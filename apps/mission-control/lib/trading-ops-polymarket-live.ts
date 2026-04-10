@@ -8,6 +8,7 @@ const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const REQUEST_TIMEOUT_MS = 4_000;
 const TOP_BUCKET_TARGET = 5;
 const FOCUS_FETCH_LIMIT = 20;
+const FOCUS_CACHE_TTL_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
@@ -24,6 +25,11 @@ type FetchResult = {
   error: string | null;
 };
 
+type CachedFetchResult = {
+  fetchedAt: number;
+  result: FetchResult;
+};
+
 type TrackedMarket = {
   slug: string;
   title: string;
@@ -33,6 +39,8 @@ type TrackedMarket = {
   eventTitle: string | null;
   league: string | null;
 };
+
+let cachedFocusResult: CachedFetchResult | null = null;
 
 export async function loadTradingOpsPolymarketLiveData(
   options: TradingOpsPolymarketLiveOptions = {},
@@ -55,8 +63,11 @@ export async function loadTradingOpsPolymarketLiveData(
     }))
     .filter((entry) => entry.slug)
     .slice(0, FOCUS_FETCH_LIMIT);
-  const focusResult = await fetchJson(`${baseUrl}/polymarket/focus?limit=${FOCUS_FETCH_LIMIT}`, fetchImpl);
-  const pinnedMarkets = parsePinnedFocusMarkets(focusResult.body);
+  const focusResult = options.fetchImpl
+    ? await fetchJson(`${baseUrl}/polymarket/focus?limit=${FOCUS_FETCH_LIMIT}`, fetchImpl)
+    : await fetchCachedFocusJson(`${baseUrl}/polymarket/focus?limit=${FOCUS_FETCH_LIMIT}`, fetchImpl);
+  const pinsResult = await fetchJson(`${baseUrl}/polymarket/pins`, fetchImpl);
+  const pinnedMarkets = parsePinnedFocusMarkets(pinsResult.body);
   const pinnedSlugs = new Set(pinnedMarkets.map((entry) => entry.slug));
   const pinnedEventTitleKeys = new Set(
     pinnedMarkets
@@ -155,6 +166,7 @@ export async function loadTradingOpsPolymarketLiveData(
     markets: marketRows,
     warnings: compactStrings([
       focusResult.error,
+      pinsResult.error,
       liveResult.error,
       stringValue(streamer.lastError),
       ...marketRows.map((row) => row.warning),
@@ -206,6 +218,31 @@ async function fetchJson(url: string, fetchImpl: FetchLike): Promise<FetchResult
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchCachedFocusJson(url: string, fetchImpl: FetchLike): Promise<FetchResult> {
+  const now = Date.now();
+  if (cachedFocusResult && now - cachedFocusResult.fetchedAt < FOCUS_CACHE_TTL_MS) {
+    return cachedFocusResult.result;
+  }
+
+  const result = await fetchJson(url, fetchImpl);
+  if (result.ok) {
+    cachedFocusResult = {
+      fetchedAt: now,
+      result,
+    };
+    return result;
+  }
+
+  if (cachedFocusResult) {
+    return {
+      ...cachedFocusResult.result,
+      error: compactStrings([result.error, "using cached focus snapshot"]).join("; "),
+    };
+  }
+
+  return result;
 }
 
 function summarizeFetchError(status: number, body: unknown): string {

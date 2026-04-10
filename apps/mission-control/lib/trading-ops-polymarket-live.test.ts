@@ -64,6 +64,15 @@ describe("loadTradingOpsPolymarketLiveData", () => {
         );
       }
 
+      if (url.includes("/polymarket/pins")) {
+        return new Response(
+          JSON.stringify({
+            pinned: pinnedRows,
+          }),
+          { status: 200 },
+        );
+      }
+
       if (url.includes("/polymarket/live?slugs=")) {
         const slugsParam = new URL(url).searchParams.get("slugs") ?? "";
         const slugs = slugsParam.split(",").filter(Boolean);
@@ -168,6 +177,24 @@ describe("loadTradingOpsPolymarketLiveData", () => {
               },
             ],
             sports: [],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/polymarket/pins")) {
+        return new Response(
+          JSON.stringify({
+            pinned: [
+              {
+                marketSlug: "house-dem",
+                bucket: "events",
+                title: "Democratic Party",
+                eventTitle: "U.S. House Midterm Winner",
+                league: null,
+                pinnedAt: "2026-04-10T11:00:00.000Z",
+              },
+            ],
           }),
           { status: 200 },
         );
