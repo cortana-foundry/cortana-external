@@ -18,7 +18,6 @@ import type { ProviderChain, ProviderRouteContext, QuoteFetchResult } from "./pr
 const DEFAULT_INTERVAL = "1d";
 const QUOTE_ALPACA_FALLBACK_SUBSYSTEMS = new Set([
   "market_brief_tape",
-  "live_watchlists",
   "intraday_breadth",
   "clive",
   "cwatch",

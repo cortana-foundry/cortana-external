@@ -2125,11 +2125,7 @@ describe("market-data routes", () => {
     delete process.env.ALPACA_DATA_URL;
   });
 
-  it("keeps live-watchlist batches off Schwab REST even when REST is available", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
+  it("keeps live-watchlist batches off Schwab REST and Alpaca even when REST is available", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-live-watchlist-lane-"));
     const sharedStatePath = path.join(tempDir, "streamer-state.json");
     fs.writeFileSync(
@@ -2168,6 +2164,7 @@ describe("market-data routes", () => {
     );
 
     let schwabRestQuoteCalls = 0;
+    let alpacaQuoteCalls = 0;
     const app = new Hono();
     const service = new MarketDataService({
       config: {
@@ -2197,16 +2194,11 @@ describe("market-data routes", () => {
           );
         }
         if (url.includes("data.alpaca.markets") && url.includes("/trades/latest")) {
-          const symbol = url.includes("/DIA/") ? "DIA" : "IWM";
-          return new Response(
-            JSON.stringify({
-              trade: {
-                t: "2026-04-10T17:30:00Z",
-                p: symbol === "DIA" ? 390.4 : 205.55,
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          alpacaQuoteCalls += 1;
+          return new Response(JSON.stringify({ message: "unexpected alpaca call" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
         }
         return new Response("not found", { status: 404 });
       },
@@ -2217,11 +2209,14 @@ describe("market-data routes", () => {
     const body = (await response.json()) as {
       providerMode: string;
       fallbackEngaged: boolean;
+      degradedReason: string;
       data: {
         items: Array<{
           symbol: string;
           source: string;
+          status: string;
           providerMode: string;
+          degradedReason: string | null;
           data: { price?: number };
         }>;
       };
@@ -2229,45 +2224,43 @@ describe("market-data routes", () => {
 
     expect(response.status).toBe(200);
     expect(body.providerMode).toBe("multi_mode");
-    expect(body.fallbackEngaged).toBe(true);
+    expect(body.fallbackEngaged).toBe(false);
+    expect(body.degradedReason).toBe("2 batch item(s) failed");
     expect(body.data.items).toEqual([
       expect.objectContaining({
         symbol: "SPY",
         source: "schwab_streamer_shared",
+        status: "ok",
         providerMode: "schwab_primary",
         data: expect.objectContaining({ price: 510.12 }),
       }),
       expect.objectContaining({
         symbol: "QQQ",
         source: "schwab_streamer_shared",
+        status: "ok",
         providerMode: "schwab_primary",
         data: expect.objectContaining({ price: 441.18 }),
       }),
       expect.objectContaining({
         symbol: "IWM",
-        source: "alpaca",
-        providerMode: "alpaca_fallback",
-        data: expect.objectContaining({ price: 205.55 }),
+        source: "service",
+        status: "error",
+        providerMode: "unavailable",
+        degradedReason: "No live Schwab quote available for IWM",
       }),
       expect.objectContaining({
         symbol: "DIA",
-        source: "alpaca",
-        providerMode: "alpaca_fallback",
-        data: expect.objectContaining({ price: 390.4 }),
+        source: "service",
+        status: "error",
+        providerMode: "unavailable",
+        degradedReason: "No live Schwab quote available for DIA",
       }),
     ]);
     expect(schwabRestQuoteCalls).toBe(0);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
+    expect(alpacaQuoteCalls).toBe(0);
   });
 
-  it("preserves streamer-backed batch rows when cooldown fallback fails for other live-watchlist symbols", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
+  it("preserves streamer-backed batch rows when other live-watchlist symbols have no usable Schwab quote", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-live-watchlist-batch-"));
     const sharedStatePath = path.join(tempDir, "streamer-state.json");
     fs.writeFileSync(
@@ -2327,12 +2320,6 @@ describe("market-data routes", () => {
             headers: { "content-type": "application/json" },
           });
         }
-        if (url.includes("data.alpaca.markets") && url.includes("/trades/latest")) {
-          return new Response(JSON.stringify({ message: "unauthorized" }), {
-            status: 401,
-            headers: { "content-type": "application/json" },
-          });
-        }
         return new Response("not found", { status: 404 });
       },
     });
@@ -2381,20 +2368,16 @@ describe("market-data routes", () => {
         source: "service",
         status: "error",
         providerMode: "unavailable",
-        degradedReason: "HTTP 401",
+        degradedReason: "No live Schwab quote available for IWM",
       }),
       expect.objectContaining({
         symbol: "DIA",
         source: "service",
         status: "error",
         providerMode: "unavailable",
-        degradedReason: "HTTP 401",
+        degradedReason: "No live Schwab quote available for DIA",
       }),
     ]);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
   });
 
   it("serves batch history with shared interval/provider inputs", async () => {

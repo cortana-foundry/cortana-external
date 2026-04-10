@@ -178,33 +178,50 @@ describe("trading ops live loader", () => {
       if (url.includes("/market-data/quote/batch")) {
         return new Response(
           JSON.stringify({
-            providerMode: "alpaca_fallback",
-            fallbackEngaged: true,
-            providerModeReason: "Quotes entered the declared Alpaca fallback lane for live watchlists.",
+            providerMode: "multi_mode",
+            fallbackEngaged: false,
+            providerModeReason: "Batch response contains more than one provider mode across its items.",
             data: {
               items: [
-                item("SPY", 500.1, -1.2, "schwab"),
-                item("QQQ", 430.4, -1.8, "schwab"),
-                item("IWM", 201.2, -0.7, "schwab"),
+                {
+                  ...item("SPY", 500.1, -1.2, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  stalenessSeconds: 240,
+                },
+                {
+                  ...item("QQQ", 430.4, -1.8, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  stalenessSeconds: 240,
+                },
+                {
+                  symbol: "IWM",
+                  source: "service",
+                  status: "error",
+                  degradedReason: "No live Schwab quote available for IWM",
+                  providerMode: "unavailable",
+                  data: { symbol: "IWM" },
+                },
                 {
                   symbol: "DIA",
                   source: "service",
                   status: "error",
-                  degradedReason: "HTTP 503",
+                  degradedReason: "No live Schwab quote available for DIA",
+                  providerMode: "unavailable",
                   data: { symbol: "DIA" },
                 },
-                item("GLD", 231.8, 0.2, "schwab"),
                 {
-                  symbol: "ABBV",
-                  source: "schwab",
+                  ...item("GLD", 231.8, 0.2, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "using fallback quote",
-                  data: {
-                    symbol: "ABBV",
-                    price: 178.2,
-                    changePercent: -0.45,
-                    timestamp: "2026-04-08T19:31:28.000Z",
-                  },
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  stalenessSeconds: 240,
+                },
+                {
+                  ...item("ABBV", 178.2, -0.45, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  stalenessSeconds: 240,
                 },
               ],
             },
@@ -223,12 +240,13 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(false);
     expect(data.streamer.cooldownSummary).toContain("REST cooldown");
-    expect(data.tape.freshnessMessage).toContain("declared Alpaca fallback lane");
-    expect(data.tape.providerMode).toBe("alpaca_fallback");
+    expect(data.tape.freshnessMessage).toContain("Using last-known Schwab quotes while the streamer reconnects");
+    expect(data.tape.providerMode).toBe("multi_mode");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");
     expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
       symbol: "ABBV",
       state: "degraded",
+      stalenessSeconds: 240,
     });
     expect(data.meta.runLabel).toBe("Apr 8, 3:31 PM");
   });

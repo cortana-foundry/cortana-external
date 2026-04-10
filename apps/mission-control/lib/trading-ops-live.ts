@@ -408,6 +408,21 @@ function buildFreshnessMessage(
     return "Streamer is connected, but the live batch returned no usable quotes.";
   }
 
+  if (hasStreamerQuotes) {
+    if (hasAfterHoursStaleSchwabQuotes && !hasErrors) {
+      return "Using last-known Schwab quotes while the streamer reconnects.";
+    }
+    if (hasAfterHoursStaleSchwabQuotes) {
+      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
+    }
+    if (hasUsableQuotes && !hasErrors) {
+      return "Using last-known Schwab quotes while the streamer reconnects.";
+    }
+    if (hasUsableQuotes) {
+      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
+    }
+  }
+
   if (tapeMode.providerMode === "alpaca_fallback") {
     return tapeMode.providerModeReason ?? "Quotes are in the declared Alpaca fallback lane.";
   }
