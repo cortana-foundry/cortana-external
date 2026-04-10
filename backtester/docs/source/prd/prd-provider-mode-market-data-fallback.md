@@ -235,8 +235,56 @@ Observed evidence supporting the project:
   - no mixed Schwab/Alpaca numbers inside the same run
   - explicit fallback labeling
 
-### Open Questions
+### Resolved Design Decisions
 
-- Should provider mode be selected per full run, or can it be selected per subsystem such as `market_brief` vs `strategy_scan` while still remaining operator-trustworthy?
-- For quote/history fallback, should cache be preferred before Alpaca in some paths to preserve closer continuity with Schwab semantics?
-- Which workflows should be allowed to enter Alpaca fallback automatically, and which should remain Schwab-only plus cache?
+- Provider mode should be selected **per subsystem**, not strictly per full run.
+  - Example:
+    - `market_brief`: `alpaca_fallback`
+    - `strategy_scan`: `schwab_primary`
+  - Hard rule: each subsystem must remain internally single-mode for price/history truth.
+  - If a workflow contains multiple subsystem modes, the workflow should be labeled `multi_mode` and list the mode used by each subsystem.
+
+- Cache vs Alpaca priority should depend on the data class.
+  - Freshness-sensitive paths:
+    - `live tape / live watchlists`
+      - `schwab_streamer -> shared_state -> alpaca -> unavailable`
+    - `intraday breadth`
+      - `schwab_streamer/shared_state -> alpaca -> unavailable`
+  - Semantics-sensitive paths:
+    - `market regime / daily history`
+      - `schwab_rest -> recent_schwab_cache -> alpaca -> stale_cache -> unavailable`
+    - `fundamentals`
+      - `schwab_rest -> cache -> unavailable`
+    - `metadata`
+      - `schwab_rest -> cache -> unavailable`
+
+- Automatic Alpaca fallback should be limited to workflows and subsystems where quote/history continuity is more important than Schwab-specific enrichment.
+  - Allow automatic Alpaca fallback:
+    - `market_brief` tape
+    - `live watchlists`
+    - `intraday breadth`
+    - `clive`
+    - `cwatch`
+    - `pre_open_canary`
+    - `market_regime` history when Schwab REST is down and recent Schwab cache is not good enough
+  - Do not allow automatic Alpaca fallback yet:
+    - `CANSLIM` full scan
+    - `Dip Buyer` full scan
+    - `fundamentals`
+    - `metadata`
+    - monolithic `snapshot` enrichment
+
+- Enrichment-heavy flows such as CANSLIM should stay:
+  - `schwab_primary`
+  - or `cache_fallback`
+  - but not `alpaca_fallback` in the first implementation phase
+
+- Alpaca fallback promotion should require a shadow comparison window before production trust is granted.
+  - Initial promotion bar:
+    - regime agreement `>= 95%`
+    - breadth state agreement `>= 90%`
+    - no repeated operator-visible contradictions on strong market days
+
+- If a subsystem enters `alpaca_fallback`, it should not attempt to rebuild a blended Schwab-style snapshot from mixed providers.
+  - Unsupported fields should be omitted or explicitly marked unavailable.
+  - The output should prefer clarity over field completeness.

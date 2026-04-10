@@ -80,6 +80,7 @@ Week 3: V3 backtester adoption, operator surfaces, Mission Control, and end-to-e
 - The operator explicitly does not want mixed Schwab and Alpaca numbers inside a single decision payload.
 - Fallback should be deterministic by data class, not symbol-by-symbol improvisation.
 - Breadth and tape are the priority lanes because they can generate large quote-batch pressure.
+- Provider mode is selected per subsystem, and workflows that contain more than one subsystem mode must explicitly declare themselves `multi_mode`.
 
 #### Testing
 
@@ -140,6 +141,7 @@ Backtester and Mission Control should adopt provider mode only after the service
 - deterministic quote/history fallback ladders
 - Schwab-first fundamentals/metadata behavior
 - backtester and Mission Control labeling
+- automatic Alpaca fallback only for approved quote/history-oriented subsystems
 
 ### External Dependencies
 
@@ -152,6 +154,23 @@ Backtester and Mission Control should adopt provider mode only after the service
 - `apps/external-service` market-data routes
 - `backtester` strategy, market-state, and operator-surface artifacts
 - `apps/mission-control` trading ops views
+
+### Provider Surface Decisions
+
+- Approved automatic Alpaca fallback:
+  - `market_brief` tape
+  - `live watchlists`
+  - `intraday breadth`
+  - `clive`
+  - `cwatch`
+  - `pre_open_canary`
+  - `market_regime` history when recent Schwab cache is insufficient
+- Explicitly not approved in phase 1:
+  - `CANSLIM` full scan
+  - `Dip Buyer` full scan
+  - `fundamentals`
+  - `metadata`
+  - monolithic `snapshot` enrichment
 
 ---
 

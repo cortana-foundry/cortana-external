@@ -131,6 +131,42 @@ Safe degradation and failure behavior:
 - if the subsystem does not allow Alpaca fallback, degrade to cache or explicit unavailable state
 - never mix Schwab price/history rows with Alpaca rows inside the same persisted decision artifact
 
+Declared routing policy:
+
+- provider mode is chosen per subsystem, not strictly per full workflow
+- each subsystem must remain internally single-mode for price/history truth
+- a workflow that combines subsystem modes must surface itself as `multi_mode` and preserve each subsystem mode explicitly
+
+Approved fallback ladders by data class:
+
+- `live tape / live watchlists`
+  - `schwab_streamer -> shared_state -> alpaca -> unavailable`
+- `intraday breadth`
+  - `schwab_streamer/shared_state -> alpaca -> unavailable`
+- `market regime / daily history`
+  - `schwab_rest -> recent_schwab_cache -> alpaca -> stale_cache -> unavailable`
+- `fundamentals`
+  - `schwab_rest -> cache -> unavailable`
+- `metadata`
+  - `schwab_rest -> cache -> unavailable`
+
+Approved automatic Alpaca fallback surface:
+
+- allowed:
+  - `market_brief` tape
+  - `live watchlists`
+  - `intraday breadth`
+  - `clive`
+  - `cwatch`
+  - `pre_open_canary`
+  - `market_regime` history when Schwab REST is down and recent Schwab cache is insufficient
+- not allowed in phase 1:
+  - `CANSLIM` full scan
+  - `Dip Buyer` full scan
+  - `fundamentals`
+  - `metadata`
+  - monolithic `snapshot` enrichment
+
 ---
 
 ## Application/Script Changes
@@ -270,6 +306,6 @@ Success means:
 
 ## Risks / Open Questions
 
-- CANSLIM and other enrichment-heavy flows may still depend on Schwab-only fundamentals and metadata, which limits how far fallback can go without separate cache rules
-- Alpaca feed semantics may differ from Schwab enough that fallback thresholds need measurement before production promotion
-- some workflows may be better served by cache fallback than Alpaca fallback, and that boundary must be decided explicitly
+- CANSLIM and other enrichment-heavy flows still depend on Schwab-only fundamentals and metadata, so phase 1 intentionally limits Alpaca fallback to quote/history-oriented subsystems
+- Alpaca feed semantics may differ from Schwab enough that fallback thresholds require a shadow comparison window before broader production promotion
+- workflow outputs must stay honest if a workflow becomes `multi_mode`; operator wording drift between subsystem and workflow surfaces is still a real risk
