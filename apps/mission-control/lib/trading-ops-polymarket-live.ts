@@ -32,6 +32,7 @@ export async function loadTradingOpsPolymarketLiveData(
   const body = asRecord(boardResult.body);
   const streamer = asRecord(body.streamer);
   const account = asRecord(body.account);
+  const roster = asRecord(body.roster);
   const marketsPayload = asArray(body.markets).map((entry) => asRecord(entry));
   const marketRows = marketsPayload.map((entry) => {
     const updatedAt = stringValue(entry.updatedAt) ?? stringValue(entry.tradeTime);
@@ -84,6 +85,10 @@ export async function loadTradingOpsPolymarketLiveData(
       lastBalanceUpdateAt: stringValue(account.lastBalanceUpdateAt),
       lastOrdersUpdateAt: stringValue(account.lastOrdersUpdateAt),
       lastPositionsUpdateAt: stringValue(account.lastPositionsUpdateAt),
+    },
+    roster: {
+      candidateEventsCount: numberValue(roster.candidateEventsCount) ?? 0,
+      candidateSportsCount: numberValue(roster.candidateSportsCount) ?? 0,
     },
     markets: marketRows,
     warnings: compactStrings([

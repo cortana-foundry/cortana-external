@@ -414,8 +414,24 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     (symbol) => (liveData?.tape.rows ?? []).find((row) => row.symbol === symbol) ?? null,
   ).filter((row): row is LiveQuoteRow => Boolean(row));
   const polymarketPinnedRows = (polymarketLiveData?.markets ?? []).filter((market) => market.pinned);
+  const polymarketPinnedEventRows = polymarketPinnedRows.filter((market) => market.bucket === "events");
+  const polymarketPinnedSportsRows = polymarketPinnedRows.filter((market) => market.bucket === "sports");
   const polymarketEventRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "events" && !market.pinned);
   const polymarketSportsRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "sports" && !market.pinned);
+  const polymarketEventBoardEmptyState = describePolymarketBoardEmptyState({
+    bucket: "events",
+    visibleCount: polymarketEventRows.length,
+    pinnedCount: polymarketPinnedEventRows.length,
+    candidateCount: polymarketLiveData?.roster?.candidateEventsCount ?? 0,
+    warnings: polymarketLiveArtifact.warnings,
+  });
+  const polymarketSportsBoardEmptyState = describePolymarketBoardEmptyState({
+    bucket: "sports",
+    visibleCount: polymarketSportsRows.length,
+    pinnedCount: polymarketPinnedSportsRows.length,
+    candidateCount: polymarketLiveData?.roster?.candidateSportsCount ?? 0,
+    warnings: polymarketLiveArtifact.warnings,
+  });
   const polymarketEventRosterState = usePolymarketRosterState(
     polymarketEventRows,
     polymarketLiveData?.streamer.lastMarketMessageAt ?? polymarketLiveData?.generatedAt ?? null,
@@ -449,7 +465,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         ...polymarketLiveArtifact,
         message: polymarketEventRows.length > 0
           ? `${polymarketEventRows.length} live event contracts are rotating in the board now.`
-          : "Waiting for live event contracts.",
+          : polymarketEventBoardEmptyState.message,
         badgeText: String(polymarketEventRows.length),
       }
     : polymarketLiveArtifact;
@@ -458,7 +474,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         ...polymarketLiveArtifact,
         message: polymarketSportsRows.length > 0
           ? `${polymarketSportsRows.length} live sports contracts are rotating in the board now.`
-          : "Waiting for live sports contracts.",
+          : polymarketSportsBoardEmptyState.message,
         badgeText: String(polymarketSportsRows.length),
       }
     : polymarketLiveArtifact;
@@ -920,7 +936,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                       }))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Waiting for the first live event rotation.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">{polymarketEventBoardEmptyState.message}</p>
+                      <p className="text-xs text-muted-foreground">{polymarketEventBoardEmptyState.detail}</p>
+                    </div>
                   )}
                 </div>
               ) : null}
@@ -949,7 +968,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                       }))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Waiting for the first live sports rotation.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">{polymarketSportsBoardEmptyState.message}</p>
+                      <p className="text-xs text-muted-foreground">{polymarketSportsBoardEmptyState.detail}</p>
+                    </div>
                   )}
                 </div>
               ) : null}
@@ -1773,6 +1795,38 @@ function usePolymarketRosterState(
     badgeLabel,
     updatedAt: highlightedUpdatedAt,
     leaderChanged,
+  };
+}
+
+function describePolymarketBoardEmptyState(options: {
+  bucket: "events" | "sports";
+  visibleCount: number;
+  pinnedCount: number;
+  candidateCount: number;
+  warnings: string[];
+}): { message: string; detail: string } {
+  if (options.visibleCount > 0) {
+    return { message: "", detail: "" };
+  }
+
+  const bucketLabel = options.bucket === "events" ? "event" : "sports";
+  if (options.candidateCount > 0 && options.pinnedCount >= options.candidateCount) {
+    return {
+      message: `All current ${bucketLabel} candidates are pinned.`,
+      detail: `Remove a pinned ${bucketLabel} market to resume the rotating board.`,
+    };
+  }
+
+  if (options.warnings.length > 0) {
+    return {
+      message: `Live ${bucketLabel} roster is temporarily unavailable.`,
+      detail: options.warnings[0] ?? `Waiting for the next ${bucketLabel} board refresh.`,
+    };
+  }
+
+  return {
+    message: `Waiting for live ${bucketLabel} contracts.`,
+    detail: `Waiting for the first live ${bucketLabel} rotation.`,
   };
 }
 
