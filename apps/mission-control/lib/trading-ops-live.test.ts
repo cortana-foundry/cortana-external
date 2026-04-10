@@ -353,6 +353,110 @@ describe("trading ops live loader", () => {
     });
   });
 
+  it("softens missing after-hours Schwab rows into degraded states when the streamer is healthy", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T22:00:00.000Z"));
+    try {
+      const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-softened-"));
+      tempDirs.push(cortanaRepoPath);
+
+      await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-204400", "summary.json"), {
+        runId: "20260410-204400",
+        status: "success",
+        completedAt: "2026-04-10T20:44:00.000Z",
+      });
+      await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-204400", "watchlist-full.json"), {
+        decision: "WATCH",
+        summary: { buy: 0, watch: 0, noBuy: 0 },
+        strategies: {
+          dipBuyer: { buy: [], watch: [], noBuy: [] },
+          canslim: { buy: [], watch: [], noBuy: [] },
+        },
+      });
+
+      const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/market-data/ops")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                serviceOperatorState: "healthy",
+                providerMetrics: {
+                  schwabCooldownUntil: null,
+                },
+                health: {
+                  providers: {
+                    schwabStreamerMeta: {
+                      connected: true,
+                      lastLoginAt: "2026-04-10T21:58:00.000Z",
+                      operatorState: "healthy",
+                      activeSubscriptions: {
+                        LEVELONE_EQUITIES: 4,
+                        ACCT_ACTIVITY: 0,
+                      },
+                    },
+                  },
+                },
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/market-data/quote/batch")) {
+          return new Response(
+            JSON.stringify({
+              providerMode: "multi_mode",
+              fallbackEngaged: false,
+              providerModeReason: "Batch response contains more than one provider mode across its items.",
+              data: {
+                items: [
+                  item("SPY", 679.97, 0.01, "schwab_streamer"),
+                  item("QQQ", 611.97, 0.29, "schwab_streamer"),
+                  {
+                    symbol: "IWM",
+                    source: "service",
+                    status: "error",
+                    degradedReason: "No live Schwab quote available for IWM",
+                    providerMode: "unavailable",
+                    data: { symbol: "IWM" },
+                  },
+                  {
+                    symbol: "DIA",
+                    source: "service",
+                    status: "error",
+                    degradedReason: "No live Schwab quote available for DIA",
+                    providerMode: "unavailable",
+                    data: { symbol: "DIA" },
+                  },
+                ],
+              },
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+
+      const data = await loadTradingOpsLiveData({
+        baseUrl: "http://127.0.0.1:3033",
+        cortanaRepoPath,
+        fetchImpl,
+      });
+
+      expect(data.streamer.connected).toBe(true);
+      expect(data.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
+        state: "degraded",
+        warning: "No recent after-hours Schwab quote yet.",
+      });
+      expect(data.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
+        state: "degraded",
+        warning: "No recent after-hours Schwab quote yet.",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("describes partial live batch failures without claiming the streamer is reconnecting", async () => {
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-partial-"));
     tempDirs.push(cortanaRepoPath);
@@ -445,6 +549,7 @@ describe("trading ops live loader", () => {
     const data = await loadTradingOpsLiveData({
       baseUrl: "http://127.0.0.1:3033",
       cortanaRepoPath,
+      referenceTime: new Date("2026-04-10T19:44:00.000Z"),
       fetchImpl,
     });
 

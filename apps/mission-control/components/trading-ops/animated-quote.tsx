@@ -222,6 +222,11 @@ function LiveTapeCardInner({ row }: { row: LiveQuoteRow }) {
       <p className="mt-1 text-[11px] text-muted-foreground">
         {quoteTimestampLabel(row)}
       </p>
+      {row.state !== "ok" && row.warning ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {row.warning}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -256,6 +261,11 @@ function LiveWatchlistRowCard({ row, groupLabel }: { row: LiveQuoteRow; groupLab
       <p className={cn("font-mono text-xs tabular-nums", quoteChangeTextClass(row.changePercent, row.state))}>
         {formatQuoteChange(animatedChange)}
       </p>
+      {row.state !== "ok" && row.warning ? (
+        <p className="col-span-3 -mt-1 text-[11px] text-muted-foreground">
+          {row.warning}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -98,6 +98,7 @@ type TradingOpsLiveOptions = {
   baseUrl?: string;
   cortanaRepoPath?: string;
   fetchImpl?: FetchLike;
+  referenceTime?: Date;
 };
 
 export async function loadTradingOpsLiveData(
@@ -106,6 +107,8 @@ export async function loadTradingOpsLiveData(
   const baseUrl = options.baseUrl ?? resolveExternalServiceBaseUrl();
   const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const referenceTime = options.referenceTime ?? new Date();
+  const isAfterHours = isAfterHoursSession(referenceTime);
   const tradingRun = await loadLatestTradingRunOverview({ cortanaRepoPath, tradingRunStateStore: null });
   const tapeSymbols = [...TAPE_SOURCE_SYMBOLS] as string[];
   const watchlistSymbols = dedupeSymbols(
@@ -138,7 +141,10 @@ export async function loadTradingOpsLiveData(
   ];
   const quoteMap = new Map(quoteItems.map((item) => [item.symbol, item]));
   const streamer = parseStreamerSummary(opsResult.body);
-  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, tapeQuotesResult.error));
+  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, tapeQuotesResult.error, {
+    streamerConnected: streamer.connected,
+    isAfterHours,
+  }));
   const tapeMode = parseProviderMode(tapeQuotesResult.body);
   const watchlistFetchError = watchlistQuoteErrors[0] ?? null;
   const freshnessMessage = buildFreshnessMessage(streamer, tapeRows, tapeMode);
@@ -155,12 +161,24 @@ export async function loadTradingOpsLiveData(
     },
     watchlists: {
       dipBuyer: {
-        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, watchlistFetchError),
-        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, watchlistFetchError),
+        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, watchlistFetchError, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+        }),
+        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, watchlistFetchError, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+        }),
       },
       canslim: {
-        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, watchlistFetchError),
-        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, watchlistFetchError),
+        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, watchlistFetchError, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+        }),
+        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, watchlistFetchError, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+        }),
       },
     },
     meta: {
@@ -168,7 +186,7 @@ export async function loadTradingOpsLiveData(
       runLabel: tradingRun.data?.runLabel ?? null,
       decision: tradingRun.data?.decision ?? null,
       focusTicker: tradingRun.data?.focusTicker ?? null,
-      isAfterHours: isAfterHoursSession(),
+      isAfterHours,
     },
     warnings: compactStrings([
       tapeQuotesResult.error,
@@ -305,12 +323,14 @@ function buildWatchlistRows(
   symbols: string[],
   quoteMap: Map<string, QuoteBatchItem>,
   fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean },
 ): LiveQuoteRow[] {
   return symbols.map((symbol) =>
     buildLiveQuoteRow(
       { symbol, label: symbol, sourceSymbol: symbol },
       quoteMap,
       fetchError,
+      context,
     ),
   );
 }
@@ -319,6 +339,7 @@ function buildLiveQuoteRow(
   row: { symbol: string; label: string; sourceSymbol: string },
   quoteMap: Map<string, QuoteBatchItem>,
   fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean },
 ): LiveQuoteRow {
   const quoteItem = quoteMap.get(row.sourceSymbol);
   if (!quoteItem) {
@@ -331,8 +352,8 @@ function buildLiveQuoteRow(
       source: null,
       timestamp: null,
       stalenessSeconds: null,
-      state: fetchError ? "error" : "missing",
-      warning: fetchError ?? "Quote unavailable.",
+      state: shouldSoftenMissingLiveQuote(fetchError, context, null) ? "degraded" : fetchError ? "error" : "missing",
+      warning: buildMissingLiveQuoteWarning(fetchError, context, null),
     };
   }
 
@@ -341,6 +362,9 @@ function buildLiveQuoteRow(
   const changePercent = numberValue(data.changePercent);
   const timestamp = stringValue(data.timestamp);
   const state = normalizeLoadState(quoteItem.status, price);
+  const softenedState = shouldSoftenMissingLiveQuote(fetchError, context, quoteItem)
+    ? "degraded"
+    : state;
 
   return {
     symbol: row.symbol,
@@ -351,9 +375,33 @@ function buildLiveQuoteRow(
     source: quoteItem.source,
     timestamp,
     stalenessSeconds: quoteItem.stalenessSeconds ?? null,
-    state,
-    warning: quoteItem.degradedReason ?? (price == null ? "Quote unavailable." : null),
+    state: softenedState,
+    warning: buildMissingLiveQuoteWarning(fetchError, context, quoteItem) ?? quoteItem.degradedReason ?? (price == null ? "Quote unavailable." : null),
   };
+}
+
+function shouldSoftenMissingLiveQuote(
+  fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean },
+  quoteItem: QuoteBatchItem | null,
+): boolean {
+  if (!context.streamerConnected || !context.isAfterHours) return false;
+  if (quoteItem?.status === "ok") return false;
+  const degradedReason = quoteItem?.degradedReason ?? fetchError ?? "";
+  return (
+    degradedReason.includes("No live Schwab quote available") ||
+    degradedReason.includes("HTTP 401") ||
+    degradedReason.includes("This operation was aborted")
+  );
+}
+
+function buildMissingLiveQuoteWarning(
+  fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean },
+  quoteItem: QuoteBatchItem | null,
+): string | null {
+  if (!shouldSoftenMissingLiveQuote(fetchError, context, quoteItem)) return null;
+  return "No recent after-hours Schwab quote yet.";
 }
 
 function normalizeLoadState(status: string | null | undefined, price: number | null): LoadState {
