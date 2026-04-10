@@ -32,6 +32,7 @@ type QuoteBatchItem = {
   status: string;
   degradedReason: string | null;
   providerMode: string | null;
+  stalenessSeconds?: number | null;
   data: {
     symbol?: string;
     price?: number;
@@ -48,6 +49,7 @@ export type LiveQuoteRow = {
   changePercent: number | null;
   source: string | null;
   timestamp: string | null;
+  stalenessSeconds?: number | null;
   state: LoadState;
   warning: string | null;
 };
@@ -240,6 +242,7 @@ function parseQuoteItems(body: unknown): QuoteBatchItem[] {
       status: stringValue(item.status) ?? "error",
       degradedReason: stringValue(item.degradedReason),
       providerMode: stringValue(item.providerMode),
+      stalenessSeconds: numberValue(item.stalenessSeconds),
       data: asRecord(item.data) as QuoteBatchItem["data"],
     }));
 }
@@ -327,6 +330,7 @@ function buildLiveQuoteRow(
       changePercent: null,
       source: null,
       timestamp: null,
+      stalenessSeconds: null,
       state: fetchError ? "error" : "missing",
       warning: fetchError ?? "Quote unavailable.",
     };
@@ -346,6 +350,7 @@ function buildLiveQuoteRow(
     changePercent,
     source: quoteItem.source,
     timestamp,
+    stalenessSeconds: quoteItem.stalenessSeconds ?? null,
     state,
     warning: quoteItem.degradedReason ?? (price == null ? "Quote unavailable." : null),
   };
@@ -368,12 +373,24 @@ function buildFreshnessMessage(
   const hasUsableQuotes = rows.some((row) => row.price != null);
   const hasErrors = rows.some((row) => row.state === "error");
   const hasDegraded = rows.some((row) => row.state === "degraded");
+  const hasAfterHoursStaleSchwabQuotes = rows.some(
+    (row) =>
+      row.state === "degraded" &&
+      (row.source === "schwab_streamer" || row.source === "schwab_streamer_shared") &&
+      (row.stalenessSeconds ?? 0) > 0,
+  );
 
   if (streamer.connected) {
     if (hasStreamerQuotes && !hasErrors && !hasDegraded) {
       return "Quotes are fresh from the Schwab streamer.";
     }
     if (hasStreamerQuotes) {
+      if (hasAfterHoursStaleSchwabQuotes && !hasErrors) {
+        return "Quotes are fresh where Schwab is still ticking. Quieter after-hours symbols may show last-known Schwab prices with age markers.";
+      }
+      if (hasAfterHoursStaleSchwabQuotes) {
+        return "Streamer is connected. Some symbols are showing last-known after-hours Schwab prices, and some symbols are still unavailable.";
+      }
       if (tapeMode.providerMode === "alpaca_fallback") {
         return "Streamer is connected, but some symbols moved into the declared Alpaca fallback lane.";
       }

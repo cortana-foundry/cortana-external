@@ -201,6 +201,10 @@ export class ProviderChain {
         quote: shared,
       };
     }
+    const afterHoursStale = await this.readAfterHoursStaleSchwabQuote(symbol, context);
+    if (afterHoursStale) {
+      return afterHoursStale;
+    }
     if (context.preferLiveSchwabLane) {
       if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol)) {
         return this.fetchAlpacaQuoteFallback(symbol, context);
@@ -239,7 +243,10 @@ export class ProviderChain {
     }
   }
 
-  async fetchSchwabLiveQuoteOnly(symbol: string): Promise<QuoteFetchResult | null> {
+  async fetchSchwabLiveQuoteOnly(
+    symbol: string,
+    options: { allowAfterHoursStale?: boolean } = {},
+  ): Promise<QuoteFetchResult | null> {
     await this.streamerRuntime.enforceFailurePolicy();
     if (extractCoinMarketCapSymbol(symbol)) {
       return null;
@@ -277,6 +284,15 @@ export class ProviderChain {
         providerModeReason: "Quote used the shared Schwab streamer state.",
         quote: shared,
       };
+    }
+    if (options.allowAfterHoursStale) {
+      const afterHoursStale = await this.readAfterHoursStaleSchwabQuote(symbol, {
+        subsystem: "live_watchlists",
+        preferLiveSchwabLane: true,
+      });
+      if (afterHoursStale) {
+        return afterHoursStale;
+      }
     }
     return null;
   }
@@ -514,8 +530,48 @@ export class ProviderChain {
       quote,
     };
   }
+
+  private async readAfterHoursStaleSchwabQuote(
+    symbol: string,
+    context: ProviderRouteContext,
+  ): Promise<QuoteFetchResult | null> {
+    if (!context.preferLiveSchwabLane) {
+      return null;
+    }
+    const isFuturesSymbol = symbol.startsWith("/");
+    const snapshot = isFuturesSymbol
+      ? await this.streamerRuntime.readAfterHoursSharedFuturesQuote(symbol)
+      : await this.streamerRuntime.readAfterHoursSharedQuote(symbol);
+    if (snapshot?.quote?.price == null) {
+      return null;
+    }
+    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
+    return {
+      source: "schwab_streamer_shared",
+      status: "degraded",
+      degradedReason: `Using last-known Schwab quote${subsystemLabel} from the after-hours stale window (${formatAgeShort(snapshot.stalenessSeconds)} old).`,
+      stalenessSeconds: snapshot.stalenessSeconds,
+      providerMode: "schwab_primary",
+      fallbackEngaged: false,
+      providerModeReason: `Quote stayed on the Schwab after-hours stale lane${subsystemLabel}.`,
+      quote: snapshot.quote,
+    };
+  }
 }
 
 function summarizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatAgeShort(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainderMinutes = minutes % 60;
+  return remainderMinutes === 0 ? `${hours}h` : `${hours}h ${remainderMinutes}m`;
 }

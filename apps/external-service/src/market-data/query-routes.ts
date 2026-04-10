@@ -129,7 +129,9 @@ export class MarketDataQueryRoutes {
     const schwabPrimary = await Promise.all(
       symbols.map(async (symbol) => ({
         symbol,
-        primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol),
+        primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol, {
+          allowAfterHoursStale: context.preferLiveSchwabLane,
+        }),
       })),
     );
     return Promise.all(

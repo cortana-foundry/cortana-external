@@ -233,6 +233,108 @@ describe("trading ops live loader", () => {
     expect(data.meta.runLabel).toBe("Apr 8, 3:31 PM");
   });
 
+  it("keeps after-hours Schwab quotes visible as stale rows with age markers", async () => {
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-after-hours-"));
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-170400", "summary.json"), {
+      runId: "20260410-170400",
+      status: "success",
+      completedAt: "2026-04-10T21:04:00.000Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-170400", "watchlist-full.json"), {
+      decision: "WATCH",
+      summary: { buy: 0, watch: 1, noBuy: 0 },
+      strategies: {
+        dipBuyer: {
+          buy: [],
+          watch: [{ ticker: "ABBV" }],
+          noBuy: [],
+        },
+        canslim: {
+          buy: [],
+          watch: [],
+          noBuy: [],
+        },
+      },
+    });
+
+    const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/market-data/ops")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              serviceOperatorState: "healthy",
+              providerMetrics: {
+                schwabCooldownUntil: null,
+              },
+              health: {
+                providers: {
+                  schwabStreamerMeta: {
+                    connected: true,
+                    lastLoginAt: "2026-04-10T21:00:00.000Z",
+                    operatorState: "healthy",
+                    activeSubscriptions: {
+                      LEVELONE_EQUITIES: 4,
+                      ACCT_ACTIVITY: 0,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+
+      if (url.includes("/market-data/quote/batch")) {
+        return new Response(
+          JSON.stringify({
+            providerMode: "schwab_primary",
+            fallbackEngaged: false,
+            providerModeReason: "Quote stayed on the Schwab after-hours stale lane for live_watchlists.",
+            data: {
+              items: [
+                item("SPY", 679.97, 0.01, "schwab_streamer"),
+                {
+                  ...item("QQQ", 611.97, 0.29, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (5m old).",
+                  stalenessSeconds: 300,
+                },
+                {
+                  ...item("ABBV", 177.12, -0.12, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (5m old).",
+                  stalenessSeconds: 300,
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const data = await loadTradingOpsLiveData({
+      baseUrl: "http://127.0.0.1:3033",
+      cortanaRepoPath,
+      fetchImpl,
+    });
+
+    expect(data.tape.freshnessMessage).toContain("after-hours symbols may show last-known Schwab prices");
+    expect(data.tape.rows.find((row) => row.symbol === "QQQ")).toMatchObject({
+      state: "degraded",
+      stalenessSeconds: 300,
+    });
+    expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
+      symbol: "ABBV",
+      state: "degraded",
+      stalenessSeconds: 300,
+    });
+  });
+
   it("describes partial live batch failures without claiming the streamer is reconnecting", async () => {
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-partial-"));
     tempDirs.push(cortanaRepoPath);
@@ -343,6 +445,7 @@ function item(symbol: string, price: number, changePercent: number, source: stri
     source,
     status: "ok",
     degradedReason: null,
+    stalenessSeconds: 0,
     data: {
       symbol,
       price,

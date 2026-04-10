@@ -136,6 +136,7 @@ export type LiveQuoteRow = {
   changePercent: number | null;
   source: string | null;
   timestamp: string | null;
+  stalenessSeconds?: number | null;
   state: LoadState;
   warning: string | null;
 };
