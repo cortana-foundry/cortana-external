@@ -214,6 +214,17 @@ pnpm dev
 tailscale ip -4
 ```
 
+### Local DB pool cap
+- Keep Mission Control on a capped local Prisma pool:
+  - `postgresql://hd@localhost:5432/cortana?connection_limit=10&pool_timeout=20`
+- Apply the same value in both places:
+  - `apps/mission-control/.env.local`
+  - `~/Library/LaunchAgents/com.cortana.mission-control.plist`
+- Reason:
+  - uncapped local pools can hold dozens of idle Postgres clients
+  - stale `next-server` workers after a restart can combine with that pool footprint and trip `too many clients already`
+  - the capped pool is sufficient for Mission Control on this host
+
 ### Deploy / refresh checklist after UI merges (Mission Control)
 Use this whenever a PR touching `apps/mission-control` is merged and the UI still looks stale.
 
@@ -233,6 +244,16 @@ cd ~/Developer/cortana-external
 git fetch --all --prune
 git checkout main
 git pull --ff-only origin main
+```
+
+1a. **Confirm Mission Control DB URL is capped**
+```bash
+cat ~/Developer/cortana-external/apps/mission-control/.env.local
+plutil -p ~/Library/LaunchAgents/com.cortana.mission-control.plist | rg DATABASE_URL
+```
+Expected local value:
+```text
+postgresql://hd@localhost:5432/cortana?connection_limit=10&pool_timeout=20
 ```
 
 2. **Stop old Mission Control processes (including orphans)**
@@ -264,6 +285,13 @@ Expected: JSON with `ok: true` and current heartbeat status.
 
 6. **Browser refresh**
 - Hard refresh (`Cmd+Shift+R`) after restart.
+
+7. **If Postgres still looks degraded**
+```bash
+lsof -iTCP:5432 -sTCP:ESTABLISHED -n -P | awk 'NR>1 {print $1, $2}' | sort | uniq -c | sort -nr
+```
+- Expect one Mission Control `next-server`, not several.
+- If old `next-server` workers are still holding DB sockets, kill the stale PIDs and restart Mission Control again.
 
 > Note: Tailscale Serve usually is **not** the root cause for stale UI data. It proxies whatever local app process on `127.0.0.1:3000` is currently serving.
 

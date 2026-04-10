@@ -17,6 +17,8 @@ pnpm install
 ```bash
 cp .env.example .env.local
 # Update DATABASE_URL for your Postgres instance
+# Recommended local value on the Mac mini:
+# DATABASE_URL=postgresql://hd@localhost:5432/cortana?connection_limit=10&pool_timeout=20
 # e.g., createdb mission_control
 # Required for governance/task reads: CORTANA_DATABASE_URL
 # Required for approval notifications: TELEGRAM_BOT_TOKEN
@@ -37,6 +39,16 @@ pnpm db:seed
 pnpm dev
 # open http://localhost:3000
 ```
+
+## Local Postgres pool guidance
+- Mission Control does not need a large Prisma pool on this box.
+- Use a capped local connection string in both `.env.local` and the launchd plist:
+  - `postgresql://hd@localhost:5432/cortana?connection_limit=10&pool_timeout=20`
+- Why:
+  - prevents one `next-server` process from reserving dozens of idle Postgres clients
+  - leaves room for `external-service`, OpenClaw tooling, and direct `psql` checks
+  - reduces the chance that orphaned Mission Control workers push Postgres into `too many clients already`
+- If Postgres still shows connection pressure, check for stale `next-server` workers before increasing the pool cap.
 
 ## Scripts
 - `pnpm dev` — start Next.js dev server
