@@ -5,7 +5,10 @@ import { getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { loadLatestTradingRunOverview, type TradingRunOverview } from "@/lib/trading-ops";
 
-const LIVE_REQUEST_TIMEOUT_MS = 6_000;
+const LIVE_OPS_TIMEOUT_MS = 6_000;
+const LIVE_TAPE_TIMEOUT_MS = 8_000;
+const LIVE_WATCHLIST_TIMEOUT_MS = 12_000;
+const LIVE_WATCHLIST_CHUNK_SIZE = 20;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
 const TAPE_ROWS = [
@@ -102,22 +105,40 @@ export async function loadTradingOpsLiveData(
   const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const fetchImpl = options.fetchImpl ?? fetch;
   const tradingRun = await loadLatestTradingRunOverview({ cortanaRepoPath, tradingRunStateStore: null });
-  const watchlistSymbols = collectWatchlistSymbols(tradingRun.data);
-  const symbols = dedupeSymbols([...TAPE_SOURCE_SYMBOLS, ...watchlistSymbols]);
+  const tapeSymbols = [...TAPE_SOURCE_SYMBOLS] as string[];
+  const watchlistSymbols = dedupeSymbols(
+    collectWatchlistSymbols(tradingRun.data).filter((symbol) => !tapeSymbols.includes(symbol)),
+  );
+  const watchlistChunks = chunkSymbols(watchlistSymbols, LIVE_WATCHLIST_CHUNK_SIZE);
 
-  const [opsResult, quotesResult] = await Promise.all([
-    fetchJson(`${baseUrl}/market-data/ops`, fetchImpl),
+  const [opsResult, tapeQuotesResult, watchlistQuoteResults] = await Promise.all([
+    fetchJson(`${baseUrl}/market-data/ops`, fetchImpl, LIVE_OPS_TIMEOUT_MS),
     fetchJson(
-      `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(symbols.join(","))}&subsystem=live_watchlists`,
+      `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(tapeSymbols.join(","))}&subsystem=live_watchlists`,
       fetchImpl,
+      LIVE_TAPE_TIMEOUT_MS,
+    ),
+    Promise.all(
+      watchlistChunks.map((symbols) =>
+        fetchJson(
+          `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(symbols.join(","))}&subsystem=live_watchlists`,
+          fetchImpl,
+          LIVE_WATCHLIST_TIMEOUT_MS,
+        ),
+      ),
     ),
   ]);
 
-  const quoteItems = parseQuoteItems(quotesResult.body);
+  const watchlistQuoteErrors = compactStrings(watchlistQuoteResults.map((result) => result.error));
+  const quoteItems = [
+    ...parseQuoteItems(tapeQuotesResult.body),
+    ...watchlistQuoteResults.flatMap((result) => parseQuoteItems(result.body)),
+  ];
   const quoteMap = new Map(quoteItems.map((item) => [item.symbol, item]));
   const streamer = parseStreamerSummary(opsResult.body);
-  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, quotesResult.error));
-  const tapeMode = parseProviderMode(quotesResult.body);
+  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, tapeQuotesResult.error));
+  const tapeMode = parseProviderMode(tapeQuotesResult.body);
+  const watchlistFetchError = watchlistQuoteErrors[0] ?? null;
   const freshnessMessage = buildFreshnessMessage(streamer, tapeRows, tapeMode);
 
   return {
@@ -132,12 +153,12 @@ export async function loadTradingOpsLiveData(
     },
     watchlists: {
       dipBuyer: {
-        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, quotesResult.error),
-        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, quotesResult.error),
+        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, watchlistFetchError),
+        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, watchlistFetchError),
       },
       canslim: {
-        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, quotesResult.error),
-        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, quotesResult.error),
+        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, watchlistFetchError),
+        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, watchlistFetchError),
       },
     },
     meta: {
@@ -148,7 +169,8 @@ export async function loadTradingOpsLiveData(
       isAfterHours: isAfterHoursSession(),
     },
     warnings: compactStrings([
-      quotesResult.error,
+      tapeQuotesResult.error,
+      ...watchlistQuoteErrors,
       ...streamer.warnings,
       ...compactStrings(tapeRows.map((row) => row.warning)),
       ...tradingRun.warnings,
@@ -177,9 +199,10 @@ function resolveExternalServiceBaseUrl(): string {
 async function fetchJson(
   url: string,
   fetchImpl: FetchLike,
+  timeoutMs: number,
 ): Promise<{ ok: boolean; status: number; body: unknown; error: string | null }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LIVE_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetchImpl(url, {
@@ -219,6 +242,14 @@ function parseQuoteItems(body: unknown): QuoteBatchItem[] {
       providerMode: stringValue(item.providerMode),
       data: asRecord(item.data) as QuoteBatchItem["data"],
     }));
+}
+
+function chunkSymbols(symbols: string[], chunkSize: number): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < symbols.length; index += chunkSize) {
+    chunks.push(symbols.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function parseProviderMode(body: unknown): {

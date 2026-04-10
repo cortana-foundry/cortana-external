@@ -1931,6 +1931,65 @@ describe("market-data routes", () => {
     expect(body.data.items.every((item) => item.providerMode === "schwab_primary")).toBe(true);
   });
 
+  it("marks quote batches as multi_mode when successful and unavailable item modes coexist", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: { ...TEST_CONFIG, SCHWAB_STREAMER_ENABLED: "0" },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          if (url.includes("AAPL")) {
+            return new Response(JSON.stringify({ error: "symbol unavailable" }), {
+              status: 503,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              MSFT: {
+                quote: { symbol: "MSFT", lastPrice: 410.5, tradeTimeInLong: 1_710_000_000_000 },
+                reference: { currency: "USD" },
+                fundamental: {},
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/quote/batch?symbols=AAPL,MSFT");
+    const body = (await response.json()) as {
+      status: string;
+      providerMode: string;
+      providerModeReason: string;
+      data: {
+        items: Array<{
+          symbol: string;
+          providerMode: string;
+          source: string;
+        }>;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe("degraded");
+    expect(body.providerMode).toBe("multi_mode");
+    expect(body.providerModeReason).toContain("more than one provider mode");
+    expect(body.data.items).toEqual([
+      expect.objectContaining({ symbol: "AAPL", providerMode: "unavailable", source: "service" }),
+      expect.objectContaining({ symbol: "MSFT", providerMode: "schwab_primary", source: "schwab" }),
+    ]);
+  });
+
   it("uses Alpaca fallback for approved quote-batch subsystems when Schwab REST cooldown is open", async () => {
     process.env.ALPACA_KEY = "test-key";
     process.env.ALPACA_SECRET_KEY = "test-secret";

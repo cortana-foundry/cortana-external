@@ -222,6 +222,8 @@ Quick path:
 ./apps/mission-control/scripts/restart-mission-control.sh
 ```
 
+That restart script now rewrites the LaunchAgent to a direct `next` entrypoint before every relaunch, which prevents `pnpm start` wrapper leaks from leaving stale Prisma pools behind.
+
 Skip the rebuild when you only want to bounce the already-built app:
 ```bash
 ./apps/mission-control/scripts/restart-mission-control.sh --skip-build

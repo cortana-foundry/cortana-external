@@ -487,18 +487,18 @@ export class MarketDataService {
   private toBatchRouteResult(items: Array<Record<string, unknown>>): MarketDataRouteResult<Record<string, unknown>> {
     const successCount = items.filter((item) => String(item.status ?? "") !== "error").length;
     const status = successCount === items.length ? "ok" : successCount > 0 ? "degraded" : "error";
-    const successfulModes: MarketDataProviderMode[] = Array.from(
+    const declaredModes: MarketDataProviderMode[] = Array.from(
       new Set(
         items
           .map((item) => (typeof item.providerMode === "string" ? (item.providerMode as MarketDataProviderMode) : null))
-          .filter((mode): mode is MarketDataProviderMode => Boolean(mode) && mode !== "unavailable"),
+          .filter((mode): mode is MarketDataProviderMode => Boolean(mode)),
       ),
     );
     const fallbackEngaged = items.some((item) => Boolean(item.fallbackEngaged));
     const providerMode: MarketDataProviderMode =
-      successfulModes.length === 1
-        ? successfulModes[0]
-        : successfulModes.length > 1
+      declaredModes.length === 1
+        ? declaredModes[0]
+        : declaredModes.length > 1
           ? "multi_mode"
           : "unavailable";
     const providerModeReason =

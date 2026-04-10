@@ -145,7 +145,7 @@ Operational notes:
 - quote changes use green/red motion
 - roster changes use amber motion
 - pinned markets stay live while visible
-- restart the app with `apps/mission-control/scripts/restart-mission-control.sh` so the UI refreshes without spawning extra Next.js processes
+- restart the app with `apps/mission-control/scripts/restart-mission-control.sh`; it now rewrites the LaunchAgent to a direct `next` start so stale wrapper processes do not leak Prisma pools
 
 
 ## Governance integration notes
