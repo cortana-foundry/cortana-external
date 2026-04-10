@@ -232,6 +232,109 @@ describe("trading ops live loader", () => {
     });
     expect(data.meta.runLabel).toBe("Apr 8, 3:31 PM");
   });
+
+  it("describes partial live batch failures without claiming the streamer is reconnecting", async () => {
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-partial-"));
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-154400", "summary.json"), {
+      runId: "20260410-154400",
+      status: "success",
+      completedAt: "2026-04-10T19:44:00.000Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-154400", "watchlist-full.json"), {
+      decision: "WATCH",
+      summary: { buy: 0, watch: 0, noBuy: 0 },
+      strategies: {
+        dipBuyer: { buy: [], watch: [], noBuy: [] },
+        canslim: { buy: [], watch: [], noBuy: [] },
+      },
+    });
+
+    const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/market-data/ops")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              serviceOperatorState: "provider_cooldown",
+              providerMetrics: {
+                schwabCooldownUntil: "2026-04-10T21:09:36.771Z",
+              },
+              health: {
+                providers: {
+                  schwabStreamerMeta: {
+                    connected: true,
+                    lastLoginAt: "2026-04-10T21:04:00.000Z",
+                    operatorState: "healthy",
+                    activeSubscriptions: {
+                      LEVELONE_EQUITIES: 5,
+                      ACCT_ACTIVITY: 0,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+
+      if (url.includes("/market-data/quote/batch")) {
+        return new Response(
+          JSON.stringify({
+            providerMode: "multi_mode",
+            fallbackEngaged: false,
+            providerModeReason: "Batch response contains more than one provider mode across its items.",
+            data: {
+              items: [
+                item("SPY", 679.97, 0.01, "schwab_streamer"),
+                item("QQQ", 611.97, 0.29, "schwab_streamer"),
+                {
+                  symbol: "IWM",
+                  source: "service",
+                  status: "error",
+                  degradedReason: "HTTP 401",
+                  providerMode: "unavailable",
+                  data: { symbol: "IWM" },
+                },
+                {
+                  symbol: "DIA",
+                  source: "service",
+                  status: "error",
+                  degradedReason: "HTTP 401",
+                  providerMode: "unavailable",
+                  data: { symbol: "DIA" },
+                },
+                {
+                  symbol: "GLD",
+                  source: "service",
+                  status: "error",
+                  degradedReason: "HTTP 401",
+                  providerMode: "unavailable",
+                  data: { symbol: "GLD" },
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const data = await loadTradingOpsLiveData({
+      baseUrl: "http://127.0.0.1:3033",
+      cortanaRepoPath,
+      fetchImpl,
+    });
+
+    expect(data.streamer.connected).toBe(true);
+    expect(data.tape.providerMode).toBe("multi_mode");
+    expect(data.tape.freshnessMessage).toContain("Streamer is connected and some quotes are fresh");
+    expect(data.tape.freshnessMessage).not.toContain("reconnecting");
+    expect(data.tape.rows.find((row) => row.symbol === "SPY")?.state).toBe("ok");
+    expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");
+  });
 });
 
 function item(symbol: string, price: number, changePercent: number, source: string) {

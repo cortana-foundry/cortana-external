@@ -40,6 +40,7 @@ export interface SnapshotFetchResult extends ServiceMetadata {
 export interface ProviderRouteContext {
   subsystem?: string;
   allowAlpacaFallback?: boolean;
+  preferLiveSchwabLane?: boolean;
 }
 
 interface ProviderChainConfig {
@@ -199,6 +200,15 @@ export class ProviderChain {
         providerModeReason: "Quote used the shared Schwab streamer state.",
         quote: shared,
       };
+    }
+    if (context.preferLiveSchwabLane) {
+      if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol)) {
+        return this.fetchAlpacaQuoteFallback(symbol, context);
+      }
+      if (isFuturesSymbol) {
+        throw new Error(`No live Schwab futures quote available for ${symbol}`);
+      }
+      throw new Error(`No live Schwab quote available for ${symbol}`);
     }
     if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
       return this.fetchAlpacaQuoteFallback(symbol, context);

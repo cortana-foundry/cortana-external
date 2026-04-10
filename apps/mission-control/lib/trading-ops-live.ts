@@ -363,6 +363,34 @@ function buildFreshnessMessage(
   rows: LiveQuoteRow[],
   tapeMode: { providerMode: string; fallbackEngaged: boolean; providerModeReason: string | null },
 ): string {
+  const quoteSources = new Set(rows.map((row) => row.source).filter((value): value is string => Boolean(value)));
+  const hasStreamerQuotes = quoteSources.has("schwab_streamer") || quoteSources.has("schwab_streamer_shared");
+  const hasUsableQuotes = rows.some((row) => row.price != null);
+  const hasErrors = rows.some((row) => row.state === "error");
+  const hasDegraded = rows.some((row) => row.state === "degraded");
+
+  if (streamer.connected) {
+    if (hasStreamerQuotes && !hasErrors && !hasDegraded) {
+      return "Quotes are fresh from the Schwab streamer.";
+    }
+    if (hasStreamerQuotes) {
+      if (tapeMode.providerMode === "alpaca_fallback") {
+        return "Streamer is connected, but some symbols moved into the declared Alpaca fallback lane.";
+      }
+      if (tapeMode.providerMode === "cache_fallback") {
+        return "Streamer is connected, but some symbols are using cached fallback quotes.";
+      }
+      if (tapeMode.providerMode === "multi_mode") {
+        return "Streamer is connected and some quotes are fresh, but this batch mixed live symbols with failures or fallback rows.";
+      }
+      return "Streamer is connected and some quotes are fresh, but some symbols are still degraded.";
+    }
+    if (hasUsableQuotes) {
+      return "Streamer is connected, but this batch fell off the live Schwab lane for some symbols.";
+    }
+    return "Streamer is connected, but the live batch returned no usable quotes.";
+  }
+
   if (tapeMode.providerMode === "alpaca_fallback") {
     return tapeMode.providerModeReason ?? "Quotes are in the declared Alpaca fallback lane.";
   }
@@ -371,14 +399,6 @@ function buildFreshnessMessage(
   }
   if (tapeMode.providerMode === "multi_mode") {
     return tapeMode.providerModeReason ?? "Quotes are using more than one provider mode across subsystems.";
-  }
-  const quoteSources = new Set(rows.map((row) => row.source).filter((value): value is string => Boolean(value)));
-  const degraded = rows.some((row) => row.state === "degraded" || row.state === "error");
-
-  if (streamer.connected && quoteSources.has("schwab_streamer")) {
-    return degraded
-      ? "Quotes are fresh from the Schwab streamer, but some symbols are still degraded."
-      : "Quotes are fresh from the Schwab streamer.";
   }
 
   if (quoteSources.size > 0) {
