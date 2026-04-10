@@ -37,6 +37,11 @@ export interface SnapshotFetchResult extends ServiceMetadata {
   snapshot: MarketDataSnapshot;
 }
 
+export interface ProviderRouteContext {
+  subsystem?: string;
+  allowAlpacaFallback?: boolean;
+}
+
 interface ProviderChainConfig {
   coinMarketCap: CoinMarketCapService;
   schwabRestClient: SchwabRestClient;
@@ -60,7 +65,13 @@ export class ProviderChain {
     this.providerMetrics = config.providerMetrics;
   }
 
-  async fetchPrimaryHistory(symbol: string, period: string, interval: HistoryInterval, provider: HistoryProvider = "service"): Promise<HistoryFetchResult> {
+  async fetchPrimaryHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+    provider: HistoryProvider = "service",
+    context: ProviderRouteContext = {},
+  ): Promise<HistoryFetchResult> {
     if (extractCoinMarketCapSymbol(symbol)) {
       if (provider !== "service") {
         throw new Error(`provider '${provider}' is not supported for crypto symbol ${symbol}`);
@@ -106,6 +117,9 @@ export class ProviderChain {
         rows,
       };
     }
+    if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
+      return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
+    }
     if (!this.schwabRestClient.isConfigured()) {
       throw new Error("Schwab credentials are not configured");
     }
@@ -125,11 +139,14 @@ export class ProviderChain {
       };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
+      if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
+        return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
+      }
       throw error;
     }
   }
 
-  async fetchPrimaryQuote(symbol: string): Promise<QuoteFetchResult> {
+  async fetchPrimaryQuote(symbol: string, context: ProviderRouteContext = {}): Promise<QuoteFetchResult> {
     await this.streamerRuntime.enforceFailurePolicy();
     if (extractCoinMarketCapSymbol(symbol)) {
       if (!this.coinMarketCap.isConfigured()) {
@@ -183,6 +200,9 @@ export class ProviderChain {
         quote: shared,
       };
     }
+    if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
+      return this.fetchAlpacaQuoteFallback(symbol, context);
+    }
     if (isFuturesSymbol) {
       throw new Error(`No live Schwab futures quote available for ${symbol}`);
     }
@@ -202,8 +222,57 @@ export class ProviderChain {
       };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
+      if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
+        return this.fetchAlpacaQuoteFallback(symbol, context);
+      }
       throw error;
     }
+  }
+
+  async fetchSchwabLiveQuoteOnly(symbol: string): Promise<QuoteFetchResult | null> {
+    await this.streamerRuntime.enforceFailurePolicy();
+    if (extractCoinMarketCapSymbol(symbol)) {
+      return null;
+    }
+    const isFuturesSymbol = symbol.startsWith("/");
+    const streamer = this.streamerRuntime.getStreamer();
+    try {
+      const streamed = isFuturesSymbol
+        ? await streamer?.getFuturesQuote(symbol)
+        : await streamer?.getQuote(symbol);
+      if (streamed?.price != null) {
+        return {
+          source: "schwab_streamer",
+          status: "ok",
+          stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Quote used the Schwab streamer primary lane.",
+          quote: streamed,
+        };
+      }
+    } catch {
+      // Shared-state check below remains the next Schwab-primary lane.
+    }
+    const shared = isFuturesSymbol
+      ? await this.streamerRuntime.readSharedFuturesQuote(symbol)
+      : await this.streamerRuntime.readSharedQuote(symbol);
+    if (shared?.price != null) {
+      return {
+        source: "schwab_streamer_shared",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Quote used the shared Schwab streamer state.",
+        quote: shared,
+      };
+    }
+    return null;
+  }
+
+  isSchwabRestAvailable(): boolean {
+    return this.schwabRestClient.isRestAvailable();
   }
 
   async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
@@ -389,6 +458,51 @@ export class ProviderChain {
 
   recordSourceUsage(source: string): void {
     this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
+  }
+
+  private isAlpacaSupportedSymbol(symbol: string): boolean {
+    return !extractCoinMarketCapSymbol(symbol) && !symbol.startsWith("/");
+  }
+
+  private async fetchAlpacaHistoryFallback(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+    context: ProviderRouteContext,
+  ): Promise<HistoryFetchResult> {
+    if (!this.isAlpacaSupportedSymbol(symbol)) {
+      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
+    }
+    const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
+    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
+    return {
+      source: "alpaca",
+      status: "degraded",
+      degradedReason: `Schwab history was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
+      stalenessSeconds: 0,
+      providerMode: "alpaca_fallback",
+      fallbackEngaged: true,
+      providerModeReason: `History entered the declared Alpaca fallback lane${subsystemLabel}.`,
+      rows,
+    };
+  }
+
+  async fetchAlpacaQuoteFallback(symbol: string, context: ProviderRouteContext = {}): Promise<QuoteFetchResult> {
+    if (!this.isAlpacaSupportedSymbol(symbol)) {
+      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
+    }
+    const quote = await this.alpacaClient.fetchQuote(symbol);
+    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
+    return {
+      source: "alpaca",
+      status: "degraded",
+      degradedReason: `Schwab live quote was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
+      stalenessSeconds: 0,
+      providerMode: "alpaca_fallback",
+      fallbackEngaged: true,
+      providerModeReason: `Quote entered the declared Alpaca fallback lane${subsystemLabel}.`,
+      quote,
+    };
   }
 }
 

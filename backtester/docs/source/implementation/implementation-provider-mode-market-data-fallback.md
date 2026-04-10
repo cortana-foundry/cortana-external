@@ -66,10 +66,10 @@ Week 3: V3 backtester adoption, operator surfaces, Mission Control, and end-to-e
 
 #### Jira
 
-- Sub-task 1: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` so supported quote/history paths can enter `alpaca_fallback` mode when Schwab REST is unavailable enough.
-- Sub-task 2: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/alpaca-client.ts` only as needed to support the targeted quote/history ladders already defined by the provider chain.
-- Sub-task 3: Keep `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` and `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/query-routes.ts` strict about non-supported fallback so fundamentals and metadata remain Schwab-first or cache-backed.
-- Sub-task 4: Add or update tests in `/Users/hd/Developer/cortana-external/apps/external-service/src/__tests__/market-data.test.ts` for:
+- [x] Sub-task 1: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` so supported quote/history paths can enter `alpaca_fallback` mode when Schwab REST is unavailable enough.
+- [x] Sub-task 2: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/alpaca-client.ts` only as needed to support the targeted quote/history ladders already defined by the provider chain.
+- [x] Sub-task 3: Keep `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` and `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/query-routes.ts` strict about non-supported fallback so fundamentals and metadata remain Schwab-first or cache-backed.
+- [x] Sub-task 4: Add or update tests in `/Users/hd/Developer/cortana-external/apps/external-service/src/__tests__/market-data.test.ts` for:
   - Schwab primary mode
   - Alpaca fallback mode
   - cache fallback mode
