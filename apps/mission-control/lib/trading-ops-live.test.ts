@@ -2,7 +2,11 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadTradingOpsLiveData } from "@/lib/trading-ops-live";
+import {
+  clearTradingOpsLiveRetainedQuotesForTests,
+  getTradingOpsLiveRetainedQuoteKeysForTests,
+  loadTradingOpsLiveData,
+} from "@/lib/trading-ops-live";
 
 async function writeJson(filePath: string, payload: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -13,6 +17,7 @@ describe("trading ops live loader", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
+    clearTradingOpsLiveRetainedQuotesForTests();
     await Promise.all(tempDirs.map(async (dir) => rm(dir, { recursive: true, force: true })));
     tempDirs.length = 0;
   });
@@ -106,7 +111,7 @@ describe("trading ops live loader", () => {
     });
 
     expect(data.streamer.connected).toBe(true);
-    expect(data.tape.freshnessMessage).toContain("Schwab streamer");
+    expect(data.tape.freshnessMessage).toContain("quieter after-hours names are waiting");
     expect(data.tape.providerMode).toBe("schwab_primary");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.sourceSymbol).toBe("DIA");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.changePercent).toBe(2.55);
@@ -341,7 +346,7 @@ describe("trading ops live loader", () => {
       fetchImpl,
     });
 
-    expect(data.tape.freshnessMessage).toContain("after-hours symbols may show last-known Schwab prices");
+    expect(data.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
     expect(data.tape.rows.find((row) => row.symbol === "QQQ")).toMatchObject({
       state: "degraded",
       stalenessSeconds: 300,
@@ -353,11 +358,11 @@ describe("trading ops live loader", () => {
     });
   });
 
-  it("softens missing after-hours Schwab rows into degraded states when the streamer is healthy", async () => {
+  it("retains last-known Schwab rows across an after-hours reload and keeps DOW tied to DIA", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T22:00:00.000Z"));
     try {
-      const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-softened-"));
+      const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-retained-"));
       tempDirs.push(cortanaRepoPath);
 
       await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-204400", "summary.json"), {
@@ -374,6 +379,7 @@ describe("trading ops live loader", () => {
         },
       });
 
+      let phase = 0;
       const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
         const url = String(input);
         if (url.endsWith("/market-data/ops")) {
@@ -403,32 +409,29 @@ describe("trading ops live loader", () => {
         }
 
         if (url.includes("/market-data/quote/batch")) {
+          const firstPhaseItems =
+            phase === 0
+              ? [
+                  itemAt("SPY", 679.97, 0.01, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("QQQ", 611.97, 0.29, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("IWM", 261.41, -0.21, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("DIA", 479.05, -0.59, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("GLD", 436.1, -0.41, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                ]
+              : [
+                item("SPY", 680.01, 0.02, "schwab_streamer"),
+              ];
+
           return new Response(
             JSON.stringify({
-              providerMode: "multi_mode",
+              providerMode: phase === 0 ? "schwab_primary" : "multi_mode",
               fallbackEngaged: false,
-              providerModeReason: "Batch response contains more than one provider mode across its items.",
+              providerModeReason:
+                phase === 0
+                  ? "Quotes stayed on the Schwab primary lane."
+                  : "Batch response contains more than one provider mode across its items.",
               data: {
-                items: [
-                  item("SPY", 679.97, 0.01, "schwab_streamer"),
-                  item("QQQ", 611.97, 0.29, "schwab_streamer"),
-                  {
-                    symbol: "IWM",
-                    source: "service",
-                    status: "error",
-                    degradedReason: "No live Schwab quote available for IWM",
-                    providerMode: "unavailable",
-                    data: { symbol: "IWM" },
-                  },
-                  {
-                    symbol: "DIA",
-                    source: "service",
-                    status: "error",
-                    degradedReason: "No live Schwab quote available for DIA",
-                    providerMode: "unavailable",
-                    data: { symbol: "DIA" },
-                  },
-                ],
+                items: firstPhaseItems,
               },
             }),
           );
@@ -437,24 +440,171 @@ describe("trading ops live loader", () => {
         throw new Error(`Unexpected URL: ${url}`);
       });
 
-      const data = await loadTradingOpsLiveData({
+      const firstLoad = await loadTradingOpsLiveData({
+        baseUrl: "http://127.0.0.1:3033",
+        cortanaRepoPath,
+        fetchImpl,
+      });
+      expect(getTradingOpsLiveRetainedQuoteKeysForTests()).toEqual(expect.arrayContaining(["QQQ", "IWM", "DIA"]));
+      expect(firstLoad.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
+        state: "ok",
+        sourceSymbol: "DIA",
+        price: 479.05,
+      });
+
+      phase = 1;
+      vi.setSystemTime(new Date("2026-04-10T22:05:00.000Z"));
+
+      const secondLoad = await loadTradingOpsLiveData({
         baseUrl: "http://127.0.0.1:3033",
         cortanaRepoPath,
         fetchImpl,
       });
 
-      expect(data.streamer.connected).toBe(true);
-      expect(data.tape.freshnessMessage).toBe(
-        "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.",
+      expect(secondLoad.streamer.connected).toBe(true);
+      expect(secondLoad.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
+        state: "degraded",
+        price: 261.41,
+        warning: expect.stringContaining("last known Schwab quote"),
+      });
+      expect(secondLoad.tape.rows.find((row) => row.symbol === "QQQ")).toMatchObject({
+        state: "degraded",
+        price: 611.97,
+      });
+      expect(secondLoad.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
+        state: "degraded",
+        sourceSymbol: "DIA",
+        price: 479.05,
+        warning: expect.stringContaining("last known Schwab quote"),
+      });
+      expect(secondLoad.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires retained Schwab rows after the bounded after-hours window and marks them unavailable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T22:00:00.000Z"));
+    try {
+      const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-expired-"));
+      tempDirs.push(cortanaRepoPath);
+
+      await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-204400", "summary.json"), {
+        runId: "20260410-204400",
+        status: "success",
+        completedAt: "2026-04-10T20:44:00.000Z",
+      });
+      await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-204400", "watchlist-full.json"), {
+        decision: "WATCH",
+        summary: { buy: 0, watch: 0, noBuy: 0 },
+        strategies: {
+          dipBuyer: { buy: [], watch: [], noBuy: [] },
+          canslim: { buy: [], watch: [], noBuy: [] },
+        },
+      });
+
+      let phase = 0;
+      const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/market-data/ops")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                serviceOperatorState: "healthy",
+                providerMetrics: {
+                  schwabCooldownUntil: null,
+                },
+                health: {
+                  providers: {
+                    schwabStreamerMeta: {
+                      connected: true,
+                      lastLoginAt: "2026-04-10T21:58:00.000Z",
+                      operatorState: "healthy",
+                      activeSubscriptions: {
+                        LEVELONE_EQUITIES: 4,
+                        ACCT_ACTIVITY: 0,
+                      },
+                    },
+                  },
+                },
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/market-data/quote/batch")) {
+          const items =
+            phase === 0
+              ? [
+                  itemAt("SPY", 679.97, 0.01, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("QQQ", 611.97, 0.29, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("IWM", 261.41, -0.21, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                  itemAt("DIA", 479.05, -0.59, "schwab_streamer", "2026-04-10T22:00:00.000Z"),
+                ]
+              : [];
+
+          return new Response(
+            JSON.stringify({
+              providerMode: phase === 0 ? "schwab_primary" : "multi_mode",
+              fallbackEngaged: false,
+              providerModeReason:
+                phase === 0
+                  ? "Quotes stayed on the Schwab primary lane."
+                  : "Batch response contains more than one provider mode across its items.",
+              data: { items },
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+
+      await loadTradingOpsLiveData({
+        baseUrl: "http://127.0.0.1:3033",
+        cortanaRepoPath,
+        fetchImpl,
+      });
+
+      phase = 1;
+      vi.setSystemTime(new Date("2026-04-10T22:18:00.000Z"));
+
+      const firstQuietGap = await loadTradingOpsLiveData({
+        baseUrl: "http://127.0.0.1:3033",
+        cortanaRepoPath,
+        fetchImpl,
+      });
+
+      expect(firstQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
+        state: "degraded",
+        price: null,
+        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
+      });
+      expect(firstQuietGap.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
+        state: "degraded",
+        price: null,
+        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
+      });
+      expect(firstQuietGap.tape.freshnessMessage).toBe(
+        "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.",
       );
-      expect(data.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
-        state: "degraded",
-        warning: "No recent after-hours Schwab quote yet.",
+
+      vi.setSystemTime(new Date("2026-04-10T22:21:00.000Z"));
+
+      const secondQuietGap = await loadTradingOpsLiveData({
+        baseUrl: "http://127.0.0.1:3033",
+        cortanaRepoPath,
+        fetchImpl,
       });
-      expect(data.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
+
+      expect(secondQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
         state: "degraded",
-        warning: "No recent after-hours Schwab quote yet.",
+        price: null,
+        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
       });
+      expect(secondQuietGap.tape.freshnessMessage).toBe(
+        "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.",
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -566,6 +716,10 @@ describe("trading ops live loader", () => {
 });
 
 function item(symbol: string, price: number, changePercent: number, source: string) {
+  return itemAt(symbol, price, changePercent, source, "2026-04-08T19:31:28.000Z");
+}
+
+function itemAt(symbol: string, price: number, changePercent: number, source: string, timestamp: string) {
   return {
     symbol,
     source,
@@ -576,7 +730,7 @@ function item(symbol: string, price: number, changePercent: number, source: stri
       symbol,
       price,
       changePercent,
-      timestamp: "2026-04-08T19:31:28.000Z",
+      timestamp,
     },
   };
 }
