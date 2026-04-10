@@ -545,7 +545,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
                     {liveData.streamer.connected ? "Streamer connected" : "REST fallback"}
                   </Badge>
-                  <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
                 </div>
                 <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -771,7 +770,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           <ArtifactPanel title="Live tape" artifact={liveArtifact}>
             {liveData ? (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
                 <LiveTapeGrid rows={liveData.tape.rows} />
               </div>
             ) : null}
@@ -878,7 +876,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   </dl>
                   {polymarketBridgeRows.length > 0 ? (
                     <div className="space-y-1.5">
-                      <p className="terminal-metric-label">Index bridge</p>
+                      <div>
+                        <p className="terminal-metric-label">Schwab market bridge</p>
+                        <p className="text-xs text-muted-foreground">
+                          Schwab-derived index rows shown here for Polymarket context.
+                        </p>
+                      </div>
                       <LiveTapeGrid rows={polymarketBridgeRows} />
                     </div>
                   ) : null}
