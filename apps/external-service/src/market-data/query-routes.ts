@@ -90,6 +90,29 @@ export class MarketDataQueryRoutes {
     compareProvider: string | undefined,
     context: ProviderRouteContext,
   ): Promise<Array<Record<string, unknown>>> {
+    if (context.preferLiveSchwabLane) {
+      const schwabPrimary = await Promise.all(
+        symbols.map(async (symbol) => ({
+          symbol,
+          primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol, {
+            allowAfterHoursStale: true,
+          }),
+        })),
+      );
+      return Promise.all(
+        schwabPrimary.map(async ({ symbol, primary }) => {
+          if (primary?.quote?.price != null) {
+            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+          }
+          return this.buildQuoteBatchErrorItem(
+            symbol,
+            new Error(`No live Schwab quote available for ${symbol}`),
+            "Quote batch could not keep a live Schwab lane for this symbol.",
+          );
+        }),
+      );
+    }
+
     if (!context.allowAlpacaFallback) {
       return Promise.all(
         symbols.map(async (symbol) => {
@@ -108,7 +131,7 @@ export class MarketDataQueryRoutes {
     }
 
     const restUnavailable = !this.providerChain.isSchwabRestAvailable();
-    if (!restUnavailable && !context.preferLiveSchwabLane) {
+    if (!restUnavailable) {
       return Promise.all(
         symbols.map(async (symbol) => {
           try {
@@ -124,20 +147,8 @@ export class MarketDataQueryRoutes {
         }),
       );
     }
-
-    const schwabPrimary = await Promise.all(
-      symbols.map(async (symbol) => ({
-        symbol,
-        primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol, {
-          allowAfterHoursStale: context.preferLiveSchwabLane,
-        }),
-      })),
-    );
     return Promise.all(
-      schwabPrimary.map(async ({ symbol, primary }) => {
-        if (primary?.quote?.price != null) {
-          return this.buildQuoteBatchItem(symbol, primary, compareProvider);
-        }
+      symbols.map(async (symbol) => {
         try {
           const fallback = await this.providerChain.fetchAlpacaQuoteFallback(symbol, context);
           return this.buildQuoteBatchItem(symbol, fallback, compareProvider);
