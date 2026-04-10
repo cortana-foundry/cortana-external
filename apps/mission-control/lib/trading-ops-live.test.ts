@@ -444,6 +444,9 @@ describe("trading ops live loader", () => {
       });
 
       expect(data.streamer.connected).toBe(true);
+      expect(data.tape.freshnessMessage).toBe(
+        "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.",
+      );
       expect(data.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
         state: "degraded",
         warning: "No recent after-hours Schwab quote yet.",

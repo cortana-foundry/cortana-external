@@ -105,12 +105,17 @@ function badgeVariantForQuoteState(state: LoadState) {
 }
 
 function quoteBadgeLabel(row: LiveQuoteRow): string {
+  if (isQuietAfterHoursGapRow(row)) return "waiting";
   if (isStaleSchwabRow(row)) return "stale";
   if (row.state === "ok" && row.source === "schwab_streamer") return "live";
   if (row.state === "ok") return "rest";
   if (row.state === "degraded") return "degraded";
   if (row.state === "error") return "error";
   return "missing";
+}
+
+function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
+  return row.state === "degraded" && row.warning === "No recent after-hours Schwab quote yet.";
 }
 
 function isStaleSchwabRow(row: LiveQuoteRow): boolean {
@@ -130,6 +135,9 @@ function quoteTimestampLabel(row: LiveQuoteRow): string {
 }
 
 function quoteSourceLabel(row: LiveQuoteRow): string {
+  if (isQuietAfterHoursGapRow(row)) {
+    return "Schwab after-hours";
+  }
   if (isStaleSchwabRow(row) && row.timestamp) {
     return `Schwab stale · ${formatRelativeAge(row.timestamp)}`;
   }

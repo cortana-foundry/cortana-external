@@ -421,6 +421,7 @@ function buildFreshnessMessage(
   const hasUsableQuotes = rows.some((row) => row.price != null);
   const hasErrors = rows.some((row) => row.state === "error");
   const hasDegraded = rows.some((row) => row.state === "degraded");
+  const hasQuietAfterHoursRows = rows.some(isQuietAfterHoursGapRow);
   const hasAfterHoursStaleSchwabQuotes = rows.some(
     (row) =>
       row.state === "degraded" &&
@@ -433,6 +434,12 @@ function buildFreshnessMessage(
       return "Quotes are fresh from the Schwab streamer.";
     }
     if (hasStreamerQuotes) {
+      if (hasAfterHoursStaleSchwabQuotes && hasQuietAfterHoursRows && !hasErrors) {
+        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and quieter names are waiting for the next one.";
+      }
+      if (hasQuietAfterHoursRows && !hasErrors) {
+        return "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.";
+      }
       if (hasAfterHoursStaleSchwabQuotes && !hasErrors) {
         return "Quotes are fresh where Schwab is still ticking. Quieter after-hours symbols may show last-known Schwab prices with age markers.";
       }
@@ -486,6 +493,10 @@ function buildFreshnessMessage(
   }
 
   return "Live quotes are unavailable right now.";
+}
+
+function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
+  return row.state === "degraded" && row.warning === "No recent after-hours Schwab quote yet.";
 }
 
 function collectWatchlistSymbols(tradingRun: TradingRunOverview | null): string[] {
