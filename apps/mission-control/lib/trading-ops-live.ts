@@ -28,6 +28,7 @@ type QuoteBatchItem = {
   source: string | null;
   status: string;
   degradedReason: string | null;
+  providerMode: string | null;
   data: {
     symbol?: string;
     price?: number;
@@ -64,6 +65,9 @@ export type TradingOpsLiveData = {
   tape: {
     rows: LiveQuoteRow[];
     freshnessMessage: string;
+    providerMode: string;
+    fallbackEngaged: boolean;
+    providerModeReason: string | null;
   };
   watchlists: {
     dipBuyer: {
@@ -103,14 +107,18 @@ export async function loadTradingOpsLiveData(
 
   const [opsResult, quotesResult] = await Promise.all([
     fetchJson(`${baseUrl}/market-data/ops`, fetchImpl),
-    fetchJson(`${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(symbols.join(","))}`, fetchImpl),
+    fetchJson(
+      `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(symbols.join(","))}&subsystem=live_watchlists`,
+      fetchImpl,
+    ),
   ]);
 
   const quoteItems = parseQuoteItems(quotesResult.body);
   const quoteMap = new Map(quoteItems.map((item) => [item.symbol, item]));
   const streamer = parseStreamerSummary(opsResult.body);
   const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, quotesResult.error));
-  const freshnessMessage = buildFreshnessMessage(streamer, tapeRows);
+  const tapeMode = parseProviderMode(quotesResult.body);
+  const freshnessMessage = buildFreshnessMessage(streamer, tapeRows, tapeMode);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -118,6 +126,9 @@ export async function loadTradingOpsLiveData(
     tape: {
       rows: tapeRows,
       freshnessMessage,
+      providerMode: tapeMode.providerMode,
+      fallbackEngaged: tapeMode.fallbackEngaged,
+      providerModeReason: tapeMode.providerModeReason,
     },
     watchlists: {
       dipBuyer: {
@@ -205,8 +216,22 @@ function parseQuoteItems(body: unknown): QuoteBatchItem[] {
       source: stringValue(item.source),
       status: stringValue(item.status) ?? "error",
       degradedReason: stringValue(item.degradedReason),
+      providerMode: stringValue(item.providerMode),
       data: asRecord(item.data) as QuoteBatchItem["data"],
     }));
+}
+
+function parseProviderMode(body: unknown): {
+  providerMode: string;
+  fallbackEngaged: boolean;
+  providerModeReason: string | null;
+} {
+  const record = asRecord(body);
+  return {
+    providerMode: stringValue(record.providerMode) ?? "unknown",
+    fallbackEngaged: booleanValue(record.fallbackEngaged) ?? false,
+    providerModeReason: stringValue(record.providerModeReason),
+  };
 }
 
 function parseStreamerSummary(body: unknown): LiveStreamerSummary {
@@ -302,7 +327,20 @@ function normalizeLoadState(status: string | null | undefined, price: number | n
   return price == null ? "missing" : "ok";
 }
 
-function buildFreshnessMessage(streamer: LiveStreamerSummary, rows: LiveQuoteRow[]): string {
+function buildFreshnessMessage(
+  streamer: LiveStreamerSummary,
+  rows: LiveQuoteRow[],
+  tapeMode: { providerMode: string; fallbackEngaged: boolean; providerModeReason: string | null },
+): string {
+  if (tapeMode.providerMode === "alpaca_fallback") {
+    return tapeMode.providerModeReason ?? "Quotes are in the declared Alpaca fallback lane.";
+  }
+  if (tapeMode.providerMode === "cache_fallback") {
+    return tapeMode.providerModeReason ?? "Quotes are using a cache fallback lane.";
+  }
+  if (tapeMode.providerMode === "multi_mode") {
+    return tapeMode.providerModeReason ?? "Quotes are using more than one provider mode across subsystems.";
+  }
   const quoteSources = new Set(rows.map((row) => row.source).filter((value): value is string => Boolean(value)));
   const degraded = rows.some((row) => row.state === "degraded" || row.state === "error");
 
