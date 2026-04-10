@@ -476,6 +476,184 @@ describe("polymarket routes", () => {
     });
   });
 
+  it("serves a backend-owned board with pinned markets separated from top events and top sports", async () => {
+    const boardPinsPath = path.join(TEST_TEMP_ROOT, `board-live-${Date.now()}-${Math.random()}.json`);
+    const eventCandidates = Array.from({ length: 6 }, (_, index) => ({
+      id: 200 + index,
+      slug: `macro-event-${index + 1}`,
+      title: `Macro Event ${index + 1}`,
+      active: true,
+      closed: false,
+      archived: false,
+      featured: false,
+      markets: [
+        {
+          id: 300 + index,
+          slug: `macro-event-market-${index + 1}`,
+          title: `Macro Event ${index + 1}`,
+          outcome: `Macro Event ${index + 1}`,
+          active: true,
+          closed: false,
+          liquidity: 200000 - index * 5000,
+          volume: 250000 - index * 5000,
+        },
+      ],
+      tags: [{ id: 401 + index, slug: "economics", label: "Economics" }],
+      liquidity: 220000 - index * 5000,
+      volume: 260000 - index * 5000,
+    }));
+    const sportsCandidates = Array.from({ length: 6 }, (_, index) => ({
+      id: 500 + index,
+      slug: `sports-event-${index + 1}`,
+      title: `Sports Event ${index + 1}`,
+      active: true,
+      closed: false,
+      archived: false,
+      featured: false,
+      markets: [
+        {
+          id: 600 + index,
+          slug: `sports-event-market-${index + 1}`,
+          title: `Sports Event ${index + 1}`,
+          outcome: `Sports Event ${index + 1}`,
+          active: true,
+          closed: false,
+          liquidity: 180000 - index * 5000,
+          volume: 210000 - index * 5000,
+        },
+      ],
+      tags: [
+        { id: 701 + index, slug: "sports", label: "Sports" },
+        { id: 801 + index, slug: "soccer", label: "Soccer" },
+      ],
+      series: {
+        id: 901 + index,
+        slug: "soccer-2026",
+        title: "Soccer 2026",
+      },
+      liquidity: 190000 - index * 5000,
+      volume: 220000 - index * 5000,
+    }));
+
+    const app = createApp(createServices({
+      polymarket: new PolymarketService({
+        keyId: "test-key-id",
+        secretKey: "test-secret",
+        clientFactory: () =>
+          createClient({
+            events: {
+              list: async (params) => ({
+                events: params?.categories?.includes("sports") ? sportsCandidates : eventCandidates,
+              }),
+            },
+            markets: {
+              retrieveBySlug: async (slug: string) => ({
+                market: {
+                  id: 999,
+                  slug,
+                  title: slug,
+                  outcome: "yes",
+                  active: true,
+                  closed: false,
+                },
+              }),
+              bbo: async (slug: string) => ({
+                marketSlug: slug,
+                openInterest: "250000",
+              }),
+              settlement: async () => ({
+                marketSlug: "placeholder",
+                settlementPrice: { value: "1", currency: "USD" },
+                settledAt: "2026-04-10T20:00:00.000Z",
+              }),
+            },
+          }),
+        pinsStore: new PolymarketPinsStore(boardPinsPath),
+        streamRuntime: {
+          getSnapshot: async (marketSlugs = []) => ({
+            generatedAt: "2026-04-10T15:10:00.000Z",
+            status: "ok",
+            apiBaseUrl: "https://api.polymarket.us",
+            keyIdSuffix: "key-id",
+            streamer: {
+              marketsConnected: true,
+              privateConnected: true,
+              operatorState: "healthy",
+              trackedMarketCount: marketSlugs.length,
+              trackedMarketSlugs: marketSlugs,
+              lastMarketMessageAt: "2026-04-10T15:10:00.000Z",
+              lastPrivateMessageAt: "2026-04-10T15:10:00.000Z",
+              lastError: null,
+            },
+            account: {
+              balance: 0,
+              buyingPower: 0,
+              openOrdersCount: 0,
+              positionCount: 0,
+              lastBalanceUpdateAt: null,
+              lastOrdersUpdateAt: null,
+              lastPositionsUpdateAt: null,
+            },
+            markets: marketSlugs.map((marketSlug) => ({
+              marketSlug,
+              bestBid: 0.4,
+              bestAsk: 0.42,
+              lastTrade: 0.41,
+              spread: 0.02,
+              marketState: "MARKET_STATE_OPEN",
+              sharesTraded: 1000,
+              openInterest: 250000,
+              tradePrice: 0.41,
+              tradeQuantity: 12,
+              tradeTime: "2026-04-10T15:10:00.000Z",
+              updatedAt: "2026-04-10T15:10:00.000Z",
+            })),
+            warnings: [],
+          }),
+        },
+      }),
+    }));
+
+    await app.request("/polymarket/pins", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        marketSlug: "macro-event-market-1",
+        bucket: "events",
+        title: "Macro Event 1",
+        eventTitle: "Macro Event 1",
+        league: null,
+      }),
+    });
+
+    await app.request("/polymarket/pins", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        marketSlug: "sports-event-market-1",
+        bucket: "sports",
+        title: "Sports Event 1",
+        eventTitle: "Sports Event 1",
+        league: "soccer",
+      }),
+    });
+
+    const boardResponse = await app.request("/polymarket/board/live");
+    const boardBody = await boardResponse.json();
+    const pinned = boardBody.markets.filter((market: { pinned: boolean }) => market.pinned);
+    const visibleEvents = boardBody.markets.filter((market: { bucket: string; pinned: boolean }) => market.bucket === "events" && !market.pinned);
+    const visibleSports = boardBody.markets.filter((market: { bucket: string; pinned: boolean }) => market.bucket === "sports" && !market.pinned);
+
+    expect(boardResponse.status).toBe(200);
+    expect(pinned).toHaveLength(2);
+    expect(visibleEvents).toHaveLength(5);
+    expect(visibleSports).toHaveLength(5);
+    expect(visibleEvents.map((market: { slug: string }) => market.slug)).not.toContain("macro-event-market-1");
+    expect(visibleSports.map((market: { slug: string }) => market.slug)).not.toContain("sports-event-market-1");
+    expect(visibleEvents.map((market: { slug: string }) => market.slug)).toContain("macro-event-market-6");
+    expect(visibleSports.map((market: { slug: string }) => market.slug)).toContain("sports-event-market-6");
+  });
+
   it("removes pinned markets", async () => {
     const app = createApp(createServices());
 

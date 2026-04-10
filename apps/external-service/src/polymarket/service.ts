@@ -70,6 +70,18 @@ type EventMarketCandidate = {
   market: NonNullable<Event["markets"]>[number];
 };
 
+type BoardDiscoverySnapshot = {
+  generatedAt: string;
+  events: PolymarketFocusMarket[];
+  sports: PolymarketFocusMarket[];
+  warnings: string[];
+};
+
+type CachedBoardDiscovery = {
+  fetchedAt: number;
+  snapshot: BoardDiscoverySnapshot;
+};
+
 type SportsFocusFilters = {
   limit: number;
   sort: "composite" | "liquidity" | "volume" | "open_interest" | "nearest_start_time";
@@ -78,6 +90,10 @@ type SportsFocusFilters = {
   minOpenInterest: number | null;
   maxStartHours: number | null;
 };
+
+const BOARD_CANDIDATE_LIMIT = 24;
+const BOARD_TOP_LIMIT = 5;
+const BOARD_DISCOVERY_TTL_MS = 60_000;
 
 export interface PolymarketServiceOptions {
   keyId?: string;
@@ -175,6 +191,8 @@ export class PolymarketService {
   private readonly clientFactory: (options: PolymarketUSOptions) => PolymarketClient;
   private readonly streamRuntime: PolymarketStreamRuntimeLike;
   private readonly pinsStore: PolymarketPinsStore;
+  private boardDiscoveryCache: CachedBoardDiscovery | null = null;
+  private boardDiscoveryPromise: Promise<BoardDiscoverySnapshot> | null = null;
 
   constructor(options: PolymarketServiceOptions) {
     this.keyId = normalizeOptionalString(options.keyId);
@@ -508,6 +526,113 @@ export class PolymarketService {
     }
   }
 
+  async boardLiveHandler(context: Context): Promise<Response> {
+    const unconfigured = this.unconfiguredPayload();
+    if (unconfigured) {
+      return context.json(
+        {
+          ...unconfigured,
+          generatedAt: new Date().toISOString(),
+          streamer: {
+            marketsConnected: false,
+            privateConnected: false,
+            operatorState: "unconfigured",
+            trackedMarketCount: 0,
+            trackedMarketSlugs: [],
+            lastMarketMessageAt: null,
+            lastPrivateMessageAt: null,
+            lastError: null,
+          },
+          account: {
+            balance: null,
+            buyingPower: null,
+            openOrdersCount: null,
+            positionCount: null,
+            lastBalanceUpdateAt: null,
+            lastOrdersUpdateAt: null,
+            lastPositionsUpdateAt: null,
+          },
+          markets: [],
+          warnings: ["polymarket credentials are not configured"],
+        },
+        503 as never,
+      );
+    }
+
+    try {
+      const [discovery, pinned] = await Promise.all([
+        this.getBoardDiscoverySnapshot(),
+        this.pinsStore.list(),
+      ]);
+      const pinnedSlugs = new Set(pinned.map((entry) => entry.marketSlug));
+      const pinnedEventTitleKeys = new Set(
+        pinned
+          .filter((entry) => entry.bucket === "events")
+          .map((entry) => normalizeMarketTitle(entry.title)),
+      );
+      const pinnedSportsTitleKeys = new Set(
+        pinned
+          .filter((entry) => entry.bucket === "sports")
+          .map((entry) => normalizeMarketTitle(entry.title)),
+      );
+
+      const candidatePool = dedupeFocusMarkets([
+        ...discovery.events,
+        ...discovery.sports,
+      ]);
+      const snapshot = await this.streamRuntime.getSnapshot([
+        ...pinned.map((entry) => entry.marketSlug),
+        ...candidatePool.map((entry) => entry.marketSlug),
+      ]);
+      const liveBySlug = new Map(snapshot.markets.map((entry) => [entry.marketSlug, entry]));
+
+      const pinnedRows = pinned.map((entry) => toBoardMarketRow({
+        slug: entry.marketSlug,
+        title: entry.title,
+        bucket: entry.bucket,
+        pinned: true,
+        pinnedAt: entry.pinnedAt,
+        eventTitle: entry.eventTitle,
+        league: entry.league,
+        live: liveBySlug.get(entry.marketSlug) ?? null,
+        liveStatus: snapshot.status,
+      }));
+
+      const eventRows = selectBoardRows({
+        candidates: discovery.events,
+        liveBySlug,
+        limit: BOARD_TOP_LIMIT,
+        excludeSlugs: pinnedSlugs,
+        excludeTitleKeys: pinnedEventTitleKeys,
+      });
+      const sportsRows = selectBoardRows({
+        candidates: discovery.sports,
+        liveBySlug,
+        limit: BOARD_TOP_LIMIT,
+        excludeSlugs: pinnedSlugs,
+        excludeTitleKeys: pinnedSportsTitleKeys,
+      });
+
+      return context.json(
+        {
+          generatedAt: new Date().toISOString(),
+          streamer: snapshot.streamer,
+          account: snapshot.account,
+          markets: [...pinnedRows, ...eventRows, ...sportsRows],
+          warnings: compactStrings([...discovery.warnings, ...snapshot.warnings]),
+          roster: {
+            generatedAt: discovery.generatedAt,
+            candidateEventsCount: discovery.events.length,
+            candidateSportsCount: discovery.sports.length,
+          },
+        },
+        snapshot.status === "error" ? (503 as never) : (200 as never),
+      );
+    } catch (error) {
+      return this.toErrorResponse(context, error, "polymarket board live fetch failed");
+    }
+  }
+
   private createClient(): PolymarketClient {
     return this.clientFactory({
       keyId: this.keyId,
@@ -540,6 +665,66 @@ export class PolymarketService {
       .filter((entry) => passesSportsFilters(entry, filters))
       .sort((left, right) => compareSportsFocusMarkets(left, right, filters.sort))
       .slice(0, filters.limit);
+  }
+
+  private async getBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
+    const now = Date.now();
+    if (this.boardDiscoveryCache && now - this.boardDiscoveryCache.fetchedAt < BOARD_DISCOVERY_TTL_MS) {
+      return this.boardDiscoveryCache.snapshot;
+    }
+
+    if (this.boardDiscoveryPromise) {
+      return this.boardDiscoveryPromise;
+    }
+
+    this.boardDiscoveryPromise = this.refreshBoardDiscoverySnapshot().finally(() => {
+      this.boardDiscoveryPromise = null;
+    });
+    return this.boardDiscoveryPromise;
+  }
+
+  private async refreshBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
+    const filters: SportsFocusFilters = {
+      limit: BOARD_CANDIDATE_LIMIT,
+      sort: "composite",
+      minLiquidity: null,
+      minVolume: null,
+      minOpenInterest: null,
+      maxStartHours: null,
+    };
+
+    try {
+      const [sports, events] = await Promise.all([
+        this.discoverSportsFocusMarkets(filters),
+        this.discoverEventFocusMarkets(filters),
+      ]);
+      const snapshot: BoardDiscoverySnapshot = {
+        generatedAt: new Date().toISOString(),
+        events,
+        sports,
+        warnings: compactStrings([
+          sports.length === 0 ? "no active sports focus markets discovered" : null,
+          events.length === 0 ? "no active event focus markets discovered" : null,
+        ]),
+      };
+      this.boardDiscoveryCache = {
+        fetchedAt: Date.now(),
+        snapshot,
+      };
+      return snapshot;
+    } catch (error) {
+      if (this.boardDiscoveryCache) {
+        const warning = error instanceof Error ? error.message : String(error);
+        return {
+          ...this.boardDiscoveryCache.snapshot,
+          warnings: compactStrings([
+            ...this.boardDiscoveryCache.snapshot.warnings,
+            `using cached board discovery: ${warning}`,
+          ]),
+        };
+      }
+      throw error;
+    }
   }
 
   private async discoverEventFocusMarkets(filters: SportsFocusFilters): Promise<PolymarketFocusMarket[]> {
@@ -1015,6 +1200,116 @@ function compareSportsFocusMarkets(
   );
 }
 
+function selectBoardRows(options: {
+  candidates: PolymarketFocusMarket[];
+  liveBySlug: Map<string, PolymarketLiveSnapshot["markets"][number]>;
+  limit: number;
+  excludeSlugs: Set<string>;
+  excludeTitleKeys: Set<string>;
+}): Array<Record<string, unknown>> {
+  const sorted = options.candidates
+    .filter((entry) => (
+      !options.excludeSlugs.has(entry.marketSlug) &&
+      !options.excludeTitleKeys.has(normalizeMarketTitle(entry.marketTitle))
+    ))
+    .sort((left, right) => (
+      compareDescending(
+        scoreBoardCandidate(left, options.liveBySlug.get(left.marketSlug) ?? null),
+        scoreBoardCandidate(right, options.liveBySlug.get(right.marketSlug) ?? null),
+      )
+    ));
+
+  const selected: Array<Record<string, unknown>> = [];
+  const seenSlugs = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  for (const entry of sorted) {
+    if (selected.length >= options.limit) break;
+    const titleKey = normalizeMarketTitle(entry.marketTitle);
+    if (seenSlugs.has(entry.marketSlug) || seenTitles.has(titleKey)) {
+      continue;
+    }
+    selected.push(toBoardMarketRow({
+      slug: entry.marketSlug,
+      title: entry.marketTitle,
+      bucket: entry.bucket,
+      pinned: false,
+      pinnedAt: null,
+      eventTitle: entry.eventTitle,
+      league: entry.league,
+      live: options.liveBySlug.get(entry.marketSlug) ?? null,
+      liveStatus: "ok",
+    }));
+    seenSlugs.add(entry.marketSlug);
+    seenTitles.add(titleKey);
+  }
+
+  return selected;
+}
+
+function scoreBoardCandidate(
+  focus: PolymarketFocusMarket,
+  live: PolymarketLiveSnapshot["markets"][number] | null,
+): number {
+  let score = 0;
+
+  score += Math.max(focus.liquidity ?? 0, 0) / 10_000;
+  score += Math.max(focus.volume ?? 0, 0) / 10_000;
+  score += Math.max(focus.openInterest ?? 0, 0) / 10_000;
+
+  if (focus.hoursToStart != null) {
+    score += Math.max(0, 48 - Math.min(Math.abs(focus.hoursToStart), 48));
+  }
+
+  if (live?.updatedAt) {
+    const ageMs = Math.max(0, Date.now() - Date.parse(live.updatedAt));
+    score += Math.max(0, 120 - ageMs / 1000);
+  }
+  if (live?.lastTrade != null) score += 40;
+  if (live?.bestBid != null) score += 20;
+  if (live?.bestAsk != null) score += 20;
+  if (live?.spread != null) score += Math.max(0, 10 - live.spread * 100);
+
+  return score;
+}
+
+function toBoardMarketRow(options: {
+  slug: string;
+  title: string;
+  bucket: "events" | "sports";
+  pinned: boolean;
+  pinnedAt: string | null;
+  eventTitle: string | null;
+  league: string | null;
+  live: PolymarketLiveSnapshot["markets"][number] | null;
+  liveStatus: PolymarketLiveSnapshot["status"];
+}): Record<string, unknown> {
+  const live = options.live;
+  const updatedAt = live?.updatedAt ?? live?.tradeTime ?? null;
+  return {
+    slug: options.slug,
+    title: options.title,
+    bucket: options.bucket,
+    pinned: options.pinned,
+    pinnedAt: options.pinnedAt,
+    eventTitle: options.eventTitle,
+    league: options.league,
+    bestBid: live?.bestBid ?? null,
+    bestAsk: live?.bestAsk ?? null,
+    lastTrade: live?.lastTrade ?? null,
+    spread: live?.spread ?? null,
+    marketState: live?.marketState ?? null,
+    sharesTraded: live?.sharesTraded ?? null,
+    openInterest: live?.openInterest ?? null,
+    tradePrice: live?.tradePrice ?? null,
+    tradeQuantity: live?.tradeQuantity ?? null,
+    tradeTime: live?.tradeTime ?? null,
+    updatedAt,
+    state: options.liveStatus === "error" ? "error" : updatedAt ? "ok" : "degraded",
+    warning: updatedAt ? null : "waiting for first market update",
+  };
+}
+
 function compareDescending(left: number | null | undefined, right: number | null | undefined): number {
   const a = left ?? -1;
   const b = right ?? -1;
@@ -1036,6 +1331,14 @@ function parseNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function normalizeMarketTitle(value: string | null | undefined): string {
+  return (value ?? "").trim().toLocaleLowerCase("en-US");
 }
 
 function hoursUntil(isoTimestamp: string): number | null {
