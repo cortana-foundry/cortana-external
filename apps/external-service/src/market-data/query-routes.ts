@@ -87,6 +87,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: { symbol, period, interval, rows: primary.rows, comparisonHint: compare?.source },
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -117,6 +120,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: primary.quote,
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -149,6 +155,9 @@ export class MarketDataQueryRoutes {
             status: primary.status,
             degradedReason: primary.degradedReason ?? null,
             stalenessSeconds: primary.stalenessSeconds,
+            providerMode: primary.providerMode,
+            fallbackEngaged: primary.fallbackEngaged,
+            providerModeReason: primary.providerModeReason ?? null,
             data: primary.quote,
             ...(compare ? { compare_with: compare } : {}),
           };
@@ -159,6 +168,9 @@ export class MarketDataQueryRoutes {
             status: "error",
             degradedReason: summarizeError(error),
             stalenessSeconds: null,
+            providerMode: "unavailable",
+            fallbackEngaged: false,
+            providerModeReason: "Quote batch could not produce a provider mode for this symbol.",
             data: { symbol },
           };
         }
@@ -188,6 +200,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: primary.snapshot,
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -245,6 +260,9 @@ export class MarketDataQueryRoutes {
             status: primary.status,
             degradedReason: primary.degradedReason ?? null,
             stalenessSeconds: primary.stalenessSeconds,
+            providerMode: primary.providerMode,
+            fallbackEngaged: primary.fallbackEngaged,
+            providerModeReason: primary.providerModeReason ?? null,
             data: { symbol, period, interval, rows: primary.rows, comparisonHint: compare?.source },
             ...(compare ? { compare_with: compare } : {}),
           };
@@ -255,6 +273,9 @@ export class MarketDataQueryRoutes {
             status: "error",
             degradedReason: summarizeError(error),
             stalenessSeconds: null,
+            providerMode: "unavailable",
+            fallbackEngaged: false,
+            providerModeReason: "History batch could not produce a provider mode for this symbol.",
             data: { symbol, period, interval, rows: [] },
           };
         }
@@ -284,6 +305,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: { symbol, payload: primary.payload },
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -299,7 +323,8 @@ export class MarketDataQueryRoutes {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
     }
     try {
-      const payload = await this.providerChain.fetchPrimaryMetadata(symbol);
+      const primary = await this.providerChain.fetchPrimaryMetadata(symbol);
+      this.providerChain.recordSourceUsage(primary.source);
       const compareProvider = resolveCompareProvider(compareWith);
       if (compareProvider === null) {
         return invalidCompareProvider<MarketDataGenericPayload>();
@@ -308,11 +333,14 @@ export class MarketDataQueryRoutes {
       return {
         status: 200,
         body: {
-          source: "service",
-          status: "ok",
-          degradedReason: null,
-          stalenessSeconds: 0,
-          data: { symbol, payload },
+          source: primary.source,
+          status: primary.status,
+          degradedReason: primary.degradedReason ?? null,
+          stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
+          data: { symbol, payload: primary.payload },
           ...(compare ? { compare_with: compare } : {}),
         },
       };

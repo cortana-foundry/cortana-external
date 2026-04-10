@@ -639,11 +639,21 @@ describe("market-data routes", () => {
     registerMarketDataRoutes(app, service);
 
     const response = await app.request("/market-data/quote/AAPL");
-    const body = (await response.json()) as { source: string; status: string; data: { symbol: string; price: number } };
+    const body = (await response.json()) as {
+      source: string;
+      status: string;
+      providerMode: string;
+      fallbackEngaged: boolean;
+      providerModeReason: string;
+      data: { symbol: string; price: number };
+    };
 
     expect(response.status).toBe(200);
     expect(body.source).toBe("schwab");
     expect(body.status).toBe("ok");
+    expect(body.providerMode).toBe("schwab_primary");
+    expect(body.fallbackEngaged).toBe(false);
+    expect(body.providerModeReason).toContain("Schwab");
     expect(body.data.symbol).toBe("AAPL");
     expect(body.data.price).toBe(200.12);
   });
@@ -1409,6 +1419,7 @@ describe("market-data routes", () => {
     const opsBody = (await opsResponse.json()) as {
       data: {
         providerMetrics: { lastSuccessfulUniverseRefreshAt: string | null };
+        providerLaneGuidance: { liveQuotes: { providerMode: string }; history: { providerMode: string } };
         universe: { latest: { source: string } | null; audit: Array<{ symbolCount: number }> };
       };
     };
@@ -1417,6 +1428,8 @@ describe("market-data routes", () => {
 
     expect(opsResponse.status).toBe(200);
     expect(opsBody.data.providerMetrics.lastSuccessfulUniverseRefreshAt).toBeTruthy();
+    expect(opsBody.data.providerLaneGuidance.liveQuotes.providerMode).toBe("schwab_primary");
+    expect(opsBody.data.providerLaneGuidance.history.providerMode).toBe("schwab_primary");
     expect(opsBody.data.universe.latest?.source).toBe("local_json");
     expect(opsBody.data.universe.audit[0]?.symbolCount).toBeGreaterThan(500);
 
@@ -1895,12 +1908,27 @@ describe("market-data routes", () => {
     registerMarketDataRoutes(app, service);
 
     const response = await app.request("/market-data/quote/batch?symbols=AAPL,MSFT");
-    const body = (await response.json()) as { data: { items: Array<{ symbol: string; source: string; data: { price?: number } }> } };
+    const body = (await response.json()) as {
+      providerMode: string;
+      fallbackEngaged: boolean;
+      data: {
+        items: Array<{
+          symbol: string;
+          source: string;
+          providerMode: string;
+          fallbackEngaged: boolean;
+          data: { price?: number };
+        }>;
+      };
+    };
 
     expect(response.status).toBe(200);
+    expect(body.providerMode).toBe("schwab_primary");
+    expect(body.fallbackEngaged).toBe(false);
     expect(body.data.items).toHaveLength(2);
     expect(body.data.items.map((item) => item.symbol)).toEqual(["AAPL", "MSFT"]);
     expect(body.data.items.every((item) => item.source === "schwab")).toBe(true);
+    expect(body.data.items.every((item) => item.providerMode === "schwab_primary")).toBe(true);
   });
 
   it("serves batch history with shared interval/provider inputs", async () => {
@@ -1928,11 +1956,26 @@ describe("market-data routes", () => {
     registerMarketDataRoutes(app, service);
 
     const response = await app.request("/market-data/history/batch?symbols=AAPL,MSFT&period=1mo&interval=1wk&provider=alpaca");
-    const body = (await response.json()) as { data: { items: Array<{ symbol: string; source: string; data: { interval: string; rows: Array<unknown> } }> } };
+    const body = (await response.json()) as {
+      providerMode: string;
+      fallbackEngaged: boolean;
+      data: {
+        items: Array<{
+          symbol: string;
+          source: string;
+          providerMode: string;
+          fallbackEngaged: boolean;
+          data: { interval: string; rows: Array<unknown> };
+        }>;
+      };
+    };
 
     expect(response.status).toBe(200);
+    expect(body.providerMode).toBe("alpaca_fallback");
+    expect(body.fallbackEngaged).toBe(true);
     expect(body.data.items).toHaveLength(2);
     expect(body.data.items.every((item) => item.source === "alpaca")).toBe(true);
+    expect(body.data.items.every((item) => item.providerMode === "alpaca_fallback")).toBe(true);
     expect(body.data.items.every((item) => item.data.interval === "1wk")).toBe(true);
 
     delete process.env.ALPACA_KEY;

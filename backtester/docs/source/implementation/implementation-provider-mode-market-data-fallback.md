@@ -43,10 +43,10 @@ Week 3: V3 backtester adoption, operator surfaces, Mission Control, and end-to-e
 
 #### Jira
 
-- Sub-task 1: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` so quote/history/snapshot responses can emit explicit provider-mode metadata.
-- Sub-task 2: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/query-routes.ts` so route responses preserve provider-mode, fallback-engaged, and provider-mode-reason fields.
-- Sub-task 3: Update `/Users/hd/Developer/cortana-external/backtester/operator_surfaces/runtime_health.py` and `/Users/hd/Developer/cortana-external/apps/mission-control/lib/trading-ops.ts` so operator surfaces render provider mode instead of inferring it from degraded text.
-- Sub-task 4: Add or update tests in `/Users/hd/Developer/cortana-external/apps/external-service/src/__tests__/market-data.test.ts`, `/Users/hd/Developer/cortana-external/backtester/tests/test_runtime_surfaces.py`, and `/Users/hd/Developer/cortana-external/apps/mission-control/lib/trading-ops.test.ts`.
+- [x] Sub-task 1: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/provider-chain.ts` so quote/history/snapshot responses can emit explicit provider-mode metadata.
+- [x] Sub-task 2: Update `/Users/hd/Developer/cortana-external/apps/external-service/src/market-data/query-routes.ts` so route responses preserve provider-mode, fallback-engaged, and provider-mode-reason fields.
+- [x] Sub-task 3: Update `/Users/hd/Developer/cortana-external/backtester/operator_surfaces/runtime_health.py` and `/Users/hd/Developer/cortana-external/apps/mission-control/lib/trading-ops.ts` so operator surfaces render provider mode instead of inferring it from degraded text.
+- [x] Sub-task 4: Add or update tests in `/Users/hd/Developer/cortana-external/apps/external-service/src/__tests__/market-data.test.ts`, `/Users/hd/Developer/cortana-external/backtester/tests/test_runtime_surfaces.py`, and `/Users/hd/Developer/cortana-external/apps/mission-control/lib/trading-ops.test.ts`.
 
 #### Testing
 
