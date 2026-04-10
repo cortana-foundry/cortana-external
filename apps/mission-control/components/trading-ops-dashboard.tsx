@@ -1446,7 +1446,7 @@ function buildPolymarketLinkedSymbolRows(
 
   for (const market of data.markets) {
     if (market.bucket !== "events") continue;
-    const link = getPolymarketLiveEventLink(market.title);
+    const link = getPolymarketLiveEventLink(market.title, market.eventTitle);
     if (!link) continue;
 
     const probability = getPolymarketLiveMarketProbability(market);

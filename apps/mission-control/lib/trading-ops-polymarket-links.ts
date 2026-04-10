@@ -1,12 +1,18 @@
 export const LIVE_EVENT_LINKS = [
   {
-    match: /inflation upside risk/i,
+    match: /(?:inflation upside risk|cpi|exactly\s*\d+(?:\.\d+)?)/i,
     theme: "inflation",
     regimeEffect: "mixed",
     watchTickers: ["QQQ", "ARKK", "XLE", "XOM", "CVX"],
   },
   {
-    match: /fed easing odds/i,
+    match: /(?:fed easing odds|rate[-\s]?cut|cut\s*\d+(?:\.\d+)?\s*bps)/i,
+    theme: "rates",
+    regimeEffect: "mixed",
+    watchTickers: ["SPY", "QQQ", "DIA", "NVDA", "AMD", "MSFT"],
+  },
+  {
+    match: /(?:rate[-\s]?hike|hike\s*>\s*\d+(?:\.\d+)?\s*bps)/i,
     theme: "rates",
     regimeEffect: "mixed",
     watchTickers: ["SPY", "QQQ", "DIA", "NVDA", "AMD", "MSFT"],
@@ -20,8 +26,11 @@ export type PolymarketLiveLinkedMarket = {
   bestAsk: number | null;
 };
 
-export function getPolymarketLiveEventLink(title: string) {
-  return LIVE_EVENT_LINKS.find((entry) => entry.match.test(title)) ?? null;
+export function getPolymarketLiveEventLink(title: string, eventTitle?: string | null) {
+  const searchableText = [title, eventTitle]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+  return LIVE_EVENT_LINKS.find((entry) => entry.match.test(searchableText)) ?? null;
 }
 
 export function getPolymarketLiveMarketProbability(market: PolymarketLiveLinkedMarket): number | null {

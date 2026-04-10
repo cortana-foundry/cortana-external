@@ -127,7 +127,7 @@ function buildLiveSignalArtifact(
   }
 
   const topMarkets = eventRows.slice(0, 4).map((market) => {
-    const mapping = getPolymarketLiveEventLink(market.title);
+    const mapping = getPolymarketLiveEventLink(market.title, market.eventTitle);
     return {
       slug: market.slug,
       title: market.title,
@@ -188,7 +188,7 @@ function buildLiveWatchlistArtifact(
   }
 
   for (const market of live.markets.filter((entry) => entry.bucket === "events")) {
-    const mapping = getPolymarketLiveEventLink(market.title);
+    const mapping = getPolymarketLiveEventLink(market.title, market.eventTitle);
     if (!mapping) {
       continue;
     }
