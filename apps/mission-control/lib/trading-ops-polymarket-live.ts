@@ -58,16 +58,28 @@ export async function loadTradingOpsPolymarketLiveData(
   const focusResult = await fetchJson(`${baseUrl}/polymarket/focus?limit=${FOCUS_FETCH_LIMIT}`, fetchImpl);
   const pinnedMarkets = parsePinnedFocusMarkets(focusResult.body);
   const pinnedSlugs = new Set(pinnedMarkets.map((entry) => entry.slug));
+  const pinnedEventTitleKeys = new Set(
+    pinnedMarkets
+      .filter((entry) => entry.bucket === "events")
+      .map((entry) => normalizeMarketTitle(entry.title)),
+  );
+  const pinnedSportsTitleKeys = new Set(
+    pinnedMarkets
+      .filter((entry) => entry.bucket === "sports")
+      .map((entry) => normalizeMarketTitle(entry.title)),
+  );
   const selectedEventMarkets = selectTopBucketMarkets({
     primary: parseEventFocusMarkets(focusResult.body),
     fallback: eventFallback,
     excludeSlugs: pinnedSlugs,
+    excludeTitleKeys: pinnedEventTitleKeys,
     limit: TOP_BUCKET_TARGET,
   });
   const selectedSportsMarkets = selectTopBucketMarkets({
     primary: parseSportsFocusMarkets(focusResult.body),
     fallback: [],
     excludeSlugs: pinnedSlugs,
+    excludeTitleKeys: pinnedSportsTitleKeys,
     limit: TOP_BUCKET_TARGET,
   });
   const tracked = dedupeTrackedMarkets([
@@ -274,17 +286,27 @@ function selectTopBucketMarkets(options: {
   primary: TrackedMarket[];
   fallback: TrackedMarket[];
   excludeSlugs: Set<string>;
+  excludeTitleKeys: Set<string>;
   limit: number;
 }): TrackedMarket[] {
   const selected: TrackedMarket[] = [];
   const seen = new Set<string>();
+  const seenTitleKeys = new Set<string>();
 
   const tryAdd = (market: TrackedMarket) => {
-    if (!market.slug || options.excludeSlugs.has(market.slug) || seen.has(market.slug)) {
+    const titleKey = normalizeMarketTitle(market.title);
+    if (
+      !market.slug ||
+      options.excludeSlugs.has(market.slug) ||
+      options.excludeTitleKeys.has(titleKey) ||
+      seen.has(market.slug) ||
+      seenTitleKeys.has(titleKey)
+    ) {
       return;
     }
     selected.push(market);
     seen.add(market.slug);
+    seenTitleKeys.add(titleKey);
   };
 
   for (const market of options.primary) {
@@ -346,4 +368,8 @@ function toStringArray(value: unknown): string[] {
 
 function compactStrings(values: Array<string | null | undefined>): string[] {
   return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function normalizeMarketTitle(value: string | null | undefined): string {
+  return (value ?? "").trim().toLocaleLowerCase("en-US");
 }
