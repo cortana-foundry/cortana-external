@@ -21,6 +21,7 @@ import {
   BOARD_CANDIDATE_LIMIT,
   BOARD_DISCOVERY_TTL_MS,
   BOARD_TOP_LIMIT,
+  getBoardTitleKey,
   selectBoardRows,
   toBoardMarketRow,
 } from "./board.js";
@@ -40,7 +41,6 @@ import type {
 import {
   compactStrings,
   normalizeGatewayBaseUrl,
-  normalizeMarketTitle,
   normalizeOptionalString,
   normalizeRootBaseUrl,
   parseNonNegativeNumber,
@@ -451,12 +451,20 @@ export class PolymarketService {
       const pinnedEventTitleKeys = new Set(
         pinned
           .filter((entry) => entry.bucket === "events")
-          .map((entry) => normalizeMarketTitle(entry.title)),
+          .map((entry) => getBoardTitleKey({
+            bucket: "events",
+            title: entry.title,
+            eventTitle: entry.eventTitle,
+          })),
       );
       const pinnedSportsTitleKeys = new Set(
         pinned
           .filter((entry) => entry.bucket === "sports")
-          .map((entry) => normalizeMarketTitle(entry.title)),
+          .map((entry) => getBoardTitleKey({
+            bucket: "sports",
+            title: entry.title,
+            eventTitle: entry.eventTitle,
+          })),
       );
 
       const candidatePool = dedupeFocusMarkets([

@@ -16,7 +16,11 @@ export function selectBoardRows(options: {
   const sorted = options.candidates
     .filter((entry) => (
       !options.excludeSlugs.has(entry.marketSlug) &&
-      !options.excludeTitleKeys.has(normalizeMarketTitle(entry.marketTitle))
+      !options.excludeTitleKeys.has(getBoardTitleKey({
+        bucket: entry.bucket,
+        title: entry.marketTitle,
+        eventTitle: entry.eventTitle,
+      }))
     ))
     .sort((left, right) => (
       compareDescending(
@@ -31,7 +35,11 @@ export function selectBoardRows(options: {
 
   for (const entry of sorted) {
     if (selected.length >= options.limit) break;
-    const titleKey = normalizeMarketTitle(entry.marketTitle);
+    const titleKey = getBoardTitleKey({
+      bucket: entry.bucket,
+      title: entry.marketTitle,
+      eventTitle: entry.eventTitle,
+    });
     if (seenSlugs.has(entry.marketSlug) || seenTitles.has(titleKey)) {
       continue;
     }
@@ -51,6 +59,18 @@ export function selectBoardRows(options: {
   }
 
   return selected;
+}
+
+export function getBoardTitleKey(options: {
+  bucket: "events" | "sports";
+  title: string | null | undefined;
+  eventTitle: string | null | undefined;
+}): string {
+  const titleKey = normalizeMarketTitle(options.title);
+  if (options.bucket === "events") {
+    return `${normalizeMarketTitle(options.eventTitle)}::${titleKey}`;
+  }
+  return titleKey;
 }
 
 export function toBoardMarketRow(options: {

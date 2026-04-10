@@ -654,6 +654,182 @@ describe("polymarket routes", () => {
     expect(visibleSports.map((market: { slug: string }) => market.slug)).toContain("sports-event-market-6");
   });
 
+  it("keeps distinct event markets visible when they share the same title across different events", async () => {
+    const app = createApp(createServices({
+      polymarket: new PolymarketService({
+        keyId: "test-key-id",
+        secretKey: "test-secret",
+        clientFactory: () =>
+          createClient({
+            events: {
+              list: async (params) => ({
+                events: params?.categories?.includes("sports")
+                  ? []
+                  : [
+                      {
+                        id: 201,
+                        slug: "us-house-midterms-2026",
+                        title: "U.S House Midterm Winner",
+                        active: true,
+                        closed: false,
+                        archived: false,
+                        featured: false,
+                        markets: [
+                          {
+                            id: 301,
+                            slug: "house-rep",
+                            title: "Republican Party",
+                            outcome: "Republican Party",
+                            active: true,
+                            closed: false,
+                            liquidity: 100000,
+                            volume: 110000,
+                          },
+                        ],
+                        tags: [{ id: 401, slug: "politics", label: "Politics" }],
+                        liquidity: 100000,
+                        volume: 110000,
+                      },
+                      {
+                        id: 202,
+                        slug: "us-senate-midterms-2026",
+                        title: "U.S Senate Midterm Winner",
+                        active: true,
+                        closed: false,
+                        archived: false,
+                        featured: false,
+                        markets: [
+                          {
+                            id: 302,
+                            slug: "senate-rep",
+                            title: "Republican Party",
+                            outcome: "Republican Party",
+                            active: true,
+                            closed: false,
+                            liquidity: 99000,
+                            volume: 109000,
+                          },
+                        ],
+                        tags: [{ id: 402, slug: "politics", label: "Politics" }],
+                        liquidity: 99000,
+                        volume: 109000,
+                      },
+                      {
+                        id: 203,
+                        slug: "fed-april-2026",
+                        title: "Fed Decision in April",
+                        active: true,
+                        closed: false,
+                        archived: false,
+                        featured: false,
+                        markets: [
+                          {
+                            id: 303,
+                            slug: "fed-maintains",
+                            title: "Fed maintains rate",
+                            outcome: "Maintains",
+                            active: true,
+                            closed: false,
+                            liquidity: 98000,
+                            volume: 108000,
+                          },
+                        ],
+                        tags: [{ id: 403, slug: "economics", label: "Economics" }],
+                        liquidity: 98000,
+                        volume: 108000,
+                      },
+                    ],
+              }),
+            },
+            markets: {
+              retrieveBySlug: async (slug: string) => ({
+                market: {
+                  id: 999,
+                  slug,
+                  title: slug,
+                  outcome: "yes",
+                  active: true,
+                  closed: false,
+                },
+              }),
+              bbo: async (slug: string) => ({
+                marketSlug: slug,
+                openInterest: "250000",
+              }),
+              settlement: async () => ({
+                marketSlug: "placeholder",
+                settlementPrice: { value: "1", currency: "USD" },
+                settledAt: "2026-04-10T20:00:00.000Z",
+              }),
+            },
+          }),
+        pinsStore: new PolymarketPinsStore(path.join(TEST_TEMP_ROOT, `event-duplicates-${Date.now()}-${Math.random()}.json`)),
+        streamRuntime: {
+          getSnapshot: async (marketSlugs = []) => ({
+            generatedAt: "2026-04-10T15:10:00.000Z",
+            status: "ok",
+            apiBaseUrl: "https://api.polymarket.us",
+            keyIdSuffix: "key-id",
+            streamer: {
+              marketsConnected: true,
+              privateConnected: true,
+              operatorState: "healthy",
+              trackedMarketCount: marketSlugs.length,
+              trackedMarketSlugs: marketSlugs,
+              lastMarketMessageAt: "2026-04-10T15:10:00.000Z",
+              lastPrivateMessageAt: "2026-04-10T15:10:00.000Z",
+              lastError: null,
+            },
+            account: {
+              balance: 0,
+              buyingPower: 0,
+              openOrdersCount: 0,
+              positionCount: 0,
+              lastBalanceUpdateAt: null,
+              lastOrdersUpdateAt: null,
+              lastPositionsUpdateAt: null,
+            },
+            markets: marketSlugs.map((marketSlug) => ({
+              marketSlug,
+              bestBid: 0.4,
+              bestAsk: 0.42,
+              lastTrade: 0.41,
+              spread: 0.02,
+              marketState: "MARKET_STATE_OPEN",
+              sharesTraded: 1000,
+              openInterest: 250000,
+              tradePrice: 0.41,
+              tradeQuantity: 12,
+              tradeTime: "2026-04-10T15:10:00.000Z",
+              updatedAt: "2026-04-10T15:10:00.000Z",
+            })),
+            warnings: [],
+          }),
+        },
+      }),
+    }));
+
+    await app.request("/polymarket/pins", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        marketSlug: "house-rep",
+        bucket: "events",
+        title: "Republican Party",
+        eventTitle: "U.S House Midterm Winner",
+        league: null,
+      }),
+    });
+
+    const boardResponse = await app.request("/polymarket/board/live");
+    const boardBody = await boardResponse.json();
+    const visibleEvents = boardBody.markets.filter((market: { bucket: string; pinned: boolean }) => market.bucket === "events" && !market.pinned);
+
+    expect(boardResponse.status).toBe(200);
+    expect(visibleEvents.map((market: { slug: string }) => market.slug)).toContain("senate-rep");
+    expect(visibleEvents.map((market: { slug: string }) => market.slug)).toContain("fed-maintains");
+  });
+
   it("removes pinned markets", async () => {
     const app = createApp(createServices());
 
