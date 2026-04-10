@@ -916,12 +916,14 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             <ArtifactPanel title="Top events" artifact={polymarketEventsCardArtifact}>
               {polymarketLiveData ? (
                 <div className="space-y-3 text-sm">
-                  <RosterChangeSummary state={polymarketEventRosterState} />
+                  {polymarketEventBoardEmptyState.kind !== "exhausted" ? (
+                    <RosterChangeSummary state={polymarketEventRosterState} />
+                  ) : null}
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <RosterMetric label="Contracts" value={String(polymarketEventRows.length)} />
                     <RosterMetric
                       label="Leader"
-                      value={polymarketEventRows[0]?.title ?? "Waiting"}
+                      value={polymarketEventRows[0]?.title ?? (polymarketEventBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketEventRosterState.leaderChanged}
                     />
                     <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
@@ -948,12 +950,14 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             <ArtifactPanel title="Top sports" artifact={polymarketSportsCardArtifact}>
               {polymarketLiveData ? (
                 <div className="space-y-3 text-sm">
-                  <RosterChangeSummary state={polymarketSportsRosterState} />
+                  {polymarketSportsBoardEmptyState.kind !== "exhausted" ? (
+                    <RosterChangeSummary state={polymarketSportsRosterState} />
+                  ) : null}
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <RosterMetric label="Contracts" value={String(polymarketSportsRows.length)} />
                     <RosterMetric
                       label="Leader"
-                      value={polymarketSportsRows[0]?.title ?? "Waiting"}
+                      value={polymarketSportsRows[0]?.title ?? (polymarketSportsBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketSportsRosterState.leaderChanged}
                     />
                     <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
@@ -1462,7 +1466,10 @@ function PolymarketMarketCard({
 }) {
   const subtitle =
     market.bucket === "sports"
-      ? [market.eventTitle, market.league ? formatLabel(market.league) : null].filter(Boolean).join(" · ") || "Sports market"
+      ? [
+          market.eventTitle && market.eventTitle !== market.title ? market.eventTitle : null,
+          market.league ? formatLabel(market.league) : null,
+        ].filter(Boolean).join(" · ") || "Sports market"
       : market.eventTitle ?? "Polymarket event";
   const currentValue = derivePinnedCurrentValue(market, options.result);
   const unrealizedPnl =
@@ -1804,14 +1811,15 @@ function describePolymarketBoardEmptyState(options: {
   pinnedCount: number;
   candidateCount: number;
   warnings: string[];
-}): { message: string; detail: string } {
+}): { kind: "active" | "exhausted" | "warning" | "waiting"; message: string; detail: string } {
   if (options.visibleCount > 0) {
-    return { message: "", detail: "" };
+    return { kind: "active", message: "", detail: "" };
   }
 
   const bucketLabel = options.bucket === "events" ? "event" : "sports";
   if (options.candidateCount > 0 && options.pinnedCount >= options.candidateCount) {
     return {
+      kind: "exhausted",
       message: `All current ${bucketLabel} candidates are pinned.`,
       detail: `Remove a pinned ${bucketLabel} market to resume the rotating board.`,
     };
@@ -1819,12 +1827,14 @@ function describePolymarketBoardEmptyState(options: {
 
   if (options.warnings.length > 0) {
     return {
+      kind: "warning",
       message: `Live ${bucketLabel} roster is temporarily unavailable.`,
       detail: options.warnings[0] ?? `Waiting for the next ${bucketLabel} board refresh.`,
     };
   }
 
   return {
+    kind: "waiting",
     message: `Waiting for live ${bucketLabel} contracts.`,
     detail: `Waiting for the first live ${bucketLabel} rotation.`,
   };

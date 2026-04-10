@@ -86,7 +86,10 @@ export function toBoardMarketRow(options: {
 }): Record<string, unknown> {
   const live = options.live;
   const updatedAt = live?.updatedAt ?? live?.tradeTime ?? null;
-  const title = options.title?.trim() || "Untitled market";
+  const title =
+    options.title?.trim() ||
+    options.eventTitle?.trim() ||
+    "Untitled market";
   return {
     slug: options.slug,
     title,
