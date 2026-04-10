@@ -75,7 +75,7 @@ export function getBoardTitleKey(options: {
 
 export function toBoardMarketRow(options: {
   slug: string;
-  title: string;
+  title: string | null | undefined;
   bucket: "events" | "sports";
   pinned: boolean;
   pinnedAt: string | null;
@@ -86,9 +86,10 @@ export function toBoardMarketRow(options: {
 }): Record<string, unknown> {
   const live = options.live;
   const updatedAt = live?.updatedAt ?? live?.tradeTime ?? null;
+  const title = options.title?.trim() || "Untitled market";
   return {
     slug: options.slug,
-    title: options.title,
+    title,
     bucket: options.bucket,
     pinned: options.pinned,
     pinnedAt: options.pinnedAt,

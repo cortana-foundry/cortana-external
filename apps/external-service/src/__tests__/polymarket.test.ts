@@ -325,6 +325,65 @@ describe("polymarket routes", () => {
     });
   });
 
+  it("preserves all rapid pin writes", async () => {
+    const app = createApp(createServices());
+    const markets = [
+      {
+        marketSlug: "rapid-pin-1",
+        bucket: "events",
+        title: "Rapid Pin 1",
+        eventTitle: "Rapid Event 1",
+        league: null,
+      },
+      {
+        marketSlug: "rapid-pin-2",
+        bucket: "events",
+        title: "Rapid Pin 2",
+        eventTitle: "Rapid Event 2",
+        league: null,
+      },
+      {
+        marketSlug: "rapid-pin-3",
+        bucket: "events",
+        title: "Rapid Pin 3",
+        eventTitle: "Rapid Event 3",
+        league: null,
+      },
+      {
+        marketSlug: "rapid-pin-4",
+        bucket: "sports",
+        title: "Rapid Pin 4",
+        eventTitle: "Rapid Sports 4",
+        league: "nba",
+      },
+      {
+        marketSlug: "rapid-pin-5",
+        bucket: "sports",
+        title: "Rapid Pin 5",
+        eventTitle: "Rapid Sports 5",
+        league: "nhl",
+      },
+    ];
+
+    const responses = await Promise.all(
+      markets.map((market) => app.request("/polymarket/pins", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(market),
+      })),
+    );
+
+    responses.forEach((response) => expect(response.status).toBe(200));
+
+    const pinsResponse = await app.request("/polymarket/pins");
+    const body = await pinsResponse.json();
+    expect(pinsResponse.status).toBe(200);
+    expect(body.pinned).toHaveLength(5);
+    expect(body.pinned.map((entry: { marketSlug: string }) => entry.marketSlug).sort()).toEqual(
+      markets.map((market) => market.marketSlug).sort(),
+    );
+  });
+
   it("keeps multiple ranked event markets available for focus refill", async () => {
     const app = createApp(createServices({
       polymarket: new PolymarketService({
@@ -652,6 +711,182 @@ describe("polymarket routes", () => {
     expect(visibleSports.map((market: { slug: string }) => market.slug)).not.toContain("sports-event-market-1");
     expect(visibleEvents.map((market: { slug: string }) => market.slug)).toContain("macro-event-market-6");
     expect(visibleSports.map((market: { slug: string }) => market.slug)).toContain("sports-event-market-6");
+  });
+
+  it("refills top events after pinning the first five visible event contracts", async () => {
+    const boardPinsPath = path.join(TEST_TEMP_ROOT, `board-refill-${Date.now()}-${Math.random()}.json`);
+    const eventCandidates = Array.from({ length: 10 }, (_, index) => ({
+      id: 1200 + index,
+      slug: `macro-refill-event-${index + 1}`,
+      title: `Macro Refill Event ${index + 1}`,
+      active: true,
+      closed: false,
+      archived: false,
+      featured: false,
+      markets: [
+        {
+          id: 1300 + index,
+          slug: `macro-refill-market-${index + 1}`,
+          title: `Macro Refill Market ${index + 1}`,
+          outcome: `Macro Refill Market ${index + 1}`,
+          active: true,
+          closed: false,
+          liquidity: 200000 - index * 5000,
+          volume: 220000 - index * 5000,
+        },
+      ],
+      tags: [{ id: 1400 + index, slug: "economics", label: "Economics" }],
+      liquidity: 210000 - index * 5000,
+      volume: 230000 - index * 5000,
+    }));
+    const sportsCandidates = Array.from({ length: 6 }, (_, index) => ({
+      id: 1500 + index,
+      slug: `sports-refill-event-${index + 1}`,
+      title: `Sports Refill Event ${index + 1}`,
+      active: true,
+      closed: false,
+      archived: false,
+      featured: false,
+      markets: [
+        {
+          id: 1600 + index,
+          slug: `sports-refill-market-${index + 1}`,
+          title: `Sports Refill Market ${index + 1}`,
+          outcome: `Sports Refill Market ${index + 1}`,
+          active: true,
+          closed: false,
+          liquidity: 180000 - index * 5000,
+          volume: 200000 - index * 5000,
+        },
+      ],
+      tags: [
+        { id: 1700 + index, slug: "sports", label: "Sports" },
+        { id: 1800 + index, slug: "soccer", label: "Soccer" },
+      ],
+      series: {
+        id: 1900 + index,
+        slug: "soccer-refill-2026",
+        title: "Soccer Refill 2026",
+      },
+      liquidity: 190000 - index * 5000,
+      volume: 210000 - index * 5000,
+    }));
+
+    const app = createApp(createServices({
+      polymarket: new PolymarketService({
+        keyId: "test-key-id",
+        secretKey: "test-secret",
+        clientFactory: () =>
+          createClient({
+            events: {
+              list: async (params) => ({
+                events: params?.categories?.includes("sports") ? sportsCandidates : eventCandidates,
+              }),
+            },
+            markets: {
+              retrieveBySlug: async (slug: string) => ({
+                market: {
+                  id: 999,
+                  slug,
+                  title: slug,
+                  outcome: "yes",
+                  active: true,
+                  closed: false,
+                },
+              }),
+              bbo: async (slug: string) => ({
+                marketSlug: slug,
+                openInterest: "250000",
+              }),
+              settlement: async () => ({
+                marketSlug: "placeholder",
+                settlementPrice: { value: "1", currency: "USD" },
+                settledAt: "2026-04-10T20:00:00.000Z",
+              }),
+            },
+          }),
+        pinsStore: new PolymarketPinsStore(boardPinsPath),
+        streamRuntime: {
+          getSnapshot: async (marketSlugs = []) => ({
+            generatedAt: "2026-04-10T15:10:00.000Z",
+            status: "ok",
+            apiBaseUrl: "https://api.polymarket.us",
+            keyIdSuffix: "key-id",
+            streamer: {
+              marketsConnected: true,
+              privateConnected: true,
+              operatorState: "healthy",
+              trackedMarketCount: marketSlugs.length,
+              trackedMarketSlugs: marketSlugs,
+              lastMarketMessageAt: "2026-04-10T15:10:00.000Z",
+              lastPrivateMessageAt: "2026-04-10T15:10:00.000Z",
+              lastError: null,
+            },
+            account: {
+              balance: 0,
+              buyingPower: 0,
+              openOrdersCount: 0,
+              positionCount: 0,
+              lastBalanceUpdateAt: null,
+              lastOrdersUpdateAt: null,
+              lastPositionsUpdateAt: null,
+            },
+            markets: marketSlugs.map((marketSlug) => ({
+              marketSlug,
+              bestBid: 0.4,
+              bestAsk: 0.42,
+              lastTrade: 0.41,
+              spread: 0.02,
+              marketState: "MARKET_STATE_OPEN",
+              sharesTraded: 1000,
+              openInterest: 250000,
+              tradePrice: 0.41,
+              tradeQuantity: 12,
+              tradeTime: "2026-04-10T15:10:00.000Z",
+              updatedAt: "2026-04-10T15:10:00.000Z",
+            })),
+            warnings: [],
+          }),
+        },
+      }),
+    }));
+
+    const initialBoard = await app.request("/polymarket/board/live");
+    const initialBody = await initialBoard.json();
+    const firstFive = initialBody.markets
+      .filter((market: { bucket: string; pinned: boolean }) => market.bucket === "events" && !market.pinned)
+      .slice(0, 5);
+
+    for (const market of firstFive) {
+      const response = await app.request("/polymarket/pins", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          marketSlug: market.slug,
+          bucket: "events",
+          title: market.title,
+          eventTitle: market.eventTitle,
+          league: market.league,
+        }),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const refilledBoard = await app.request("/polymarket/board/live");
+    const refilledBody = await refilledBoard.json();
+    const pinnedEvents = refilledBody.markets.filter((market: { bucket: string; pinned: boolean }) => market.bucket === "events" && market.pinned);
+    const visibleEvents = refilledBody.markets.filter((market: { bucket: string; pinned: boolean }) => market.bucket === "events" && !market.pinned);
+
+    expect(refilledBoard.status).toBe(200);
+    expect(pinnedEvents).toHaveLength(5);
+    expect(visibleEvents).toHaveLength(5);
+    expect(visibleEvents.map((market: { slug: string }) => market.slug)).toEqual([
+      "macro-refill-market-6",
+      "macro-refill-market-7",
+      "macro-refill-market-8",
+      "macro-refill-market-9",
+      "macro-refill-market-10",
+    ]);
   });
 
   it("keeps distinct event markets visible when they share the same title across different events", async () => {

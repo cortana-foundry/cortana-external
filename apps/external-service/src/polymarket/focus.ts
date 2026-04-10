@@ -184,7 +184,7 @@ function buildEventFocusCandidates(event: Event): EventMarketCandidate[] {
       compareDescending(parseNumber(left.liquidity), parseNumber(right.liquidity)) ||
       compareDescending(parseNumber(left.volume), parseNumber(right.volume))
     ))
-    .slice(0, 3)
+    .slice(0, 5)
     .map((market) => ({ event, market }));
 }
 

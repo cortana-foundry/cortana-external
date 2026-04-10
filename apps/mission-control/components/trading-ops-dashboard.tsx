@@ -53,7 +53,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const [polymarketLiveData, setPolymarketLiveData] = useState<TradingOpsPolymarketLiveData | null>(null);
   const [polymarketLiveError, setPolymarketLiveError] = useState<string | null>(null);
   const [lastPolymarketLiveAt, setLastPolymarketLiveAt] = useState<string | null>(null);
-  const [polymarketPinPendingSlug, setPolymarketPinPendingSlug] = useState<string | null>(null);
+  const [polymarketPinPendingSlugs, setPolymarketPinPendingSlugs] = useState<string[]>([]);
 
   const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
     setLiveData(payload);
@@ -134,7 +134,9 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     action: "pin" | "remove",
   ) => {
     try {
-      setPolymarketPinPendingSlug(market.slug);
+      setPolymarketPinPendingSlugs((current) => (
+        current.includes(market.slug) ? current : [...current, market.slug]
+      ));
       const response = await fetch(
         action === "pin"
           ? "/api/trading-ops/polymarket/pins"
@@ -147,7 +149,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               ? JSON.stringify({
                   marketSlug: market.slug,
                   bucket: market.bucket,
-                  title: market.title,
+                  title: market.title || "Untitled market",
                   eventTitle: market.eventTitle,
                   league: market.league,
                 })
@@ -160,13 +162,13 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         throw new Error(payload?.error ?? `Polymarket ${action} failed (${response.status})`);
       }
 
-      await Promise.all([fetchPolymarketLiveData(), fetchPolymarketData()]);
+      await fetchPolymarketLiveData();
     } catch (error) {
       setPolymarketLiveError(error instanceof Error ? error.message : `Polymarket ${action} failed`);
     } finally {
-      setPolymarketPinPendingSlug(null);
+      setPolymarketPinPendingSlugs((current) => current.filter((slug) => slug !== market.slug));
     }
-  }, [fetchPolymarketData, fetchPolymarketLiveData]);
+  }, [fetchPolymarketLiveData]);
 
   useEffect(() => {
     let stopped = false;
@@ -879,7 +881,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketPinnedRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketPinnedRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         onToggle: () => void mutatePolymarketPin(market, "remove"),
                       }))}
@@ -911,7 +913,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketEventRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketEventRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         rosterNew: polymarketEventRosterState.newSlugs.has(market.slug),
                         onToggle: () => void mutatePolymarketPin(market, "pin"),
@@ -940,7 +942,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketSportsRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketSportsRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         rosterNew: polymarketSportsRosterState.newSlugs.has(market.slug),
                         onToggle: () => void mutatePolymarketPin(market, "pin"),
