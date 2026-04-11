@@ -148,7 +148,15 @@ timestamp: ${String(payload.timestamp ?? "")}`}
 
 const HEARTBEAT_REFRESH_DELAYS_MS = [1000, 3000, 7000, 15000];
 
-function scheduleHeartbeatRefreshes() {
+function scheduleHeartbeatRefreshes(optimisticLastHeartbeatMs?: number) {
+  if (typeof optimisticLastHeartbeatMs === "number" && Number.isFinite(optimisticLastHeartbeatMs)) {
+    window.dispatchEvent(
+      new CustomEvent("heartbeat-refresh", {
+        detail: { optimisticLastHeartbeatMs },
+      })
+    );
+  }
+
   HEARTBEAT_REFRESH_DELAYS_MS.forEach((delayMs) => {
     window.setTimeout(() => window.dispatchEvent(new Event("heartbeat-refresh")), delayMs);
   });
@@ -192,7 +200,10 @@ export function QuickActionsCard() {
 
       }));
 
-      if (action === "force-heartbeat") scheduleHeartbeatRefreshes();
+      if (action === "force-heartbeat") {
+        const optimisticMs = Date.parse(String(payload.timestamp ?? ""));
+        scheduleHeartbeatRefreshes(Number.isFinite(optimisticMs) ? optimisticMs : undefined);
+      }
     } catch (error) {
       setStatuses((prev) => ({
         ...prev,
@@ -202,7 +213,10 @@ export function QuickActionsCard() {
         },
       }));
 
-      if (action === "force-heartbeat") scheduleHeartbeatRefreshes();
+      if (action === "force-heartbeat") {
+        const optimisticMs = Date.parse(String(payload.timestamp ?? ""));
+        scheduleHeartbeatRefreshes(Number.isFinite(optimisticMs) ? optimisticMs : undefined);
+      }
     }
   };
 

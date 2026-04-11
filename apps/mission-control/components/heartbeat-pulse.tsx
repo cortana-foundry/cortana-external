@@ -13,6 +13,10 @@ type HeartbeatPayload = {
 
 const POLL_MS = 30_000;
 
+type HeartbeatRefreshDetail = {
+  optimisticLastHeartbeatMs?: number;
+};
+
 function formatLastHeartbeat(ageMs: number | null, status: HeartbeatStatus) {
   if (ageMs == null) return "Last heartbeat: never";
 
@@ -63,7 +67,24 @@ export function HeartbeatPulse() {
   useEffect(() => {
     fetchHeartbeat();
     const interval = window.setInterval(fetchHeartbeat, POLL_MS);
-    const onRefresh = () => fetchHeartbeat();
+    const onRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<HeartbeatRefreshDetail>).detail;
+      const optimisticLastHeartbeatMs = detail?.optimisticLastHeartbeatMs;
+
+      if (typeof optimisticLastHeartbeatMs === "number" && Number.isFinite(optimisticLastHeartbeatMs)) {
+        setData({
+          ok: true,
+          lastHeartbeat: optimisticLastHeartbeatMs,
+          ageMs: Math.max(0, Date.now() - optimisticLastHeartbeatMs),
+          status: "healthy",
+        });
+        setError(false);
+        return;
+      }
+
+      void fetchHeartbeat();
+    };
+
     window.addEventListener("heartbeat-refresh", onRefresh);
     return () => { window.clearInterval(interval); window.removeEventListener("heartbeat-refresh", onRefresh); };
   }, [fetchHeartbeat]);
