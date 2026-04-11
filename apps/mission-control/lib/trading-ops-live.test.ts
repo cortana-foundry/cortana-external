@@ -107,11 +107,14 @@ describe("trading ops live loader", () => {
     const data = await loadTradingOpsLiveData({
       baseUrl: "http://127.0.0.1:3033",
       cortanaRepoPath,
+      referenceTime: new Date("2026-04-08T23:00:00.000Z"),
       fetchImpl,
     });
 
     expect(data.streamer.connected).toBe(true);
-    expect(data.tape.freshnessMessage).toContain("quieter after-hours names are waiting");
+    expect(data.tape.freshnessMessage).toBe(
+      "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.",
+    );
     expect(data.tape.providerMode).toBe("schwab_primary");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.sourceSymbol).toBe("DIA");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.changePercent).toBe(2.55);
@@ -586,7 +589,7 @@ describe("trading ops live loader", () => {
         warning: "No after-hours Schwab quote has arrived for this symbol yet.",
       });
       expect(firstQuietGap.tape.freshnessMessage).toBe(
-        "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.",
+        "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.",
       );
 
       vi.setSystemTime(new Date("2026-04-10T22:21:00.000Z"));
@@ -603,7 +606,7 @@ describe("trading ops live loader", () => {
         warning: "No after-hours Schwab quote has arrived for this symbol yet.",
       });
       expect(secondQuietGap.tape.freshnessMessage).toBe(
-        "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.",
+        "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.",
       );
     } finally {
       vi.useRealTimers();
@@ -708,7 +711,9 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(true);
     expect(data.tape.providerMode).toBe("multi_mode");
-    expect(data.tape.freshnessMessage).toContain("Streamer is connected and some quotes are fresh");
+    expect(data.tape.freshnessMessage).toBe(
+      "Streamer is connected and some quotes are fresh, but this batch mixed live symbols with failures or fallback rows.",
+    );
     expect(data.tape.freshnessMessage).not.toContain("reconnecting");
     expect(data.tape.rows.find((row) => row.symbol === "SPY")?.state).toBe("ok");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");

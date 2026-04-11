@@ -1,167 +1,137 @@
 # Polymarket V2 Trade Loop
 
-This page is the source roadmap for the next Polymarket phase: moving from read-only monitoring to a controlled trade-entry loop with decision support.
+This page is the top-level roadmap and decision page for the next Polymarket phase. It stays intentionally short and points the implementation work at the companion doc set.
+
+## Document Set
+
+- PRD: [prd-polymarket-v2-trade-loop.md](../prd/prd-polymarket-v2-trade-loop.md)
+- Tech Spec: [techspec-polymarket-v2-trade-loop.md](../techspec/techspec-polymarket-v2-trade-loop.md)
+- Implementation: [implementation-polymarket-v2-trade-loop.md](../implementation/implementation-polymarket-v2-trade-loop.md)
+- QA: [qa-polymarket-v2-trade-loop.md](../qa/qa-polymarket-v2-trade-loop.md)
 
 ## Goal
 
-Let the operator place Polymarket US trades from Trading Ops with the same discipline used for stock watchlists and Telegram-delivered decision records.
+Let the operator evaluate Polymarket contracts and prepare trades from Trading Ops with the same discipline used for stock workflows and Telegram-delivered decision records.
 
-The important difference from v1 is that v2 is not just a market browser. It is an operator workflow:
+V2 is an operator workflow, not a browser trading shortcut:
 
 - inspect a live contract
 - see why it matters
 - review evidence and risk
 - preview the order
-- submit intentionally
 - keep the thesis and outcome on file
 
-## Recommended sequencing
+## V1 Scope
 
-The direction in this roadmap is right, but the order matters.
-
-V2 should not start with a live trade button. It should start with a decision-support loop:
-
-1. `trade dossier`
-2. `opinion`
-3. `preview`
-4. `submit`
-5. `tracking`
-6. `postmortem`
-
-That keeps the first live-trading version disciplined and inspectable.
-
-## V2 pillars
-
-### 1. Trade dossier
-
-Before order entry, every candidate contract should have a compact operator dossier.
-
-This should exist even if the operator never submits the trade.
-
-Minimum contents:
-
-- contract title, slug, event, and resolution condition
-- live bid / ask / spread / last / open interest / volume
-- recent roster status and whether the contract is newly rotating onto the board
-- linked macro/watchlist context from market-intel
-- related equity proxies when relevant (`SPY`, `QQQ`, `DIA`, sector ETFs, linked stocks)
-- supporting and conflicting facts
-- explicit risks and invalidation conditions
-
-### 2. Decision support
-
-The current backtester decision engine is stock-first. V2 should add a prediction-market opinion layer that is still evidence-led.
-
-Possible outputs:
-
-- `pass`
-- `watch`
-- `small starter`
-- `sized conviction`
-
-That output should be justified by:
-
-- market structure
-- catalyst timing
-- liquidity/spread quality
-- historical context from similar contracts
-- alignment or conflict with the equity regime
-
-The opinion layer should be hybrid:
-
-- deterministic scorecard first
-- compact LLM explanation second
-
-The LLM should explain the facts, not invent the trade.
-
-### 3. Order workflow
-
-Add a server-owned order path in external-service:
-
-- preview order
-- submit order
-- cancel order
-- close position support
-
-Guardrails should live server-side only.
-
-### 4. Record keeping
-
-Polymarket trade decisions should produce durable artifacts the same way stock watchlists and Telegram messages do.
-
-Suggested artifact families:
-
-- thesis snapshot
-- order preview snapshot
-- submitted order record
-- position review snapshot
-- settled outcome / postmortem
-
-Suggested home:
-
-- `var/polymarket/`
-- or a dedicated sub-tree under the existing backtest/run artifact layout
-
-I would lean toward a dedicated Polymarket run family rather than forcing these records into the stock run layout. The two systems should be linked, but not collapsed into the same lifecycle.
-
-## Proposed operator flow
-
-```mermaid
-flowchart LR
-    A["Top events / Top sports card"] --> B["Open trade dossier"]
-    B --> C["Build evidence packet"]
-    C --> D["Show AI / rules-based opinion"]
-    D --> E["Preview order in external-service"]
-    E --> F["Operator confirms side, price, size"]
-    F --> G["Submit order"]
-    G --> H["Persist thesis + order artifact"]
-    H --> I["Track live position in Mission Control"]
-    I --> J["Write settled result + postmortem"]
-```
-
-## Opinion engine ideas
-
-The decision-support layer does not need to be fully generative at first.
-
-A practical first version is hybrid:
-
-- deterministic facts and thresholds first
-- compact LLM synthesis second
-
-Example structure:
-
-1. Rules produce a structured scorecard.
-2. The LLM explains the scorecard in operator language.
-3. The final UI shows both the facts and the summary opinion.
-
-That keeps the system inspectable and avoids a pure-vibes trade assistant.
-
-## Suggested first V2 slice
-
-The first safe slice should be:
+V1 ships the decision loop only:
 
 - read-only trade dossier
 - opinion scorecard
-- order preview only
-- no live order submit from the browser yet
-- full evidence packet
-- explicit max-notional and market-state validation
-- thesis artifact written to disk
-- Telegram-ready summary rendering for the operator
+- order preview
+- artifact persistence
+- Telegram summary
 
-After that:
+V1 does not include live order submit, live cancel, or browser-side trade authorization.
 
-- live submit
-- cancel
-- position review
-- settlement / postmortem
+## Ownership and Boundaries
 
-This means the first V2 milestone is decision quality, not button wiring.
+| Area | Owner | Boundary |
+| --- | --- | --- |
+| Order and market-state APIs | `external-service` | Owns Polymarket order, preview, cancel, and state APIs |
+| Operator UI | Mission Control | Presents data and collects operator review; never submits directly |
+| Decision framing | Backtester | Builds the dossier, scorecard, and artifact trail |
+| Explanation layer | LLM | Explains the decision; it does not authorize or choose the final trade |
+| Run storage | Backtester | Uses a dedicated Polymarket run family under `var/polymarket/` |
 
-## Open questions
+## Sequencing
 
-- Where should Polymarket order artifacts live relative to the current backtester run structure?
-- Should a Polymarket thesis be attached to a stock-market session run, or be its own run family?
-- What are the minimum risk controls before live submit is allowed?
-- Which parts should be deterministic only, and which should be LLM-assisted?
-- How should Telegram/operator summaries differ between preview, submit, live position, and settled result?
+The work should move in phases with clear exit criteria.
+
+### Phase 1: Trade dossier
+
+Build the read-only contract packet for each candidate.
+
+Exit criteria:
+
+- each candidate has a compact dossier
+- the dossier includes contract facts, market context, linked proxies, and risks
+- the dossier is readable without a trade button
+
+### Phase 2: Opinion scorecard
+
+Add the hybrid decision layer.
+
+Exit criteria:
+
+- deterministic facts and thresholds generate the scorecard
+- the LLM adds a short operator explanation
+- the UI shows both the facts and the explanation
+- the final opinion stays evidence-led, not vibe-led
+
+### Phase 3: Order preview
+
+Add preview only, with no live submit in v1.
+
+Exit criteria:
+
+- the operator can preview side, size, and price
+- server-side validation blocks invalid preview state
+- the browser still cannot submit an order directly
+
+### Phase 4: Artifacts and Telegram
+
+Persist the decision trail and surface it in Telegram.
+
+Exit criteria:
+
+- thesis snapshot is written to disk
+- preview snapshot is written to disk
+- Telegram summary is generated from the same record
+- outcome tracking is linked to the same run family
+
+### Future phase: Live submit
+
+Only after v1 is stable should live submit, cancel, and close-position support be enabled.
+
+Exit criteria:
+
+- the operator flow is stable in preview mode
+- guardrails are explicit and testable
+- live order paths are ready for controlled rollout
+
+## Guardrails
+
+- v1 stays read-only beyond preview
+- live order submit never happens from Mission Control directly
+- order authorization stays server-side
+- preview must pass before any later submit path can exist
+- max notional and size limits are enforced on the server
+- market-state checks must gate any future live submit path
+- stale market data should block promotion, not silently pass
+
+## Failure Modes
+
+- stale market data: show the dossier as stale and block promotion
+- LLM failure: keep the deterministic scorecard and mark the explanation degraded
+- preview failure: show the error and preserve the dossier record
+- missing contract metadata: render a partial dossier, not a blank page
+- order rejection: record the failure and keep the preview trail intact
+- partial API outage: degrade the affected row or panel, not the full page
+
+## Acceptance Criteria
+
+- the operator can open a Polymarket candidate and see a complete dossier
+- the scorecard explains the decision with deterministic facts first
+- the preview path validates server-side and writes an artifact
+- Telegram receives a readable summary from the same run
+- the system stores records under the Polymarket run family
+- Mission Control never submits live orders directly in v1
+- the roadmap points implementers to the PRD, tech spec, implementation plan, and QA doc
+
+## Decision Summary
+
+- Polymarket is its own run family under `var/polymarket/`
+- `external-service` owns Polymarket order and state APIs
+- Mission Control presents the workflow and never submits directly
+- the LLM explains the trade but does not authorize it
+- v1 is dossier + opinion + preview + artifacts + Telegram summary only
