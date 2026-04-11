@@ -136,7 +136,7 @@ function renderActionResult(action: ActionKey, data: unknown) {
 used: ${formatNumber(budget.used)}
 remaining: ${formatNumber(budget.remaining)}
 burnRate: ${formatNumber(budget.burnRate)}
-checkedAt: ${String(payload.checkedAt ?? "")}`}
+checkedAt: ${formatDateTime(payload.checkedAt)}`}
       </pre>
     );
   }

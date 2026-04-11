@@ -123,12 +123,12 @@ export function HeartbeatPulse() {
         />
         <p className="text-sm font-medium text-foreground">Heartbeat: {statusLabel}</p>
       </div>
-      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
         {formatLastHeartbeat(data?.ageMs ?? null, status)}
         {error ? " (reconnecting)" : ""}
       </p>
       {formatExactHeartbeat(data?.lastHeartbeat ?? null) ? (
-        <p className="truncate text-[10px] text-muted-foreground/80">{formatExactHeartbeat(data?.lastHeartbeat ?? null)}</p>
+        <p className="text-[10px] text-muted-foreground/80">at {formatExactHeartbeat(data?.lastHeartbeat ?? null)}</p>
       ) : null}
     </div>
   );
