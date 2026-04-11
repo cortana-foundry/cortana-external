@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
   ArtifactState,
+  FinancialServiceHealthRow,
   PolymarketAccountOverview,
   PolymarketResultRow,
   PolymarketResultsOverview,
@@ -63,7 +64,7 @@ type TradingOpsDashboardProps = {
 
 export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
-  const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].some((a) => a.state === "error");
+  const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.financialServices, data.tradingRun].some((a) => a.state === "error");
   const hasTradingRunFallback = data.tradingRun.badgeText === "fallback";
   const [liveData, setLiveData] = useState<TradingOpsLiveData | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
@@ -1186,6 +1187,23 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── System Health ── */}
         <TabsContent value="health" className="space-y-3">
+          <ArtifactPanel title="Financial services health" artifact={data.financialServices}>
+            {data.financialServices.data ? (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Metric label="Healthy" value={String(data.financialServices.data.healthyCount)} />
+                  <Metric label="Degraded" value={String(data.financialServices.data.degradedCount)} />
+                  <Metric label="Needs attention" value={String(data.financialServices.data.errorCount)} />
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {data.financialServices.data.rows.map((row) => (
+                    <FinancialServiceCard key={row.label} row={row} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </ArtifactPanel>
+
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <ArtifactPanel title="Pre-open readiness check" artifact={data.canary}>
               {data.canary.data ? (
@@ -1292,6 +1310,27 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   );
 }
 
+function FinancialServiceCard({ row }: { row: FinancialServiceHealthRow }) {
+  return (
+    <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-medium">{row.label}</p>
+          <p className="text-muted-foreground">{row.summary}</p>
+        </div>
+        <Badge variant={badgeVariantForServiceHealth(row.state)} className="text-[10px]">
+          {row.badgeText ?? row.state}
+        </Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Metric label="Detail" value={row.detail} />
+        <Metric label="Updated" value={row.updatedAt ? formatOperatorTimestamp(row.updatedAt) : "—"} />
+      </div>
+      <p className="mt-2 truncate text-[10px] text-muted-foreground">Source: {row.source}</p>
+    </div>
+  );
+}
+
 function buildLiveArtifact(
   liveData: TradingOpsLiveData | null,
   liveError: string | null,
@@ -1330,6 +1369,13 @@ function badgeVariantForStreamer(streamer: TradingOpsLiveData["streamer"]) {
   if (streamer.connected && streamer.operatorState === "healthy") return "success" as const;
   if (streamer.connected) return "warning" as const;
   return "info" as const;
+}
+
+function badgeVariantForServiceHealth(state: FinancialServiceHealthRow["state"]) {
+  if (state === "ok") return "success" as const;
+  if (state === "degraded") return "warning" as const;
+  if (state === "error") return "destructive" as const;
+  return "outline" as const;
 }
 
 function buildPolymarketStatusArtifact(
