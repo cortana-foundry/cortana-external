@@ -214,8 +214,7 @@ export function QuickActionsCard() {
       }));
 
       if (action === "force-heartbeat") {
-        const optimisticMs = Date.parse(String(payload.timestamp ?? ""));
-        scheduleHeartbeatRefreshes(Number.isFinite(optimisticMs) ? optimisticMs : undefined);
+        scheduleHeartbeatRefreshes();
       }
     }
   };
