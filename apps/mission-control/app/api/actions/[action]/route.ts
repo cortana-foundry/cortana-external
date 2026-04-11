@@ -242,8 +242,9 @@ const runForceHeartbeat = async () => {
       'openclaw system event --text "Manual heartbeat forced from Mission Control" --mode now',
       { encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }
     );
-  } catch {
-    // Best-effort: if CLI is not available, the DB event still got logged
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "OpenClaw system event failed";
+    throw new Error(`Heartbeat event logged, but OpenClaw trigger failed: ${reason}`);
   }
 
   return {

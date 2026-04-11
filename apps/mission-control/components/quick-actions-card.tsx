@@ -146,6 +146,14 @@ timestamp: ${String(payload.timestamp ?? "")}`}
   return <pre className="text-xs leading-5">{prettyJson(payload)}</pre>;
 }
 
+const HEARTBEAT_REFRESH_DELAYS_MS = [1000, 3000, 7000, 15000];
+
+function scheduleHeartbeatRefreshes() {
+  HEARTBEAT_REFRESH_DELAYS_MS.forEach((delayMs) => {
+    window.setTimeout(() => window.dispatchEvent(new Event("heartbeat-refresh")), delayMs);
+  });
+}
+
 export function QuickActionsCard() {
   const [statuses, setStatuses] = useState<Record<ActionKey, ActionState>>({
     "chaos-test": { state: "idle" },
@@ -184,10 +192,7 @@ export function QuickActionsCard() {
 
       }));
 
-      // After force-heartbeat, tell HeartbeatPulse to refresh (delay lets the run complete)
-      if (action === "force-heartbeat") {
-        setTimeout(() => window.dispatchEvent(new Event("heartbeat-refresh")), 3000);
-      }
+      if (action === "force-heartbeat") scheduleHeartbeatRefreshes();
     } catch (error) {
       setStatuses((prev) => ({
         ...prev,
@@ -197,10 +202,7 @@ export function QuickActionsCard() {
         },
       }));
 
-      // After force-heartbeat, tell HeartbeatPulse to refresh (delay lets the run complete)
-      if (action === "force-heartbeat") {
-        setTimeout(() => window.dispatchEvent(new Event("heartbeat-refresh")), 3000);
-      }
+      if (action === "force-heartbeat") scheduleHeartbeatRefreshes();
     }
   };
 

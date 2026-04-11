@@ -64,6 +64,24 @@ describe("POST /api/actions/[action] force-heartbeat", () => {
       expect.objectContaining({ timeout: 15000 })
     );
   });
+
+  it("returns an error when openclaw system event trigger fails", async () => {
+    executeRawMock.mockResolvedValueOnce(1);
+    execSyncMock.mockImplementationOnce(() => {
+      throw new Error("spawn openclaw ENOENT");
+    });
+
+    const { POST } = await import("@/app/api/actions/[action]/route");
+    const res = await POST(new Request("http://localhost/api/actions/force-heartbeat", { method: "POST" }), {
+      params: Promise.resolve({ action: "force-heartbeat" }),
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("OpenClaw trigger failed"),
+    });
+  });
 });
 
 describe("POST /api/actions/[action] check-budget", () => {
