@@ -263,8 +263,7 @@ Observed operator preference from the current roadmap review:
 - make artifacts easy to inspect later
 - keep Telegram concise and trustworthy
 
-### Open Questions
+### Resolved Decisions
 
-No v1-blocking open questions remain for this doc set.
-
-Live submit, cancel, and close-position behavior should be designed in a later doc set after v1 preview has proven stable.
+- No v1-blocking open questions remain for this doc set.
+- Live submit, cancel, and close-position behavior is out of scope for v1 and will be designed in a separate later doc set after the preview-first release has proven stable.

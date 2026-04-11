@@ -307,8 +307,8 @@ Success means:
 
 ---
 
-## Risks / Open Questions
+## Resolved Decisions / Constraints
 
-- exact numeric guardrail thresholds may need tuning after the first dry runs
-- Polymarket market-to-equity proxy mappings may need curation as the roster evolves
-- the next release will need a separate doc set for live submit, cancel, and close-position workflows
+- The initial v1 numeric guardrails are locked for implementation and dry runs in this doc set. Any future tuning must be handled by a follow-up change request or separate doc revision, not by revisiting this spec.
+- Polymarket market-to-equity proxy mappings for v1 come from the existing linked-symbol / roster logic. When the roster changes, mappings are updated by explicit config or code changes. v1 does not introduce dynamic or model-generated proxy mapping.
+- Live submit, cancel, and close-position workflows remain deferred to a separate future doc set. This is a phase boundary for v1, not an open question in this spec.
