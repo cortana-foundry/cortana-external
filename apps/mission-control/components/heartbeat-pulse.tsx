@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type HeartbeatStatus = "healthy" | "stale" | "missed" | "quiet" | "unknown";
 
@@ -12,6 +12,7 @@ type HeartbeatPayload = {
 };
 
 const POLL_MS = 30_000;
+const OPTIMISTIC_GUARD_MS = 20_000;
 
 type HeartbeatRefreshDetail = {
   optimisticLastHeartbeatMs?: number;
@@ -47,6 +48,8 @@ function formatExactHeartbeat(lastHeartbeat: number | null) {
 export function HeartbeatPulse() {
   const [data, setData] = useState<HeartbeatPayload | null>(null);
   const [error, setError] = useState(false);
+  const optimisticFloorRef = useRef<number | null>(null);
+  const optimisticUntilRef = useRef<number>(0);
 
   const fetchHeartbeat = useCallback(async () => {
     try {
@@ -57,6 +60,25 @@ export function HeartbeatPulse() {
       if (!res.ok) throw new Error("heartbeat-status failed");
 
       const payload = (await res.json()) as HeartbeatPayload;
+      const fetchedLastHeartbeat = typeof payload.lastHeartbeat === "number" && Number.isFinite(payload.lastHeartbeat)
+        ? payload.lastHeartbeat
+        : null;
+      const now = Date.now();
+      const optimisticFloor = optimisticFloorRef.current;
+
+      if (
+        optimisticFloor != null &&
+        now < optimisticUntilRef.current &&
+        (fetchedLastHeartbeat == null || fetchedLastHeartbeat < optimisticFloor)
+      ) {
+        return;
+      }
+
+      if (optimisticFloor != null && fetchedLastHeartbeat != null && fetchedLastHeartbeat >= optimisticFloor) {
+        optimisticFloorRef.current = null;
+        optimisticUntilRef.current = 0;
+      }
+
       setData(payload);
       setError(false);
     } catch {
@@ -80,6 +102,8 @@ export function HeartbeatPulse() {
       const optimisticLastHeartbeatMs = detail?.optimisticLastHeartbeatMs;
 
       if (typeof optimisticLastHeartbeatMs === "number" && Number.isFinite(optimisticLastHeartbeatMs)) {
+        optimisticFloorRef.current = optimisticLastHeartbeatMs;
+        optimisticUntilRef.current = Date.now() + OPTIMISTIC_GUARD_MS;
         setData({
           ok: true,
           lastHeartbeat: optimisticLastHeartbeatMs,
