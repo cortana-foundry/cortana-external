@@ -55,6 +55,14 @@ const formatNumber = (value: unknown) => {
   return value.toFixed(2);
 };
 
+const formatDateTime = (value: unknown) => {
+  const source = typeof value === "number" || typeof value === "string" ? value : null;
+  if (source == null) return "—";
+  const d = new Date(source);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+};
+
 function renderActionResult(action: ActionKey, data: unknown) {
   if (!data || typeof data !== "object") {
     return <pre className="text-xs leading-5">{prettyJson(data)}</pre>;
@@ -138,7 +146,7 @@ checkedAt: ${String(payload.checkedAt ?? "")}`}
       <pre className="overflow-x-auto rounded-md border border-border/60 bg-background/70 p-3 font-mono text-xs leading-5">
 {`status: ok
 message: ${String(payload.message ?? "Manual heartbeat inserted")}
-timestamp: ${String(payload.timestamp ?? "")}`}
+timestamp: ${formatDateTime(payload.timestamp)}`}
       </pre>
     );
   }

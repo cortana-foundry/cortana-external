@@ -36,6 +36,14 @@ function formatLastHeartbeat(ageMs: number | null, status: HeartbeatStatus) {
   return `Last heartbeat: ${hours}h ${mins}m ago${status !== "healthy" ? " ⚠️" : ""}`;
 }
 
+
+function formatExactHeartbeat(lastHeartbeat: number | null) {
+  if (lastHeartbeat == null) return null;
+  const d = new Date(lastHeartbeat);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString();
+}
+
 export function HeartbeatPulse() {
   const [data, setData] = useState<HeartbeatPayload | null>(null);
   const [error, setError] = useState(false);
@@ -119,6 +127,9 @@ export function HeartbeatPulse() {
         {formatLastHeartbeat(data?.ageMs ?? null, status)}
         {error ? " (reconnecting)" : ""}
       </p>
+      {formatExactHeartbeat(data?.lastHeartbeat ?? null) ? (
+        <p className="truncate text-[10px] text-muted-foreground/80">{formatExactHeartbeat(data?.lastHeartbeat ?? null)}</p>
+      ) : null}
     </div>
   );
 }
