@@ -1044,8 +1044,10 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
     >
-      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
-      <span>{label}</span>
+      <span className="flex w-full items-center gap-2">
+        <span className="shrink-0">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}</span>
+        <span className="leading-none">{label}</span>
+      </span>
     </Button>
   );
 }
