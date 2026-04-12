@@ -144,36 +144,32 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
 
   return (
     <Card className={cn("overflow-hidden border-l-4 bg-[linear-gradient(135deg,rgba(15,23,42,0.02),transparent_45%,rgba(14,165,233,0.05))]", accentClass, className)}>
-      <CardHeader className="gap-2 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Palmtree className="h-4 w-4" />
-              <span className="text-[10px] font-medium uppercase tracking-[0.22em]">Vacation Ops</span>
-            </div>
-            <div className="space-y-1">
-              <CardTitle className="text-base">Away-mode readiness</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                {data ? `Latest readiness ${formatRelative(data.latestReadiness?.completedAt ?? data.latestReadiness?.startedAt)}` : "Loading readiness state…"}
-              </p>
-            </div>
-            {data?.mode === "active" ? (
-              <div className="max-w-[360px] rounded-2xl border border-emerald-200/70 bg-emerald-50/80 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-emerald-900/40 dark:bg-emerald-950/40">
-                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Time remaining</p>
-                <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-foreground">{countdownValue}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Ends {formatWhen(countdownEndsAt)}</p>
-              </div>
-            ) : null}
+      <CardHeader className="gap-2 pb-2 pt-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Palmtree className="h-4 w-4" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.22em]">Vacation Ops</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base">Away-mode readiness</CardTitle>
             <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")}>{formatModeLabel(data?.mode)}</Badge>
             <Badge variant={badgeVariantForReadiness(data?.latestReadiness?.readinessOutcome)} className="uppercase">
               {data?.latestReadiness?.readinessOutcome === "no_go" ? "NO-GO" : data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
             </Badge>
           </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <p>{data ? `Latest readiness ${formatRelative(data.latestReadiness?.completedAt ?? data.latestReadiness?.startedAt)}` : "Loading readiness state…"}</p>
+            {data?.mode === "active" ? (
+              <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/80 px-3 py-1.5 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-emerald-900/40 dark:bg-emerald-950/40">
+                <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Time remaining</span>
+                <span className="text-sm font-semibold tracking-tight tabular-nums">{countdownValue}</span>
+                <span className="text-xs text-muted-foreground">Ends {formatWhen(countdownEndsAt)}</span>
+              </div>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 pt-0">
+      <CardContent className="space-y-3 pt-0">
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <MetricTile icon={<ShieldCheck className="h-3.5 w-3.5" />} label="Open incidents" value={data?.counts.activeIncidents ?? null} tone={(data?.counts.activeIncidents ?? 0) > 0 ? "warning" : "success"} />
           <MetricTile icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Needs operator" value={data?.counts.humanRequiredIncidents ?? null} tone={(data?.counts.humanRequiredIncidents ?? 0) > 0 ? "danger" : "neutral"} />
