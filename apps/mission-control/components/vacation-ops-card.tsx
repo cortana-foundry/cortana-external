@@ -74,9 +74,27 @@ function formatRelative(value: string | null | undefined) {
   return rem === 0 ? `${hours}h ago` : `${hours}h ${rem}m ago`;
 }
 
+function formatCountdown(value: string | null | undefined, now = Date.now()) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const remainingMs = parsed.getTime() - now;
+  if (remainingMs <= 0) return "Ended";
+
+  const totalMinutes = Math.floor(remainingMs / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 export function VacationOpsCard({ className }: { className?: string } = {}) {
   const [data, setData] = useState<VacationOpsSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     try {
@@ -98,6 +116,11 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
     return () => window.clearInterval(interval);
   }, [load]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const accentClass = useMemo(() => {
     if (!data) return "border-sky-500/25";
     if (data.mode === "active") return "border-emerald-500/35";
@@ -112,6 +135,11 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
     if (data.latestWindow && ["ready", "prep"].includes(data.latestWindow.status)) return data.latestWindow;
     return null;
   }, [data]);
+
+  const countdownValue = useMemo(
+    () => formatCountdown(stagedWindow?.endAt ?? data?.latestWindow?.endAt ?? null, nowTick),
+    [data?.latestWindow?.endAt, nowTick, stagedWindow?.endAt],
+  );
 
   return (
     <Card className={cn("overflow-hidden border-l-4 bg-[linear-gradient(135deg,rgba(15,23,42,0.02),transparent_45%,rgba(14,165,233,0.05))]", accentClass, className)}>
@@ -140,7 +168,12 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
           <MetricTile icon={<ShieldCheck className="h-3.5 w-3.5" />} label="Open incidents" value={data?.counts.activeIncidents ?? null} tone={(data?.counts.activeIncidents ?? 0) > 0 ? "warning" : "success"} />
           <MetricTile icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Needs operator" value={data?.counts.humanRequiredIncidents ?? null} tone={(data?.counts.humanRequiredIncidents ?? 0) > 0 ? "danger" : "neutral"} />
           <MetricTile icon={<TimerReset className="h-3.5 w-3.5" />} label="Paused jobs" value={data?.counts.pausedJobs ?? null} tone={(data?.counts.pausedJobs ?? 0) > 0 ? "info" : "neutral"} />
-          <MetricTile icon={<CalendarDays className="h-3.5 w-3.5" />} label={data?.mode === "active" ? "Next summary" : "Cadence"} valueText={data?.mode === "active" ? formatWhen(data?.nextSummaryAt) : `${data ? formatClock(data.config.summaryTimes.morning) : "8:00 AM"} · ${data ? formatClock(data.config.summaryTimes.evening) : "8:00 PM"}`} tone="neutral" />
+          <MetricTile
+            icon={<CalendarDays className="h-3.5 w-3.5" />}
+            label={data?.mode === "active" ? "Time remaining" : "Cadence"}
+            valueText={data?.mode === "active" ? countdownValue : `${data ? formatClock(data.config.summaryTimes.morning) : "8:00 AM"} · ${data ? formatClock(data.config.summaryTimes.evening) : "8:00 PM"}`}
+            tone="neutral"
+          />
         </div>
 
         <div className="grid gap-3 xl:grid-cols-[1.3fr_1fr]">
