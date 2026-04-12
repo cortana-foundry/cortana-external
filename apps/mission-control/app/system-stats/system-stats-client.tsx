@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { VacationOpsCard } from "@/components/vacation-ops-card";
 import {
   type HealthBadgeVariant,
   type HeartbeatStatus,
@@ -203,8 +204,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
       {error ? <p className="text-xs text-amber-500">{error}</p> : null}
 
       {loading ? (
-        <div className="grid gap-4 md:grid-cols-3 animate-pulse">
-          {[1, 2, 3].map((i) => (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 animate-pulse">
+          {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -221,7 +222,7 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
           ))}
         </div>
       ) : (
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center justify-between text-base">
@@ -340,6 +341,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
             </p>
           </CardContent>
         </Card>
+
+        <VacationOpsCard className="h-full" />
       </div>
       )}
     </div>
