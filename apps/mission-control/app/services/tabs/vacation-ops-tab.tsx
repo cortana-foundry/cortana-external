@@ -292,6 +292,12 @@ export function VacationOpsTab() {
     return () => window.clearInterval(interval);
   }, [load]);
 
+  React.useEffect(() => {
+    if (!data || data.latestReadiness?.state !== "running") return;
+    const interval = window.setInterval(() => void load(), 5_000);
+    return () => window.clearInterval(interval);
+  }, [data, load]);
+
   const runAction = async (action: ActionKey) => {
     try {
       setActiveAction(action);
@@ -310,6 +316,10 @@ export function VacationOpsTab() {
       }
       const summaryText = typeof payload.result.summaryText === "string" ? payload.result.summaryText : null;
       setNotice(summaryText ?? `${action} completed.`);
+      await load();
+      window.setTimeout(() => {
+        void load();
+      }, 1500);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : `${action} failed`);
     } finally {
@@ -348,6 +358,8 @@ export function VacationOpsTab() {
   const summaryCadence = data ? formatCadence(data.config.summaryTimes) : "8:00 AM · 8:00 PM";
   const startTimeOptions = React.useMemo(() => buildTimeOptions(startParts.time), [startParts.time]);
   const endTimeOptions = React.useMemo(() => buildTimeOptions(endParts.time), [endParts.time]);
+  const latestWindowDate = visibleWindow ? formatWindowLabel(visibleWindow.label) : null;
+  const activePreflight = data?.latestReadiness?.state === "running";
 
   return (
     <TabLayout
@@ -390,6 +402,11 @@ export function VacationOpsTab() {
       }
     >
       {notice ? <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200">{notice}</div> : null}
+      {activePreflight ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-2.5 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-200">
+          Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes.
+        </div>
+      ) : null}
 
       {data && (
         <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -399,26 +416,18 @@ export function VacationOpsTab() {
             subtitle="Current away-mode status, scheduled window, and summary cadence"
           >
             <div className="rounded-2xl border border-border/50 bg-muted/10 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Vacation state</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Badge variant={modeBadge(data.mode)}>{formatModeLabel(data.mode)}</Badge>
-                    <span className="text-sm text-muted-foreground">{describeMode(data, stagedWindow)}</span>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-border/50 bg-background/70 px-3 py-2 text-right">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Summary cadence</p>
-                  <p className="mt-1 text-sm font-medium">{summaryCadence}</p>
-                </div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Vacation state</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge variant={modeBadge(data.mode)}>{formatModeLabel(data.mode)}</Badge>
+                {latestWindowDate ? (
+                  <span className="text-sm text-muted-foreground">{data.mode === "active" ? `Window ${latestWindowDate}` : `Prepared for ${latestWindowDate}`}</span>
+                ) : null}
+                <span className="text-sm text-muted-foreground">Summary cadence {summaryCadence}</span>
               </div>
+              <p className="mt-3 max-w-4xl text-sm leading-7 text-muted-foreground">{describeMode(data, stagedWindow)}</p>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <InfoPair
-                label={stagedWindow ? (data.mode === "active" ? "Active window" : "Prepared window") : data.latestWindow ? "Last window" : "Window"}
-                value={visibleWindow ? formatWindowLabel(visibleWindow.label) : "No window staged"}
-              />
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <InfoPair
                 label="State"
                 value={describeWindowStatus(visibleWindow?.status)}
@@ -522,21 +531,21 @@ export function VacationOpsTab() {
                   icon={<PlayCircle className="h-4 w-4" />}
                   loading={activeAction === "prep"}
                   onClick={() => void runAction("prep")}
-                  disabled={!startParts.date || !startParts.time || !endParts.date || !endParts.time || activeAction != null}
+                  disabled={!startParts.date || !startParts.time || !endParts.date || !endParts.time || activeAction != null || activePreflight}
                 />
                 <ActionButton
                   label="Enable"
                   icon={<Power className="h-4 w-4" />}
                   loading={activeAction === "enable"}
                   onClick={() => void runAction("enable")}
-                  disabled={activeAction != null || data.enableReadyWindowId == null || data.mode === "active"}
+                  disabled={activeAction != null || data.enableReadyWindowId == null || data.mode === "active" || activePreflight}
                 />
                 <ActionButton
                   label="Disable"
                   icon={<ShieldEllipsis className="h-4 w-4" />}
                   loading={activeAction === "disable"}
                   onClick={() => void runAction("disable")}
-                  disabled={activeAction != null || data.mode !== "active"}
+                  disabled={activeAction != null || data.mode !== "active" || activePreflight}
                   variant="outline"
                 />
               </div>
