@@ -187,8 +187,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
   const lastSessionUpdate = sessionSummary.lastUpdated == null ? "—" : formatAge(lastSessionAgeMs);
   const lastVacationRunAt =
     data.vacation?.latestReadiness?.completedAt ?? data.vacation?.latestReadiness?.startedAt ?? null;
-  const vacationNextSummary = data.vacation?.mode === "active"
-    ? formatVacationSummaryTime(data.vacation.nextSummaryAt)
+  const vacationCountdown = data.vacation?.mode === "active"
+    ? formatVacationCountdown(data.vacation.activeWindow?.endAt ?? data.vacation.latestWindow?.endAt ?? null)
     : formatVacationCadence(data.vacation?.config.summaryTimes);
 
   const recentMinutes = Math.round(SESSION_RECENT_MS / 60_000);
@@ -387,10 +387,10 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                {data.vacation?.mode === "active" ? "Next summary" : "Cadence"}
+                {data.vacation?.mode === "active" ? "Time remaining" : "Cadence"}
               </span>
               <span className="text-right text-sm font-semibold text-foreground">
-                {vacationNextSummary}
+                {vacationCountdown}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 pt-1">
@@ -441,6 +441,23 @@ function formatVacationSummaryTime(value: string | null | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatVacationCountdown(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const remainingMs = parsed.getTime() - Date.now();
+  if (remainingMs <= 0) return "Ended";
+
+  const totalMinutes = Math.floor(remainingMs / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 function formatVacationCadence(summaryTimes?: { morning: string; evening: string }) {
