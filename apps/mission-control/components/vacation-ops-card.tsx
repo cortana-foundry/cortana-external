@@ -180,8 +180,8 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
           <MetricTile icon={<TimerReset className="h-3.5 w-3.5" />} label="Paused jobs" value={data?.counts.pausedJobs ?? null} tone={(data?.counts.pausedJobs ?? 0) > 0 ? "info" : "neutral"} />
           <MetricTile
             icon={<CalendarDays className="h-3.5 w-3.5" />}
-            label={data?.mode === "active" ? "Time remaining" : "Cadence"}
-            valueText={data?.mode === "active" ? countdownValue : `${data ? formatClock(data.config.summaryTimes.morning) : "8:00 AM"} · ${data ? formatClock(data.config.summaryTimes.evening) : "8:00 PM"}`}
+            label={data?.mode === "active" ? "Next summary" : "Cadence"}
+            valueText={data?.mode === "active" ? formatWhen(data?.nextSummaryAt) : `${data ? formatClock(data.config.summaryTimes.morning) : "8:00 AM"} · ${data ? formatClock(data.config.summaryTimes.evening) : "8:00 PM"}`}
             tone="neutral"
           />
         </div>
