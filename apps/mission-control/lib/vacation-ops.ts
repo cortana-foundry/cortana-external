@@ -526,18 +526,20 @@ async function queryMany<T>(sql: string): Promise<T[]> {
 
 export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
   const config = readVacationConfig();
-  const [latestWindowRow, activeWindowRow, latestReadinessRow] = await Promise.all([
+  const [latestWindowRow, activeWindowRow] = await Promise.all([
     queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows ORDER BY updated_at DESC LIMIT 1`),
     queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows WHERE status = 'active' ORDER BY start_at DESC LIMIT 1`),
-    queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE run_type = 'readiness' ORDER BY started_at DESC LIMIT 1`),
   ]);
 
   const latestWindow = mapWindow(latestWindowRow);
   const activeWindow = mapWindow(activeWindowRow);
-  const latestReadiness = mapRun(latestReadinessRow);
   const mirror = readVacationMirror();
 
-  const relevantWindowId = activeWindow?.id ?? latestWindow?.id ?? latestReadiness?.vacationWindowId ?? null;
+  const relevantWindowId = activeWindow?.id ?? latestWindow?.id ?? null;
+  const latestReadinessRow = relevantWindowId
+    ? await queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE vacation_window_id = ${relevantWindowId} AND run_type = 'readiness' ORDER BY started_at DESC LIMIT 1`)
+    : await queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE run_type = 'readiness' ORDER BY started_at DESC LIMIT 1`);
+  const latestReadiness = mapRun(latestReadinessRow);
   const latestReadinessRunId = latestReadiness?.id ?? null;
 
   const [latestSummaryRow, checkRows, incidentRows, actionRows] = await Promise.all([

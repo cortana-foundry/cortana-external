@@ -54,6 +54,13 @@ const MERIDIEM_OPTIONS = [
   { value: "PM", label: "PM" },
 ];
 
+const DEFAULT_PLANNER_PARTS: PlannerParts = {
+  date: "",
+  hour: "12",
+  minute: "00",
+  meridiem: "AM",
+};
+
 type ActionKey = "prep" | "enable" | "disable" | "unpause";
 
 type PlannerParts = {
@@ -62,6 +69,13 @@ type PlannerParts = {
   minute: string;
   meridiem: "AM" | "PM";
 };
+
+function normalizePlannerMinute(minute: number) {
+  const allowed = [0, 15, 30, 45];
+  const nearest = allowed.reduce((best, candidate) =>
+    Math.abs(candidate - minute) < Math.abs(best - minute) ? candidate : best, allowed[0]);
+  return String(nearest).padStart(2, "0");
+}
 
 function formatDateTime(value: string | null | undefined, timezone?: string) {
   if (!value) return "—";
@@ -72,6 +86,20 @@ function formatDateTime(value: string | null | undefined, timezone?: string) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(parsed);
+}
+
+function formatToastDate(value: string, timezone?: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -116,12 +144,7 @@ function formatWindowLabel(label: string | null | undefined) {
 function toPlannerParts(value: string): PlannerParts {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return {
-      date: "",
-      hour: "8",
-      minute: "00",
-      meridiem: "AM",
-    };
+    return { ...DEFAULT_PLANNER_PARTS };
   }
   const rawHour = parsed.getHours();
   const meridiem: "AM" | "PM" = rawHour >= 12 ? "PM" : "AM";
@@ -129,7 +152,7 @@ function toPlannerParts(value: string): PlannerParts {
   return {
     date: `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`,
     hour: String(hour12),
-    minute: String(parsed.getMinutes()).padStart(2, "0"),
+    minute: normalizePlannerMinute(parsed.getMinutes()),
     meridiem,
   };
 }
@@ -359,8 +382,12 @@ function formatFreshnessLabel(check: VacationCheck) {
   return formatFreshnessSourceLabel(check.freshnessSource);
 }
 
-function normalizeToastDates(text: string) {
+function normalizeToastDates(text: string, timezone?: string) {
   return text
+    .replace(
+      /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})\b/g,
+      (value: string) => formatToastDate(value, timezone),
+    )
     .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, year: string, month: string, day: string) => `${month}/${day}/${year}`)
     .replace(/\b(\d{4})\/(\d{2})\/(\d{2})\b/g, (_, year: string, month: string, day: string) => `${month}/${day}/${year}`);
 }
@@ -389,8 +416,8 @@ export function VacationOpsTab() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [activeAction, setActiveAction] = React.useState<ActionKey | null>(null);
-  const [startParts, setStartParts] = React.useState<PlannerParts>({ date: "", hour: "8", minute: "00", meridiem: "AM" });
-  const [endParts, setEndParts] = React.useState<PlannerParts>({ date: "", hour: "8", minute: "00", meridiem: "PM" });
+  const [startParts, setStartParts] = React.useState<PlannerParts>({ ...DEFAULT_PLANNER_PARTS });
+  const [endParts, setEndParts] = React.useState<PlannerParts>({ ...DEFAULT_PLANNER_PARTS });
   const [didTouchWindow, setDidTouchWindow] = React.useState(false);
   const [selectedTier, setSelectedTier] = React.useState<string>("tier-0");
 
@@ -491,7 +518,7 @@ export function VacationOpsTab() {
   const summaryCadence = data ? formatCadence(data.config.summaryTimes) : "8:00 AM · 8:00 PM";
   const latestWindowDate = visibleWindow ? formatWindowLabel(visibleWindow.label) : null;
   const activePreflight = data?.latestReadiness?.state === "running";
-  const toastNotice = notice ? normalizeToastDates(notice) : null;
+  const toastNotice = notice ? normalizeToastDates(notice, data?.config.timezone) : null;
   const preflightToast = activePreflight
     ? "Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes."
     : null;
@@ -538,14 +565,14 @@ export function VacationOpsTab() {
       }
     >
       {toastNotice || preflightToast ? (
-        <div className="pointer-events-none fixed right-4 top-20 z-50 flex max-w-sm flex-col gap-3">
+        <div className="mb-4 flex flex-col gap-3">
           {toastNotice ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/95 px-4 py-3 text-sm text-emerald-900 shadow-lg backdrop-blur dark:border-emerald-900/50 dark:bg-emerald-950/90 dark:text-emerald-200">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/80 dark:text-emerald-200">
               {toastNotice}
             </div>
           ) : null}
           {preflightToast ? (
-            <div className="rounded-xl border border-sky-200 bg-sky-50/95 px-4 py-3 text-sm text-sky-900 shadow-lg backdrop-blur dark:border-sky-900/50 dark:bg-sky-950/90 dark:text-sky-200">
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/80 dark:text-sky-200">
               {preflightToast}
             </div>
           ) : null}
@@ -553,7 +580,7 @@ export function VacationOpsTab() {
       ) : null}
 
       {data && (
-        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="grid gap-4 2xl:grid-cols-[1.15fr_0.85fr]">
           <SectionCard
             icon={<CalendarRange className="h-4 w-4" />}
             title="State & Schedule"
@@ -747,7 +774,7 @@ export function VacationOpsTab() {
                   icon={<PlayCircle className="h-4 w-4" />}
                   loading={activeAction === "prep"}
                   onClick={() => void runAction("prep")}
-                  disabled={!startParts.date || !startParts.hour || !startParts.minute || !endParts.date || !endParts.hour || !endParts.minute || activeAction != null || activePreflight}
+                  disabled={!startParts.date || !startParts.hour || !startParts.minute || !endParts.date || !endParts.hour || !endParts.minute || activeAction != null || activePreflight || data.mode === "active"}
                 />
                 <ActionButton
                   label="Enable"
@@ -774,9 +801,11 @@ export function VacationOpsTab() {
                 />
               </div>
 
-              <div className="rounded-xl border border-border/50 bg-muted/10 p-3 text-sm text-muted-foreground">
-                <p>Preflight stages the candidate window and records a fresh readiness run.</p>
-                <p className="mt-1">Vacation mode remains inactive until you explicitly enable the prepared window.</p>
+              <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
+                <div className="max-w-[56ch] space-y-2 text-sm leading-6 text-muted-foreground [text-wrap:pretty]">
+                  <p>Preflight stages the candidate window and records a fresh readiness run.</p>
+                  <p>Vacation mode remains inactive until you explicitly enable the prepared window.</p>
+                </div>
               </div>
 
               {data.pausedJobs.length > 0 ? (
@@ -1007,7 +1036,15 @@ function ActionButton({
   variant?: "default" | "outline";
 }) {
   return (
-    <Button variant={variant} className={cn("h-auto justify-start px-3 py-3 text-left", variant === "outline" && "bg-background/70")} onClick={onClick} disabled={disabled}>
+    <Button
+      variant={variant}
+      className={cn(
+        "h-auto w-full justify-start px-3 py-3 text-left",
+        variant === "outline" && "bg-background/70",
+      )}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
       <span>{label}</span>
     </Button>
