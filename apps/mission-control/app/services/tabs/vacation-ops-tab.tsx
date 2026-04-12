@@ -359,6 +359,12 @@ function formatFreshnessLabel(check: VacationCheck) {
   return formatFreshnessSourceLabel(check.freshnessSource);
 }
 
+function normalizeToastDates(text: string) {
+  return text
+    .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, year: string, month: string, day: string) => `${month}/${day}/${year}`)
+    .replace(/\b(\d{4})\/(\d{2})\/(\d{2})\b/g, (_, year: string, month: string, day: string) => `${month}/${day}/${year}`);
+}
+
 async function requestVacationOps(init?: RequestInit) {
   const response = await fetch("/api/vacation-ops", { cache: "no-store", ...init });
   const payload = (await response.json()) as VacationOpsResponse;
@@ -485,6 +491,10 @@ export function VacationOpsTab() {
   const summaryCadence = data ? formatCadence(data.config.summaryTimes) : "8:00 AM · 8:00 PM";
   const latestWindowDate = visibleWindow ? formatWindowLabel(visibleWindow.label) : null;
   const activePreflight = data?.latestReadiness?.state === "running";
+  const toastNotice = notice ? normalizeToastDates(notice) : null;
+  const preflightToast = activePreflight
+    ? "Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes."
+    : null;
 
   return (
     <TabLayout
@@ -526,14 +536,18 @@ export function VacationOpsTab() {
         ) : undefined
       }
     >
-      {notice ? (
-        <div className="pointer-events-none fixed right-4 top-20 z-50 max-w-sm rounded-xl border border-emerald-200 bg-emerald-50/95 px-4 py-3 text-sm text-emerald-900 shadow-lg backdrop-blur dark:border-emerald-900/50 dark:bg-emerald-950/90 dark:text-emerald-200">
-          {notice}
-        </div>
-      ) : null}
-      {activePreflight ? (
-        <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-2.5 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-200">
-          Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes.
+      {toastNotice || preflightToast ? (
+        <div className="pointer-events-none fixed right-4 top-20 z-50 flex max-w-sm flex-col gap-3">
+          {toastNotice ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/95 px-4 py-3 text-sm text-emerald-900 shadow-lg backdrop-blur dark:border-emerald-900/50 dark:bg-emerald-950/90 dark:text-emerald-200">
+              {toastNotice}
+            </div>
+          ) : null}
+          {preflightToast ? (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/95 px-4 py-3 text-sm text-sky-900 shadow-lg backdrop-blur dark:border-sky-900/50 dark:bg-sky-950/90 dark:text-sky-200">
+              {preflightToast}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
