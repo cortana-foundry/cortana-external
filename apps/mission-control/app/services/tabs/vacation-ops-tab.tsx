@@ -1,13 +1,31 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, CalendarRange, Loader2, Palmtree, PlayCircle, Power, ShieldCheck, ShieldEllipsis, Siren, Timer } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarRange,
+  Loader2,
+  Palmtree,
+  PlayCircle,
+  Power,
+  ShieldCheck,
+  ShieldEllipsis,
+  Siren,
+  Timer,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnimatedValue } from "@/components/mjolnir/animated-value";
 import { cn } from "@/lib/utils";
-import type { VacationAction, VacationCheck, VacationIncident, VacationOpsSnapshot, VacationTierRollup } from "@/lib/vacation-ops";
+import {
+  type VacationCheck,
+  type VacationIncident,
+  type VacationOpsSnapshot,
+  type VacationTierRollup,
+} from "@/lib/vacation-ops";
 import { EmptyState, RefreshButton, SectionCard, StatCard, TabLayout } from "./shared";
 
 type VacationOpsResponse =
@@ -19,23 +37,37 @@ type VacationOpsActionResponse =
   | { status: "error"; message: string };
 
 const POLL_MS = 45_000;
+const QUARTER_HOUR_OPTIONS = Array.from({ length: 96 }, (_, index) => {
+  const hour = Math.floor(index / 4);
+  const minute = (index % 4) * 15;
+  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return { value, label: formatClock(value) };
+});
 
 type ActionKey = "prep" | "enable" | "disable";
 
-function formatDateTime(value: string | null | undefined) {
+type PlannerParts = {
+  date: string;
+  time: string;
+};
+
+function formatDateTime(value: string | null | undefined, timezone?: string) {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString([], {
-    month: "short",
-    day: "numeric",
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "numeric",
     minute: "2-digit",
-  });
+    hour12: true,
+  }).format(parsed);
 }
 
 function formatRelative(value: string | null | undefined) {
-  if (!value) return "never";
+  if (!value) return "Not recorded";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   const ageMs = Math.max(0, Date.now() - parsed.getTime());
@@ -44,23 +76,51 @@ function formatRelative(value: string | null | undefined) {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   const remainder = mins % 60;
-  return remainder === 0 ? `${hours}h ago` : `${hours}h ${remainder}m ago`;
+  if (hours < 48) return remainder === 0 ? `${hours}h ago` : `${hours}h ${remainder}m ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-function toDateTimeLocalInput(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  const year = parsed.getFullYear();
-  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
-  const day = `${parsed.getDate()}`.padStart(2, "0");
-  const hour = `${parsed.getHours()}`.padStart(2, "0");
-  const minute = `${parsed.getMinutes()}`.padStart(2, "0");
-  return `${year}-${month}-${day}T${hour}:${minute}`;
+function formatClock(value: string) {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
 }
 
-function fromDateTimeLocalInput(value: string) {
+function formatCadence(summaryTimes: VacationOpsSnapshot["config"]["summaryTimes"]) {
+  return `${formatClock(summaryTimes.morning)} · ${formatClock(summaryTimes.evening)}`;
+}
+
+function formatWindowLabel(label: string | null | undefined) {
+  if (!label) return "—";
+  const match = label.match(/(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return label;
+  return `${match[2]}-${match[3]}-${match[1]}`;
+}
+
+function toPlannerParts(value: string) {
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+  if (Number.isNaN(parsed.getTime())) return { date: "", time: "08:00" };
+  return {
+    date: `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`,
+    time: `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`,
+  };
+}
+
+function fromPlannerParts(parts: PlannerParts) {
+  if (!parts.date || !parts.time) return "";
+  const parsed = new Date(`${parts.date}T${parts.time}:00`);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
+function buildTimeOptions(selected: string) {
+  if (!selected || QUARTER_HOUR_OPTIONS.some((option) => option.value === selected)) {
+    return QUARTER_HOUR_OPTIONS;
+  }
+  return [...QUARTER_HOUR_OPTIONS, { value: selected, label: `${formatClock(selected)} · custom` }].sort((left, right) => left.value.localeCompare(right.value));
 }
 
 function readinessBadge(outcome: string | null | undefined) {
@@ -70,11 +130,17 @@ function readinessBadge(outcome: string | null | undefined) {
   return "outline" as const;
 }
 
+function readinessTextClass(outcome: string | null | undefined) {
+  if (outcome === "pass") return "text-emerald-600 dark:text-emerald-300";
+  if (outcome === "warn") return "text-amber-600 dark:text-amber-300";
+  if (outcome === "no_go" || outcome === "fail") return "text-red-600 dark:text-red-300";
+  return "text-foreground";
+}
+
 function modeBadge(mode: string) {
   if (mode === "active") return "success" as const;
   if (mode === "ready") return "info" as const;
-  if (mode === "prep" || mode === "completed") return "secondary" as const;
-  if (mode === "failed" || mode === "expired") return "destructive" as const;
+  if (mode === "prep") return "secondary" as const;
   return "outline" as const;
 }
 
@@ -88,14 +154,88 @@ function checkBadge(status: string) {
 
 function summarizeDetail(detail: Record<string, unknown>) {
   if (typeof detail.detail === "string" && detail.detail.trim().length > 0) {
-    return detail.detail.length > 180 ? `${detail.detail.slice(0, 180)}…` : detail.detail;
+    return detail.detail;
   }
   if (typeof detail.url === "string") return detail.url;
   if (typeof detail.jobName === "string") return detail.jobName;
   if (Array.isArray(detail.staleKeys) && detail.staleKeys.length > 0) return `Stale keys: ${detail.staleKeys.join(", ")}`;
-  if (typeof detail.statusDetail === "string") return detail.statusDetail.length > 160 ? `${detail.statusDetail.slice(0, 160)}…` : detail.statusDetail;
-  const entries = Object.entries(detail).slice(0, 3).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
+  if (typeof detail.statusDetail === "string") return detail.statusDetail;
+  const entries = Object.entries(detail)
+    .slice(0, 3)
+    .map(([key, currentValue]) => `${key}: ${typeof currentValue === "string" ? currentValue : JSON.stringify(currentValue)}`);
   return entries.join(" · ") || "No additional detail";
+}
+
+function formatReadinessOutcome(outcome: string | null | undefined) {
+  if (!outcome) return "N/A";
+  if (outcome === "no_go") return "NO-GO";
+  return outcome.toUpperCase().replaceAll("_", "-");
+}
+
+function formatModeLabel(mode: string) {
+  if (mode === "active") return "Active";
+  if (mode === "ready") return "Prepared";
+  if (mode === "prep") return "Planning";
+  return "Inactive";
+}
+
+function formatWindowStatus(status: string | null | undefined) {
+  if (!status) return "Inactive";
+  if (status === "ready") return "Prepared";
+  if (status === "prep") return "Planning";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function describeWindowStatus(status: string | null | undefined) {
+  if (status === "active") return "Away mode is currently running against this window.";
+  if (status === "ready") return "Prepared and ready to enable, but not active yet.";
+  if (status === "prep") return "Preflight is still staging this window.";
+  if (status === "completed") return "Closed after a previous run or QA pass.";
+  if (status === "expired") return "Expired without remaining away-mode activity.";
+  if (status === "failed") return "Stopped because a required check did not hold.";
+  return "No active or prepared vacation window is staged right now.";
+}
+
+function describeMode(snapshot: VacationOpsSnapshot, stagedWindow: VacationOpsSnapshot["activeWindow"] | VacationOpsSnapshot["latestWindow"] | null) {
+  if (snapshot.mode === "active") {
+    return "Vacation mode is active. Daily summaries and bounded self-heal logging are running against the active window.";
+  }
+  if (snapshot.mode === "ready" && stagedWindow) {
+    return `Vacation mode is not active. A prepared window is staged for ${formatWindowLabel(stagedWindow.label)} and can be enabled when you leave.`;
+  }
+  if (snapshot.mode === "prep") {
+    return "Preflight is currently preparing the next away window. Wait for readiness to complete before enabling.";
+  }
+  if (snapshot.latestWindow) {
+    return `Vacation mode is inactive. The last window on record was ${formatWindowLabel(snapshot.latestWindow.label)}.`;
+  }
+  return "Vacation mode is inactive. No away window has been staged yet.";
+}
+
+function formatFreshnessSourceLabel(source: string | null | undefined) {
+  switch (source) {
+    case "immediate_probe":
+      return "On-demand probe";
+    case "http_probe":
+      return "Live HTTP probe";
+    case "heartbeat_status":
+      return "Heartbeat status";
+    case "runtime_state":
+      return "Runtime state";
+    case "artifact_and_http":
+      return "Artifact + HTTP";
+    case "cron_run":
+      return "Cron delivery";
+    default:
+      return "Freshness not tracked";
+  }
+}
+
+function formatFreshnessLabel(check: VacationCheck) {
+  if (check.freshnessAt) {
+    return `Freshness ${formatRelative(check.freshnessAt)}`;
+  }
+  return formatFreshnessSourceLabel(check.freshnessSource);
 }
 
 async function requestVacationOps(init?: RequestInit) {
@@ -122,14 +262,15 @@ export function VacationOpsTab() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [activeAction, setActiveAction] = React.useState<ActionKey | null>(null);
-  const [startAt, setStartAt] = React.useState("");
-  const [endAt, setEndAt] = React.useState("");
+  const [startParts, setStartParts] = React.useState<PlannerParts>({ date: "", time: "08:00" });
+  const [endParts, setEndParts] = React.useState<PlannerParts>({ date: "", time: "20:00" });
   const [didTouchWindow, setDidTouchWindow] = React.useState(false);
+  const [selectedTier, setSelectedTier] = React.useState<string>("tier-0");
 
   const hydrateWindowInputs = React.useCallback((snapshot: VacationOpsSnapshot) => {
     if (didTouchWindow) return;
-    setStartAt(toDateTimeLocalInput(snapshot.recommendation.startAt));
-    setEndAt(toDateTimeLocalInput(snapshot.recommendation.endAt));
+    setStartParts(toPlannerParts(snapshot.recommendation.startAt));
+    setEndParts(toPlannerParts(snapshot.recommendation.endAt));
   }, [didTouchWindow]);
 
   const load = React.useCallback(async () => {
@@ -152,14 +293,12 @@ export function VacationOpsTab() {
   }, [load]);
 
   const runAction = async (action: ActionKey) => {
-    setActiveAction(action);
-    setError(null);
-    setNotice(null);
-
     try {
+      setActiveAction(action);
+      setError(null);
       const payload = await requestVacationAction(action, {
-        startAt: action === "prep" ? fromDateTimeLocalInput(startAt) : undefined,
-        endAt: action === "prep" ? fromDateTimeLocalInput(endAt) : undefined,
+        startAt: action === "prep" ? fromPlannerParts(startParts) : undefined,
+        endAt: action === "prep" ? fromPlannerParts(endParts) : undefined,
         timezone: data?.config.timezone,
         windowId: action === "enable" ? data?.enableReadyWindowId : undefined,
         reason: action === "disable" ? "manual" : undefined,
@@ -188,21 +327,64 @@ export function VacationOpsTab() {
     return Array.from(groups.entries()).sort((left, right) => left[0] - right[0]);
   }, [data]);
 
+  const tierTabs = React.useMemo(() => groupedChecks.map(([tier, checks]) => ({ value: `tier-${tier}`, tier, checks })), [groupedChecks]);
+
+  React.useEffect(() => {
+    if (tierTabs.length === 0) return;
+    if (!tierTabs.some((tierTab) => tierTab.value === selectedTier)) {
+      setSelectedTier(tierTabs[0].value);
+    }
+  }, [selectedTier, tierTabs]);
+
+  const stagedWindow = React.useMemo(() => {
+    if (!data) return null;
+    if (data.activeWindow) return data.activeWindow;
+    if (data.latestWindow && ["ready", "prep"].includes(data.latestWindow.status)) return data.latestWindow;
+    return null;
+  }, [data]);
+
+  const visibleWindow = stagedWindow ?? data?.latestWindow ?? null;
+  const readinessAt = data?.latestReadiness?.completedAt ?? data?.latestReadiness?.startedAt;
+  const summaryCadence = data ? formatCadence(data.config.summaryTimes) : "8:00 AM · 8:00 PM";
+  const startTimeOptions = React.useMemo(() => buildTimeOptions(startParts.time), [startParts.time]);
+  const endTimeOptions = React.useMemo(() => buildTimeOptions(endParts.time), [endParts.time]);
+
   return (
     <TabLayout
       title="Vacation Ops"
-      subtitle={data ? `Timezone ${data.config.timezone} · ${data.config.systemCount} tracked systems · Updated ${formatRelative(data.generatedAt)}` : "Away-mode operator surface for preflight, activation, and unattended ops."}
-      badge={data ? <Badge variant={modeBadge(data.mode)} className="capitalize">{data.mode}</Badge> : undefined}
+      subtitle={data ? `Timezone: ${data.config.timezone} · ${data.config.systemCount} tracked systems · Updated ${formatRelative(data.generatedAt)}` : "Away-mode operator surface for preflight, activation, and unattended ops."}
+      badge={data ? <Badge variant={modeBadge(data.mode)}>{formatModeLabel(data.mode)}</Badge> : undefined}
       loading={loading && !data}
       error={error}
       actions={<RefreshButton onClick={() => void load()} loading={loading} />}
       stats={
         data ? (
           <>
-            <StatCard icon={<Palmtree className="h-4 w-4" />} label="Mode" value={data.mode.toUpperCase()} sub={data.latestWindow?.label ?? "No window staged"} />
-            <StatCard icon={<ShieldCheck className="h-4 w-4" />} label="Readiness" value={(data.latestReadiness?.readinessOutcome ?? "n/a").toUpperCase().replace("_", "-")} sub={formatRelative(data.latestReadiness?.completedAt ?? data.latestReadiness?.startedAt)} />
-            <StatCard icon={<Siren className="h-4 w-4" />} label="Incidents" value={String(data.counts.activeIncidents)} sub={`${data.counts.humanRequiredIncidents} human required`} />
-            <StatCard icon={<Timer className="h-4 w-4" />} label="Paused Jobs" value={String(data.counts.pausedJobs)} sub={data.nextSummaryAt ? `Next summary ${formatDateTime(data.nextSummaryAt)}` : "Summaries idle"} />
+            <StatCard
+              icon={<Palmtree className="h-4 w-4" />}
+              label="Mode"
+              value={formatModeLabel(data.mode).toUpperCase()}
+              sub={stagedWindow ? `${data.mode === "active" ? "Window" : "Prepared"} ${formatWindowLabel(stagedWindow.label)}` : "No scheduled away window"}
+            />
+            <StatCard
+              icon={<ShieldCheck className="h-4 w-4" />}
+              label="Readiness"
+              value={formatReadinessOutcome(data.latestReadiness?.readinessOutcome)}
+              valueClassName={readinessTextClass(data.latestReadiness?.readinessOutcome)}
+              sub={readinessAt ? `Completed ${formatRelative(readinessAt)}` : "No readiness run recorded"}
+            />
+            <StatCard
+              icon={<Siren className="h-4 w-4" />}
+              label="Incidents"
+              value={String(data.counts.activeIncidents)}
+              sub={data.counts.humanRequiredIncidents > 0 ? `${data.counts.humanRequiredIncidents} need operator review` : "No operator review needed"}
+            />
+            <StatCard
+              icon={<Timer className="h-4 w-4" />}
+              label="Paused Jobs"
+              value={String(data.counts.pausedJobs)}
+              sub={data.counts.pausedJobs > 0 ? "Paused during away mode" : "No jobs paused"}
+            />
           </>
         ) : undefined
       }
@@ -210,24 +392,61 @@ export function VacationOpsTab() {
       {notice ? <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200">{notice}</div> : null}
 
       {data && (
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
           <SectionCard
             icon={<CalendarRange className="h-4 w-4" />}
-            title="Window & Schedule"
-            subtitle="Current away-mode state and summary cadence"
+            title="State & Schedule"
+            subtitle="Current away-mode status, scheduled window, and summary cadence"
           >
-            <div className="grid gap-3 md:grid-cols-2">
-              <InfoPair label="Latest window" value={data.latestWindow?.label ?? "No window prepared"} />
-              <InfoPair label="Window status" value={data.latestWindow?.status ?? "inactive"} badge={data.latestWindow ? <Badge variant={modeBadge(data.latestWindow.status)} className="capitalize">{data.latestWindow.status}</Badge> : undefined} />
-              <InfoPair label="Range" value={data.latestWindow ? `${formatDateTime(data.latestWindow.startAt)} → ${formatDateTime(data.latestWindow.endAt)}` : "Run preflight to stage a window"} />
-              <InfoPair label="Next summary" value={data.nextSummaryAt ? formatDateTime(data.nextSummaryAt) : `AM ${data.config.summaryTimes.morning} · PM ${data.config.summaryTimes.evening}`} />
-              <InfoPair label="Latest readiness" value={data.latestReadiness?.runType ? `${data.latestReadiness.runType} · ${formatRelative(data.latestReadiness.completedAt ?? data.latestReadiness.startedAt)}` : "No readiness run"} badge={<Badge variant={readinessBadge(data.latestReadiness?.readinessOutcome)}>{data.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}</Badge>} />
-              <InfoPair label="Mirror state" value={data.mirror ? `runtime mirror synced · ${String(data.mirror.status ?? "unknown")}` : "No active mirror"} />
+            <div className="rounded-2xl border border-border/50 bg-muted/10 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Vacation state</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge variant={modeBadge(data.mode)}>{formatModeLabel(data.mode)}</Badge>
+                    <span className="text-sm text-muted-foreground">{describeMode(data, stagedWindow)}</span>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border/50 bg-background/70 px-3 py-2 text-right">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Summary cadence</p>
+                  <p className="mt-1 text-sm font-medium">{summaryCadence}</p>
+                </div>
+              </div>
             </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <InfoPair
+                label={stagedWindow ? (data.mode === "active" ? "Active window" : "Prepared window") : data.latestWindow ? "Last window" : "Window"}
+                value={visibleWindow ? formatWindowLabel(visibleWindow.label) : "No window staged"}
+              />
+              <InfoPair
+                label="State"
+                value={describeWindowStatus(visibleWindow?.status)}
+                badge={visibleWindow ? <Badge variant={modeBadge(visibleWindow.status)}>{formatWindowStatus(visibleWindow.status)}</Badge> : undefined}
+              />
+              <InfoPair
+                label={stagedWindow ? "Scheduled range" : "Last recorded range"}
+                value={visibleWindow ? `${formatDateTime(visibleWindow.startAt, visibleWindow.timezone)} → ${formatDateTime(visibleWindow.endAt, visibleWindow.timezone)}` : "Run preflight to stage a window"}
+              />
+              <InfoPair
+                label={data.mode === "active" ? "Next summary" : "Summary cadence"}
+                value={data.mode === "active" && data.nextSummaryAt ? formatDateTime(data.nextSummaryAt, data.config.timezone) : summaryCadence}
+              />
+              <InfoPair
+                label="Latest readiness"
+                value={data.latestReadiness?.runType ? `${data.latestReadiness.runType.replaceAll("_", " ")} · ${formatRelative(readinessAt)}` : "No readiness run"}
+                badge={<Badge variant={readinessBadge(data.latestReadiness?.readinessOutcome)}>{formatReadinessOutcome(data.latestReadiness?.readinessOutcome)}</Badge>}
+              />
+              <InfoPair
+                label="Runtime mirror"
+                value={data.mirror ? `Mirror synced · ${String(data.mirror.status ?? "unknown")}` : "No active runtime mirror"}
+              />
+            </div>
+
             {data.latestSummary?.summaryText ? (
               <div className="mt-4 rounded-xl border border-border/50 bg-muted/10 p-3">
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Latest summary</p>
-                <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6">{data.latestSummary.summaryText}</pre>
+                <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm leading-6">{data.latestSummary.summaryText}</pre>
               </div>
             ) : null}
           </SectionCard>
@@ -237,24 +456,64 @@ export function VacationOpsTab() {
             title="Controls"
             subtitle="Stage preflight first, then enable the prepared window"
           >
-            <div className="space-y-3">
-              <div className="grid gap-3">
-                <label className="space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Start</span>
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <PlannerField label="Start date">
                   <Input
-                    type="datetime-local"
-                    value={startAt}
-                    onChange={(event) => { setDidTouchWindow(true); setStartAt(event.target.value); }}
+                    type="date"
+                    value={startParts.date}
+                    onChange={(event) => {
+                      setDidTouchWindow(true);
+                      setStartParts((current) => ({ ...current, date: event.target.value }));
+                    }}
                   />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">End</span>
+                </PlannerField>
+                <PlannerField label="Start time">
+                  <Select
+                    value={startParts.time}
+                    onValueChange={(value) => {
+                      setDidTouchWindow(true);
+                      setStartParts((current) => ({ ...current, time: value }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-background/70">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {startTimeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </PlannerField>
+                <PlannerField label="End date">
                   <Input
-                    type="datetime-local"
-                    value={endAt}
-                    onChange={(event) => { setDidTouchWindow(true); setEndAt(event.target.value); }}
+                    type="date"
+                    value={endParts.date}
+                    onChange={(event) => {
+                      setDidTouchWindow(true);
+                      setEndParts((current) => ({ ...current, date: event.target.value }));
+                    }}
                   />
-                </label>
+                </PlannerField>
+                <PlannerField label="End time">
+                  <Select
+                    value={endParts.time}
+                    onValueChange={(value) => {
+                      setDidTouchWindow(true);
+                      setEndParts((current) => ({ ...current, time: value }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-background/70">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {endTimeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </PlannerField>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-3">
@@ -263,7 +522,7 @@ export function VacationOpsTab() {
                   icon={<PlayCircle className="h-4 w-4" />}
                   loading={activeAction === "prep"}
                   onClick={() => void runAction("prep")}
-                  disabled={!startAt || !endAt || activeAction != null}
+                  disabled={!startParts.date || !startParts.time || !endParts.date || !endParts.time || activeAction != null}
                 />
                 <ActionButton
                   label="Enable"
@@ -283,8 +542,8 @@ export function VacationOpsTab() {
               </div>
 
               <div className="rounded-xl border border-border/50 bg-muted/10 p-3 text-sm text-muted-foreground">
-                <p>Preflight creates the candidate window and records a fresh readiness run.</p>
-                <p className="mt-1">Enable stays locked until a prepared window is in `ready` and tied to the latest freshness-valid readiness run.</p>
+                <p>Preflight stages the candidate window and records a fresh readiness run.</p>
+                <p className="mt-1">Vacation mode remains inactive until you explicitly enable the prepared window.</p>
               </div>
             </div>
           </SectionCard>
@@ -302,46 +561,50 @@ export function VacationOpsTab() {
             <EmptyState message="No readiness checks recorded yet. Run preflight to populate this view." />
           ) : (
             <div className="space-y-4">
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {data.tierRollup.map((tier) => (
-                  <TierRollupCard key={tier.tier} rollup={tier} />
+                  <TierRollupCard key={tier.tier} rollup={tier} active={selectedTier === `tier-${tier.tier}`} onSelect={() => setSelectedTier(`tier-${tier.tier}`)} />
                 ))}
               </div>
-              <div className="space-y-3">
-                {groupedChecks.map(([tier, checks]) => (
-                  <div key={tier} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">Tier {tier}</Badge>
-                      <span className="text-xs text-muted-foreground">{checks.length} systems</span>
-                    </div>
-                    <div className="space-y-2">
-                      {checks.map((check) => (
-                        <details key={check.id} className="rounded-xl border border-border/50 bg-background/60 px-3 py-3">
-                          <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="truncate text-sm font-medium">{check.systemLabel}</p>
-                                <Badge variant={checkBadge(check.status)} className="uppercase">{check.status}</Badge>
-                                {check.remediationAttempted ? (
-                                  <Badge variant={check.remediationSucceeded ? "success" : "warning"}>
-                                    {check.remediationSucceeded ? "self-healed" : "remediation tried"}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="mt-1 text-xs text-muted-foreground">{summarizeDetail(check.detail)}</p>
+
+              <Tabs value={selectedTier} onValueChange={setSelectedTier} className="space-y-3">
+                <TabsList variant="line" className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
+                  {tierTabs.map((tierTab) => (
+                    <TabsTrigger key={tierTab.value} value={tierTab.value}>
+                      Tier {tierTab.tier}
+                      <span className="text-[10px] text-muted-foreground">{tierTab.checks.length}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {tierTabs.map((tierTab) => (
+                  <TabsContent key={tierTab.value} value={tierTab.value} className="space-y-3">
+                    {tierTab.checks.map((check) => (
+                      <details key={check.id} className="rounded-xl border border-border/50 bg-background/60 px-3 py-3">
+                        <summary className="flex list-none cursor-pointer flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="min-w-0 truncate text-sm font-medium">{check.systemLabel}</p>
+                              <Badge variant={checkBadge(check.status)} className="uppercase">{check.status}</Badge>
+                              {check.remediationAttempted ? (
+                                <Badge variant={check.remediationSucceeded ? "success" : "warning"}>
+                                  {check.remediationSucceeded ? "self-healed" : "remediation tried"}
+                                </Badge>
+                              ) : null}
                             </div>
-                            <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                              <div>Observed {formatRelative(check.observedAt)}</div>
-                              <div>Freshness {formatRelative(check.freshnessAt)}</div>
-                            </div>
-                          </summary>
-                          <pre className="mt-3 overflow-x-auto rounded-lg border border-border/50 bg-muted/10 p-3 text-xs leading-5 text-muted-foreground">{JSON.stringify(check.detail, null, 2)}</pre>
-                        </details>
-                      ))}
-                    </div>
-                  </div>
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground line-clamp-2">{summarizeDetail(check.detail)}</p>
+                          </div>
+                          <div className="grid shrink-0 gap-1 text-[11px] text-muted-foreground sm:text-right">
+                            <div>Observed {formatRelative(check.observedAt)}</div>
+                            <div>{formatFreshnessLabel(check)}</div>
+                          </div>
+                        </summary>
+                        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-muted/10 p-3 text-xs leading-5 text-muted-foreground">{JSON.stringify(check.detail, null, 2)}</pre>
+                      </details>
+                    ))}
+                  </TabsContent>
                 ))}
-              </div>
+              </Tabs>
             </div>
           )}
         </SectionCard>
@@ -352,7 +615,7 @@ export function VacationOpsTab() {
           <SectionCard
             icon={<AlertTriangle className="h-4 w-4" />}
             title="Incidents"
-            subtitle="Open, degraded, and resolved vacation-mode incidents"
+            subtitle="Open, degraded, and resolved away-mode incidents"
             count={data.recentIncidents.length}
           >
             {data.recentIncidents.length === 0 ? (
@@ -360,22 +623,7 @@ export function VacationOpsTab() {
             ) : (
               <div className="space-y-2">
                 {data.recentIncidents.map((incident) => (
-                  <div key={incident.id} className="rounded-xl border border-border/50 bg-background/70 px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium">{incident.systemLabel}</p>
-                          <Badge variant={checkBadge(incident.status)} className="uppercase">{incident.status}</Badge>
-                          {incident.humanRequired ? <Badge variant="destructive">human</Badge> : null}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{incident.symptom || summarizeDetail(incident.detail)}</p>
-                      </div>
-                      <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                        <div>Tier {incident.tier}</div>
-                        <div>{formatRelative(incident.lastObservedAt)}</div>
-                      </div>
-                    </div>
-                  </div>
+                  <IncidentRow key={incident.id} incident={incident} />
                 ))}
               </div>
             )}
@@ -393,17 +641,17 @@ export function VacationOpsTab() {
               <div className="space-y-2">
                 {data.recentActions.map((action) => (
                   <div key={action.id} className="rounded-xl border border-border/50 bg-background/70 px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-medium">{action.systemLabel}</p>
                           <Badge variant={checkBadge(action.actionStatus)} className="uppercase">{action.actionStatus}</Badge>
                           {action.verificationStatus ? <Badge variant={checkBadge(action.verificationStatus)}>{action.verificationStatus}</Badge> : null}
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{action.actionKind.replaceAll("_", " ")}</p>
+                        <p className="mt-1 break-words text-xs text-muted-foreground">{action.actionKind.replaceAll("_", " ")}</p>
                       </div>
-                      <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                        <div>step {action.stepOrder}</div>
+                      <div className="grid shrink-0 gap-1 text-[11px] text-muted-foreground sm:text-right">
+                        <div>Step {action.stepOrder}</div>
                         <div>{formatRelative(action.startedAt)}</div>
                       </div>
                     </div>
@@ -418,6 +666,15 @@ export function VacationOpsTab() {
   );
 }
 
+function PlannerField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function InfoPair({ label, value, badge }: { label: string; value: string; badge?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-border/50 bg-background/60 p-3">
@@ -425,17 +682,32 @@ function InfoPair({ label, value, badge }: { label: string; value: string; badge
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
         {badge}
       </div>
-      <p className="mt-2 text-sm font-medium">{value}</p>
+      <p className="mt-2 break-words text-sm font-medium leading-6">{value}</p>
     </div>
   );
 }
 
-function TierRollupCard({ rollup }: { rollup: VacationTierRollup }) {
+function TierRollupCard({
+  rollup,
+  active,
+  onSelect,
+}: {
+  rollup: VacationTierRollup;
+  active: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "rounded-xl border p-3 text-left transition-colors",
+        active ? "border-sky-500/40 bg-sky-500/10" : "border-border/50 bg-background/60 hover:bg-muted/20",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Tier {rollup.tier}</p>
-        <span className="text-xs text-muted-foreground">{rollup.total} total</span>
+        <span className="text-xs text-muted-foreground">{rollup.total} systems</span>
       </div>
       <div className="mt-3 flex items-end justify-between gap-3">
         <div>
@@ -449,6 +721,27 @@ function TierRollupCard({ rollup }: { rollup: VacationTierRollup }) {
         <div>
           <p className="text-[11px] text-muted-foreground">Red</p>
           <AnimatedValue value={rollup.red} className="text-xl font-semibold text-red-600 dark:text-red-300" />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function IncidentRow({ incident }: { incident: VacationIncident }) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-background/70 px-3 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-medium">{incident.systemLabel}</p>
+            <Badge variant={checkBadge(incident.status)} className="uppercase">{incident.status}</Badge>
+            {incident.humanRequired ? <Badge variant="destructive">operator</Badge> : null}
+          </div>
+          <p className="mt-1 break-words text-xs leading-5 text-muted-foreground line-clamp-2">{incident.symptom || summarizeDetail(incident.detail)}</p>
+        </div>
+        <div className="grid shrink-0 gap-1 text-[11px] text-muted-foreground sm:text-right">
+          <div>Tier {incident.tier}</div>
+          <div>{formatRelative(incident.lastObservedAt)}</div>
         </div>
       </div>
     </div>

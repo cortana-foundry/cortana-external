@@ -24,6 +24,13 @@ function badgeVariantForMode(mode: string) {
   return "outline" as const;
 }
 
+function formatModeLabel(mode: string | null | undefined) {
+  if (mode === "active") return "Active";
+  if (mode === "ready") return "Prepared";
+  if (mode === "prep") return "Planning";
+  return "Inactive";
+}
+
 function badgeVariantForReadiness(outcome: string | null | undefined) {
   if (outcome === "pass") return "success" as const;
   if (outcome === "warn") return "warning" as const;
@@ -36,6 +43,22 @@ function formatWhen(value: string | null | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatClock(value: string) {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function formatWindowLabel(label: string | null | undefined) {
+  if (!label) return "—";
+  const match = label.match(/(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return label;
+  return `${match[2]}-${match[3]}-${match[1]}`;
 }
 
 function formatRelative(value: string | null | undefined) {
@@ -83,6 +106,13 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
     return "border-sky-500/25";
   }, [data]);
 
+  const stagedWindow = useMemo(() => {
+    if (!data) return null;
+    if (data.activeWindow) return data.activeWindow;
+    if (data.latestWindow && ["ready", "prep"].includes(data.latestWindow.status)) return data.latestWindow;
+    return null;
+  }, [data]);
+
   return (
     <Card className={cn("overflow-hidden border-l-4 bg-[linear-gradient(135deg,rgba(15,23,42,0.02),transparent_45%,rgba(14,165,233,0.05))]", accentClass, className)}>
       <CardHeader className="gap-2 pb-3">
@@ -98,9 +128,9 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")} className="capitalize">{data?.mode ?? "loading"}</Badge>
+            <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")}>{formatModeLabel(data?.mode)}</Badge>
             <Badge variant={badgeVariantForReadiness(data?.latestReadiness?.readinessOutcome)} className="uppercase">
-              {data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
+              {data?.latestReadiness?.readinessOutcome === "no_go" ? "NO-GO" : data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
             </Badge>
           </div>
         </div>
@@ -108,25 +138,25 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
       <CardContent className="space-y-4 pt-0">
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <MetricTile icon={<ShieldCheck className="h-3.5 w-3.5" />} label="Open incidents" value={data?.counts.activeIncidents ?? null} tone={(data?.counts.activeIncidents ?? 0) > 0 ? "warning" : "success"} />
-          <MetricTile icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Human required" value={data?.counts.humanRequiredIncidents ?? null} tone={(data?.counts.humanRequiredIncidents ?? 0) > 0 ? "danger" : "neutral"} />
+          <MetricTile icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Needs operator" value={data?.counts.humanRequiredIncidents ?? null} tone={(data?.counts.humanRequiredIncidents ?? 0) > 0 ? "danger" : "neutral"} />
           <MetricTile icon={<TimerReset className="h-3.5 w-3.5" />} label="Paused jobs" value={data?.counts.pausedJobs ?? null} tone={(data?.counts.pausedJobs ?? 0) > 0 ? "info" : "neutral"} />
-          <MetricTile icon={<CalendarDays className="h-3.5 w-3.5" />} label="Next summary" valueText={formatWhen(data?.nextSummaryAt)} tone="neutral" />
+          <MetricTile icon={<CalendarDays className="h-3.5 w-3.5" />} label={data?.mode === "active" ? "Next summary" : "Cadence"} valueText={data?.mode === "active" ? formatWhen(data?.nextSummaryAt) : `${data ? formatClock(data.config.summaryTimes.morning) : "8:00 AM"} · ${data ? formatClock(data.config.summaryTimes.evening) : "8:00 PM"}`} tone="neutral" />
         </div>
 
         <div className="grid gap-3 xl:grid-cols-[1.3fr_1fr]">
           <div className="rounded-xl border border-border/50 bg-background/70 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Window</p>
-              <p className="text-[11px] text-muted-foreground">{data?.config.timezone ?? "—"}</p>
+              <p className="text-[11px] text-muted-foreground">Timezone: {data?.config.timezone ?? "—"}</p>
             </div>
             <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
               <div>
-                <p className="text-xs text-muted-foreground">Latest window</p>
-                <p className="font-medium">{data?.latestWindow?.label ?? "No window staged"}</p>
+                <p className="text-xs text-muted-foreground">{stagedWindow ? (data?.mode === "active" ? "Active window" : "Prepared window") : "Last window"}</p>
+                <p className="font-medium">{stagedWindow ? formatWindowLabel(stagedWindow.label) : data?.latestWindow ? formatWindowLabel(data.latestWindow.label) : "No window staged"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Range</p>
-                <p className="font-medium">{data?.latestWindow ? `${formatWhen(data.latestWindow.startAt)} → ${formatWhen(data.latestWindow.endAt)}` : "Use preflight to stage one"}</p>
+                <p className="text-xs text-muted-foreground">{stagedWindow ? "Scheduled range" : "Last range"}</p>
+                <p className="font-medium">{stagedWindow ? `${formatWhen(stagedWindow.startAt)} → ${formatWhen(stagedWindow.endAt)}` : data?.latestWindow ? `${formatWhen(data.latestWindow.startAt)} → ${formatWhen(data.latestWindow.endAt)}` : "Use preflight to stage one"}</p>
               </div>
             </div>
           </div>
@@ -134,7 +164,7 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
           <div className="flex items-end justify-between gap-3 rounded-xl border border-border/50 bg-background/70 p-3">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Schedule</p>
-              <p className="mt-1 text-sm font-medium">AM {data?.config.summaryTimes.morning ?? "08:00"} · PM {data?.config.summaryTimes.evening ?? "20:00"}</p>
+              <p className="mt-1 text-sm font-medium">{data ? `${formatClock(data.config.summaryTimes.morning)} · ${formatClock(data.config.summaryTimes.evening)}` : "8:00 AM · 8:00 PM"}</p>
               <p className="mt-1 text-xs text-muted-foreground">Operator console lives in Services.</p>
             </div>
             <Button asChild variant="outline" size="sm">

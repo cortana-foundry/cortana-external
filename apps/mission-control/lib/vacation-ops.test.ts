@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { computeNextSummaryAt, formatVacationSystemLabel } from "@/lib/vacation-ops";
+import {
+  computeNextSummaryAt,
+  deriveVacationDisplayMode,
+  formatVacationSystemLabel,
+  formatVacationWindowLabel,
+} from "@/lib/vacation-ops";
 
 describe("vacation ops helpers", () => {
   it("formats system keys into readable labels", () => {
     expect(formatVacationSystemLabel("tailscale_remote_access")).toBe("Tailscale Remote Access");
     expect(formatVacationSystemLabel("green_baseline")).toBe("Green Baseline");
+  });
+
+  it("formats vacation window labels into operator dates", () => {
+    expect(formatVacationWindowLabel("vacation-2026-04-13")).toBe("04-13-2026");
+    expect(formatVacationWindowLabel("custom-label")).toBe("custom-label");
+  });
+
+  it("treats completed windows as inactive display state", () => {
+    expect(deriveVacationDisplayMode(null, { status: "completed" })).toBe("inactive");
+    expect(deriveVacationDisplayMode(null, { status: "ready" })).toBe("ready");
+    expect(deriveVacationDisplayMode({ status: "active" }, { status: "ready" })).toBe("active");
   });
 
   it("computes the next summary time from the active window timezone", () => {

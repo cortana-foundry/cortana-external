@@ -167,6 +167,7 @@ export type VacationCheck = {
   status: string;
   observedAt: string;
   freshnessAt: string | null;
+  freshnessSource: string | null;
   remediationAttempted: boolean;
   remediationSucceeded: boolean;
   autonomyIncidentId: number | null;
@@ -265,6 +266,23 @@ export type VacationOpsSnapshot = {
 
 export type VacationActionKey = "prep" | "enable" | "disable";
 
+export function formatVacationWindowLabel(label: string | null | undefined): string {
+  if (!label) return "—";
+  const match = label.match(/(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return label;
+  return `${match[2]}-${match[3]}-${match[1]}`;
+}
+
+export function deriveVacationDisplayMode(
+  activeWindow: Pick<VacationWindow, "status"> | null,
+  latestWindow: Pick<VacationWindow, "status"> | null,
+): "active" | "ready" | "prep" | "inactive" {
+  if (activeWindow?.status === "active") return "active";
+  if (latestWindow?.status === "ready") return "ready";
+  if (latestWindow?.status === "prep") return "prep";
+  return "inactive";
+}
+
 function normalizeIso(value: Date | string | null | undefined): string | null {
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
@@ -338,7 +356,7 @@ function mapRun(row: RawRunRow | null): VacationRun | null {
   };
 }
 
-function mapCheck(row: RawCheckRow): VacationCheck {
+function mapCheck(row: RawCheckRow, config: VacationConfig): VacationCheck {
   return {
     id: row.id,
     runId: row.run_id,
@@ -348,6 +366,7 @@ function mapCheck(row: RawCheckRow): VacationCheck {
     status: row.status,
     observedAt: normalizeIso(row.observed_at) ?? "",
     freshnessAt: normalizeIso(row.freshness_at),
+    freshnessSource: config.systems[row.system_key]?.freshnessSource ?? null,
     remediationAttempted: Boolean(row.remediation_attempted),
     remediationSucceeded: Boolean(row.remediation_succeeded),
     autonomyIncidentId: row.autonomy_incident_id,
@@ -501,16 +520,17 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
       : Promise.resolve([]),
   ]);
 
-  const latestChecks = checkRows.map(mapCheck);
+  const latestChecks = checkRows.map((row) => mapCheck(row, config));
   const recentIncidents = incidentRows.map(mapIncident);
   const recentActions = actionRows.map(mapAction);
   const tierRollup = buildTierRollup(latestChecks);
   const activeIncidents = recentIncidents.filter((incident) => incident.status !== "resolved");
   const resolvedIncidents = recentIncidents.filter((incident) => incident.status === "resolved");
+  const mode = deriveVacationDisplayMode(activeWindow, latestWindow);
 
   return {
     generatedAt: new Date().toISOString(),
-    mode: activeWindow?.status ?? latestWindow?.status ?? "inactive",
+    mode,
     config: {
       timezone: config.timezone,
       summaryTimes: config.summaryTimes,
