@@ -54,7 +54,7 @@ const MERIDIEM_OPTIONS = [
   { value: "PM", label: "PM" },
 ];
 
-type ActionKey = "prep" | "enable" | "disable";
+type ActionKey = "prep" | "enable" | "disable" | "unpause";
 
 type PlannerParts = {
   date: string;
@@ -495,6 +495,7 @@ export function VacationOpsTab() {
   const preflightToast = activePreflight
     ? "Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes."
     : null;
+  const canUnpauseJobs = Boolean(data && data.mode === "active" && data.pausedJobs.length > 0 && !activePreflight);
 
   return (
     <TabLayout
@@ -592,6 +593,10 @@ export function VacationOpsTab() {
               <InfoPair
                 label="Runtime mirror"
                 value={data.mirror ? `Mirror synced · ${String(data.mirror.status ?? "unknown")}` : "No active runtime mirror"}
+              />
+              <InfoPair
+                label="Paused jobs"
+                value={data.pausedJobs.length ? data.pausedJobs.map((job) => job.name).join(", ") : "No jobs paused"}
               />
             </div>
 
@@ -736,7 +741,7 @@ export function VacationOpsTab() {
                 </PlannerField>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <ActionButton
                   label="Run preflight"
                   icon={<PlayCircle className="h-4 w-4" />}
@@ -759,12 +764,31 @@ export function VacationOpsTab() {
                   disabled={activeAction != null || data.mode !== "active" || activePreflight}
                   variant="outline"
                 />
+                <ActionButton
+                  label="Unpause jobs"
+                  icon={<Power className="h-4 w-4" />}
+                  loading={activeAction === "unpause"}
+                  onClick={() => void runAction("unpause")}
+                  disabled={activeAction != null || !canUnpauseJobs}
+                  variant="outline"
+                />
               </div>
 
               <div className="rounded-xl border border-border/50 bg-muted/10 p-3 text-sm text-muted-foreground">
                 <p>Preflight stages the candidate window and records a fresh readiness run.</p>
                 <p className="mt-1">Vacation mode remains inactive until you explicitly enable the prepared window.</p>
               </div>
+
+              {data.pausedJobs.length > 0 ? (
+                <div className="rounded-xl border border-border/50 bg-muted/10 p-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Paused jobs</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {data.pausedJobs.map((job) => (
+                      <Badge key={job.id} variant="outline">{job.name}</Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </SectionCard>
         </div>

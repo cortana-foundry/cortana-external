@@ -262,9 +262,13 @@ export type VacationOpsSnapshot = {
     selfHeals: number;
   };
   enableReadyWindowId: number | null;
+  pausedJobs: Array<{
+    id: string;
+    name: string;
+  }>;
 };
 
-export type VacationActionKey = "prep" | "enable" | "disable";
+export type VacationActionKey = "prep" | "enable" | "disable" | "unpause";
 
 export function formatVacationWindowLabel(label: string | null | undefined): string {
   if (!label) return "—";
@@ -481,6 +485,36 @@ function extractPausedJobs(window: VacationWindow | null, mirror: JsonObject | n
   return Math.max(fromWindow ?? 0, fromMirror ?? 0);
 }
 
+function resolvePausedJobs(config: VacationConfig, window: VacationWindow | null, mirror: JsonObject | null) {
+  const configuredJobs = new Map(config.pausedJobIds.map((id) => [id, ""]));
+  const snapshotIds = Array.isArray(window?.stateSnapshot?.paused_job_ids)
+    ? window?.stateSnapshot?.paused_job_ids.map((value) => String(value))
+    : [];
+  const mirrorIds = Array.isArray(mirror?.pausedJobIds)
+    ? mirror.pausedJobIds.map((value) => String(value))
+    : [];
+  const activeIds = Array.from(new Set([...snapshotIds, ...mirrorIds].filter(Boolean)));
+  const knownJobs = new Map<string, string>();
+  try {
+    const raw = fs.readFileSync(path.join(CORTANA_ROOT, "config", "cron", "jobs.json"), "utf8");
+    const parsed = JSON.parse(raw) as { jobs?: Array<{ id?: string; name?: string }> };
+    for (const job of parsed.jobs ?? []) {
+      const id = String(job.id ?? "");
+      const name = String(job.name ?? "").trim();
+      if (id && name) knownJobs.set(id, name);
+    }
+  } catch {
+    // best-effort name resolution only
+  }
+
+  return activeIds
+    .filter((id) => configuredJobs.has(id) || knownJobs.has(id))
+    .map((id) => ({
+      id,
+      name: knownJobs.get(id) ?? id,
+    }));
+}
+
 async function queryFirst<T>(sql: string): Promise<T | null> {
   const rows = await prisma.$queryRawUnsafe<T[]>(sql);
   return rows[0] ?? null;
@@ -492,23 +526,24 @@ async function queryMany<T>(sql: string): Promise<T[]> {
 
 export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
   const config = readVacationConfig();
-  const [latestWindowRow, activeWindowRow, latestReadinessRow, latestSummaryRow] = await Promise.all([
+  const [latestWindowRow, activeWindowRow, latestReadinessRow] = await Promise.all([
     queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows ORDER BY updated_at DESC LIMIT 1`),
     queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows WHERE status = 'active' ORDER BY start_at DESC LIMIT 1`),
     queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE run_type = 'readiness' ORDER BY started_at DESC LIMIT 1`),
-    queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE run_type IN ('summary_morning', 'summary_evening') ORDER BY started_at DESC LIMIT 1`),
   ]);
 
   const latestWindow = mapWindow(latestWindowRow);
   const activeWindow = mapWindow(activeWindowRow);
   const latestReadiness = mapRun(latestReadinessRow);
-  const latestSummary = mapRun(latestSummaryRow);
   const mirror = readVacationMirror();
 
   const relevantWindowId = activeWindow?.id ?? latestWindow?.id ?? latestReadiness?.vacationWindowId ?? null;
   const latestReadinessRunId = latestReadiness?.id ?? null;
 
-  const [checkRows, incidentRows, actionRows] = await Promise.all([
+  const [latestSummaryRow, checkRows, incidentRows, actionRows] = await Promise.all([
+    relevantWindowId
+      ? queryFirst<RawRunRow>(`SELECT * FROM cortana_vacation_runs WHERE vacation_window_id = ${relevantWindowId} AND run_type IN ('summary_morning', 'summary_evening') ORDER BY started_at DESC LIMIT 1`)
+      : Promise.resolve(null),
     latestReadinessRunId
       ? queryMany<RawCheckRow>(`SELECT * FROM cortana_vacation_check_results WHERE run_id = ${latestReadinessRunId} ORDER BY tier ASC, system_key ASC`)
       : Promise.resolve([]),
@@ -520,6 +555,7 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
       : Promise.resolve([]),
   ]);
 
+  const latestSummary = mapRun(latestSummaryRow);
   const latestChecks = checkRows.map((row) => mapCheck(row, config));
   const recentIncidents = incidentRows.map(mapIncident);
   const recentActions = actionRows.map(mapAction);
@@ -527,6 +563,7 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
   const activeIncidents = recentIncidents.filter((incident) => incident.status !== "resolved");
   const resolvedIncidents = recentIncidents.filter((incident) => incident.status === "resolved");
   const mode = deriveVacationDisplayMode(activeWindow, latestWindow);
+  const pausedJobs = resolvePausedJobs(config, activeWindow ?? latestWindow, mirror);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -562,6 +599,7 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
       latestWindow?.status === "ready" && latestReadiness?.vacationWindowId === latestWindow.id
         ? latestWindow.id
         : null,
+    pausedJobs,
   };
 }
 

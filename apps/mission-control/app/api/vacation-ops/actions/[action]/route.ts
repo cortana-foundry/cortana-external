@@ -13,7 +13,7 @@ type VacationActionBody = {
   reason?: string;
 };
 
-const VALID_ACTIONS: VacationActionKey[] = ["prep", "enable", "disable"];
+const VALID_ACTIONS: VacationActionKey[] = ["prep", "enable", "disable", "unpause"];
 
 export async function POST(
   request: Request,
