@@ -37,18 +37,30 @@ type VacationOpsActionResponse =
   | { status: "error"; message: string };
 
 const POLL_MS = 45_000;
-const QUARTER_HOUR_OPTIONS = Array.from({ length: 96 }, (_, index) => {
-  const hour = Math.floor(index / 4);
-  const minute = (index % 4) * 15;
-  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  return { value, label: formatClock(value) };
+const HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => {
+  const hour = String(index + 1);
+  return { value: hour, label: hour };
 });
+
+const MINUTE_OPTIONS = [
+  { value: "00", label: ":00" },
+  { value: "15", label: ":15" },
+  { value: "30", label: ":30" },
+  { value: "45", label: ":45" },
+];
+
+const MERIDIEM_OPTIONS = [
+  { value: "AM", label: "AM" },
+  { value: "PM", label: "PM" },
+];
 
 type ActionKey = "prep" | "enable" | "disable";
 
 type PlannerParts = {
   date: string;
-  time: string;
+  hour: string;
+  minute: string;
+  meridiem: "AM" | "PM";
 };
 
 function formatDateTime(value: string | null | undefined, timezone?: string) {
@@ -101,26 +113,36 @@ function formatWindowLabel(label: string | null | undefined) {
   return `${match[2]}-${match[3]}-${match[1]}`;
 }
 
-function toPlannerParts(value: string) {
+function toPlannerParts(value: string): PlannerParts {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return { date: "", time: "08:00" };
+  if (Number.isNaN(parsed.getTime())) {
+    return {
+      date: "",
+      hour: "8",
+      minute: "00",
+      meridiem: "AM",
+    };
+  }
+  const rawHour = parsed.getHours();
+  const meridiem: "AM" | "PM" = rawHour >= 12 ? "PM" : "AM";
+  const hour12 = rawHour % 12 === 0 ? 12 : rawHour % 12;
   return {
     date: `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`,
-    time: `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`,
+    hour: String(hour12),
+    minute: String(parsed.getMinutes()).padStart(2, "0"),
+    meridiem,
   };
 }
 
 function fromPlannerParts(parts: PlannerParts) {
-  if (!parts.date || !parts.time) return "";
-  const parsed = new Date(`${parts.date}T${parts.time}:00`);
+  if (!parts.date || !parts.hour || !parts.minute || !parts.meridiem) return "";
+  const numericHour = Number(parts.hour);
+  if (!Number.isFinite(numericHour) || numericHour < 1 || numericHour > 12) return "";
+  const hour24 = parts.meridiem === "AM"
+    ? (numericHour === 12 ? 0 : numericHour)
+    : (numericHour === 12 ? 12 : numericHour + 12);
+  const parsed = new Date(`${parts.date}T${String(hour24).padStart(2, "0")}:${parts.minute}:00`);
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
-}
-
-function buildTimeOptions(selected: string) {
-  if (!selected || QUARTER_HOUR_OPTIONS.some((option) => option.value === selected)) {
-    return QUARTER_HOUR_OPTIONS;
-  }
-  return [...QUARTER_HOUR_OPTIONS, { value: selected, label: `${formatClock(selected)} · custom` }].sort((left, right) => left.value.localeCompare(right.value));
 }
 
 function readinessBadge(outcome: string | null | undefined) {
@@ -361,8 +383,8 @@ export function VacationOpsTab() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [activeAction, setActiveAction] = React.useState<ActionKey | null>(null);
-  const [startParts, setStartParts] = React.useState<PlannerParts>({ date: "", time: "08:00" });
-  const [endParts, setEndParts] = React.useState<PlannerParts>({ date: "", time: "20:00" });
+  const [startParts, setStartParts] = React.useState<PlannerParts>({ date: "", hour: "8", minute: "00", meridiem: "AM" });
+  const [endParts, setEndParts] = React.useState<PlannerParts>({ date: "", hour: "8", minute: "00", meridiem: "PM" });
   const [didTouchWindow, setDidTouchWindow] = React.useState(false);
   const [selectedTier, setSelectedTier] = React.useState<string>("tier-0");
 
@@ -461,8 +483,6 @@ export function VacationOpsTab() {
   const visibleWindow = stagedWindow ?? data?.latestWindow ?? null;
   const readinessAt = data?.latestReadiness?.completedAt ?? data?.latestReadiness?.startedAt;
   const summaryCadence = data ? formatCadence(data.config.summaryTimes) : "8:00 AM · 8:00 PM";
-  const startTimeOptions = React.useMemo(() => buildTimeOptions(startParts.time), [startParts.time]);
-  const endTimeOptions = React.useMemo(() => buildTimeOptions(endParts.time), [endParts.time]);
   const latestWindowDate = visibleWindow ? formatWindowLabel(visibleWindow.label) : null;
   const activePreflight = data?.latestReadiness?.state === "running";
 
@@ -587,22 +607,56 @@ export function VacationOpsTab() {
                   />
                 </PlannerField>
                 <PlannerField label="Start time">
-                  <Select
-                    value={startParts.time}
-                    onValueChange={(value) => {
-                      setDidTouchWindow(true);
-                      setStartParts((current) => ({ ...current, time: value }));
-                    }}
-                  >
-                    <SelectTrigger className="w-full bg-background/70">
-                      <SelectValue placeholder="Select time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {startTimeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select
+                      value={startParts.hour}
+                      onValueChange={(value) => {
+                        setDidTouchWindow(true);
+                        setStartParts((current) => ({ ...current, hour: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="Hour" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOUR_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={startParts.minute}
+                      onValueChange={(value) => {
+                        setDidTouchWindow(true);
+                        setStartParts((current) => ({ ...current, minute: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="Minute" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MINUTE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={startParts.meridiem}
+                      onValueChange={(value: "AM" | "PM") => {
+                        setDidTouchWindow(true);
+                        setStartParts((current) => ({ ...current, meridiem: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="AM/PM" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MERIDIEM_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </PlannerField>
                 <PlannerField label="End date">
                   <Input
@@ -615,22 +669,56 @@ export function VacationOpsTab() {
                   />
                 </PlannerField>
                 <PlannerField label="End time">
-                  <Select
-                    value={endParts.time}
-                    onValueChange={(value) => {
-                      setDidTouchWindow(true);
-                      setEndParts((current) => ({ ...current, time: value }));
-                    }}
-                  >
-                    <SelectTrigger className="w-full bg-background/70">
-                      <SelectValue placeholder="Select time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {endTimeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select
+                      value={endParts.hour}
+                      onValueChange={(value) => {
+                        setDidTouchWindow(true);
+                        setEndParts((current) => ({ ...current, hour: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="Hour" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOUR_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={endParts.minute}
+                      onValueChange={(value) => {
+                        setDidTouchWindow(true);
+                        setEndParts((current) => ({ ...current, minute: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="Minute" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MINUTE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={endParts.meridiem}
+                      onValueChange={(value: "AM" | "PM") => {
+                        setDidTouchWindow(true);
+                        setEndParts((current) => ({ ...current, meridiem: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/70">
+                        <SelectValue placeholder="AM/PM" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MERIDIEM_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </PlannerField>
               </div>
 
@@ -640,7 +728,7 @@ export function VacationOpsTab() {
                   icon={<PlayCircle className="h-4 w-4" />}
                   loading={activeAction === "prep"}
                   onClick={() => void runAction("prep")}
-                  disabled={!startParts.date || !startParts.time || !endParts.date || !endParts.time || activeAction != null || activePreflight}
+                  disabled={!startParts.date || !startParts.hour || !startParts.minute || !endParts.date || !endParts.hour || !endParts.minute || activeAction != null || activePreflight}
                 />
                 <ActionButton
                   label="Enable"
