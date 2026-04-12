@@ -55,7 +55,7 @@ export type LogEntry = {
   message: string;
 };
 
-export type Tab = "overview" | "config" | "agents" | "cron" | "sessions" | "logs";
+export type Tab = "overview" | "config" | "agents" | "cron" | "sessions" | "logs" | "vacation";
 
 /* ── helpers ── */
 

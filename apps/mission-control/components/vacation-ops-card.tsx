@@ -1,0 +1,184 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { CalendarDays, Palmtree, ShieldAlert, ShieldCheck, TimerReset } from "lucide-react";
+import { AnimatedValue } from "@/components/mjolnir/animated-value";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { VacationOpsSnapshot } from "@/lib/vacation-ops";
+import { cn } from "@/lib/utils";
+
+type VacationOpsResponse =
+  | { status: "ok"; data: VacationOpsSnapshot }
+  | { status: "error"; message: string };
+
+const POLL_MS = 60_000;
+
+function badgeVariantForMode(mode: string) {
+  if (mode === "active") return "success" as const;
+  if (mode === "ready") return "info" as const;
+  if (mode === "failed" || mode === "expired") return "destructive" as const;
+  if (mode === "completed") return "secondary" as const;
+  return "outline" as const;
+}
+
+function badgeVariantForReadiness(outcome: string | null | undefined) {
+  if (outcome === "pass") return "success" as const;
+  if (outcome === "warn") return "warning" as const;
+  if (outcome === "no_go" || outcome === "fail") return "destructive" as const;
+  return "outline" as const;
+}
+
+function formatWhen(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatRelative(value: string | null | undefined) {
+  if (!value) return "never";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const ageMs = Math.max(0, Date.now() - parsed.getTime());
+  const mins = Math.floor(ageMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem === 0 ? `${hours}h ago` : `${hours}h ${rem}m ago`;
+}
+
+export function VacationOpsCard({ className }: { className?: string } = {}) {
+  const [data, setData] = useState<VacationOpsSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/vacation-ops", { cache: "no-store" });
+      const payload = (await response.json()) as VacationOpsResponse;
+      if (!response.ok || payload.status !== "ok") {
+        throw new Error(payload.status === "error" ? payload.message : "Vacation Ops unavailable");
+      }
+      setData(payload.data);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Vacation Ops unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(() => void load(), POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [load]);
+
+  const accentClass = useMemo(() => {
+    if (!data) return "border-sky-500/25";
+    if (data.mode === "active") return "border-emerald-500/35";
+    if (data.latestReadiness?.readinessOutcome === "warn") return "border-amber-500/35";
+    if (data.latestReadiness?.readinessOutcome === "fail" || data.latestReadiness?.readinessOutcome === "no_go") return "border-red-500/35";
+    return "border-sky-500/25";
+  }, [data]);
+
+  return (
+    <Card className={cn("overflow-hidden border-l-4 bg-[linear-gradient(135deg,rgba(15,23,42,0.02),transparent_45%,rgba(14,165,233,0.05))]", accentClass, className)}>
+      <CardHeader className="gap-2 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Palmtree className="h-4 w-4" />
+              <span className="text-[10px] font-medium uppercase tracking-[0.22em]">Vacation Ops</span>
+            </div>
+            <CardTitle className="text-base">Away-mode readiness</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {data ? `Latest readiness ${formatRelative(data.latestReadiness?.completedAt ?? data.latestReadiness?.startedAt)}` : "Loading readiness state…"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")} className="capitalize">{data?.mode ?? "loading"}</Badge>
+            <Badge variant={badgeVariantForReadiness(data?.latestReadiness?.readinessOutcome)} className="uppercase">
+              {data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <MetricTile icon={<ShieldCheck className="h-3.5 w-3.5" />} label="Open incidents" value={data?.counts.activeIncidents ?? null} tone={(data?.counts.activeIncidents ?? 0) > 0 ? "warning" : "success"} />
+          <MetricTile icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Human required" value={data?.counts.humanRequiredIncidents ?? null} tone={(data?.counts.humanRequiredIncidents ?? 0) > 0 ? "danger" : "neutral"} />
+          <MetricTile icon={<TimerReset className="h-3.5 w-3.5" />} label="Paused jobs" value={data?.counts.pausedJobs ?? null} tone={(data?.counts.pausedJobs ?? 0) > 0 ? "info" : "neutral"} />
+          <MetricTile icon={<CalendarDays className="h-3.5 w-3.5" />} label="Next summary" valueText={formatWhen(data?.nextSummaryAt)} tone="neutral" />
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[1.3fr_1fr]">
+          <div className="rounded-xl border border-border/50 bg-background/70 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Window</p>
+              <p className="text-[11px] text-muted-foreground">{data?.config.timezone ?? "—"}</p>
+            </div>
+            <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-muted-foreground">Latest window</p>
+                <p className="font-medium">{data?.latestWindow?.label ?? "No window staged"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Range</p>
+                <p className="font-medium">{data?.latestWindow ? `${formatWhen(data.latestWindow.startAt)} → ${formatWhen(data.latestWindow.endAt)}` : "Use preflight to stage one"}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-end justify-between gap-3 rounded-xl border border-border/50 bg-background/70 p-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Schedule</p>
+              <p className="mt-1 text-sm font-medium">AM {data?.config.summaryTimes.morning ?? "08:00"} · PM {data?.config.summaryTimes.evening ?? "20:00"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Operator console lives in Services.</p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/services?tab=vacation">Open Console</Link>
+            </Button>
+          </div>
+        </div>
+
+        {error ? <p className="text-xs text-amber-500">{error}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricTile({
+  icon,
+  label,
+  value,
+  valueText,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  value?: number | null;
+  valueText?: string;
+  tone: "success" | "warning" | "danger" | "info" | "neutral";
+}) {
+  const toneClass = {
+    success: "border-emerald-500/30 bg-emerald-500/8",
+    warning: "border-amber-500/30 bg-amber-500/10",
+    danger: "border-red-500/30 bg-red-500/10",
+    info: "border-sky-500/30 bg-sky-500/10",
+    neutral: "border-border/50 bg-background/70",
+  }[tone];
+
+  return (
+    <div className={cn("rounded-xl border p-3", toneClass)}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <div className="mt-2 text-lg font-semibold tabular-nums">
+        {typeof value === "number" ? <AnimatedValue value={value} className="text-lg font-semibold" /> : valueText ?? "—"}
+      </div>
+    </div>
+  );
+}
