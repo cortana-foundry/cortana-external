@@ -476,7 +476,6 @@ export function VacationOpsTab() {
       }
       const summaryText = typeof payload.result.summaryText === "string" ? payload.result.summaryText : null;
       setNotice(summaryText ?? `${action} completed.`);
-      await load();
       window.setTimeout(() => {
         void load();
       }, 1500);
