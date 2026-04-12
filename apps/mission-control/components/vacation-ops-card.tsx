@@ -140,6 +140,7 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
     () => formatCountdown(stagedWindow?.endAt ?? data?.latestWindow?.endAt ?? null, nowTick),
     [data?.latestWindow?.endAt, nowTick, stagedWindow?.endAt],
   );
+  const countdownEndsAt = stagedWindow?.endAt ?? data?.latestWindow?.endAt ?? null;
 
   return (
     <Card className={cn("overflow-hidden border-l-4 bg-[linear-gradient(135deg,rgba(15,23,42,0.02),transparent_45%,rgba(14,165,233,0.05))]", accentClass, className)}>
@@ -155,11 +156,20 @@ export function VacationOpsCard({ className }: { className?: string } = {}) {
               {data ? `Latest readiness ${formatRelative(data.latestReadiness?.completedAt ?? data.latestReadiness?.startedAt)}` : "Loading readiness state…"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")}>{formatModeLabel(data?.mode)}</Badge>
-            <Badge variant={badgeVariantForReadiness(data?.latestReadiness?.readinessOutcome)} className="uppercase">
-              {data?.latestReadiness?.readinessOutcome === "no_go" ? "NO-GO" : data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
-            </Badge>
+          <div className="flex min-w-[240px] flex-col items-end gap-3">
+            <div className="flex items-center gap-2">
+              <Badge variant={badgeVariantForMode(data?.mode ?? "inactive")}>{formatModeLabel(data?.mode)}</Badge>
+              <Badge variant={badgeVariantForReadiness(data?.latestReadiness?.readinessOutcome)} className="uppercase">
+                {data?.latestReadiness?.readinessOutcome === "no_go" ? "NO-GO" : data?.latestReadiness?.readinessOutcome?.replace("_", "-") ?? "n/a"}
+              </Badge>
+            </div>
+            {data?.mode === "active" ? (
+              <div className="w-full rounded-2xl border border-emerald-200/70 bg-emerald-50/80 px-4 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-emerald-900/40 dark:bg-emerald-950/40">
+                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Time remaining</p>
+                <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-foreground">{countdownValue}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Ends {formatWhen(countdownEndsAt)}</p>
+              </div>
+            ) : null}
           </div>
         </div>
       </CardHeader>
