@@ -153,6 +153,9 @@ function checkBadge(status: string) {
 }
 
 function summarizeDetail(detail: Record<string, unknown>) {
+  if (typeof detail.summary === "string" && detail.summary.trim().length > 0) {
+    return detail.summary;
+  }
   if (typeof detail.detail === "string" && detail.detail.trim().length > 0) {
     return detail.detail;
   }
@@ -164,6 +167,102 @@ function summarizeDetail(detail: Record<string, unknown>) {
     .slice(0, 3)
     .map(([key, currentValue]) => `${key}: ${typeof currentValue === "string" ? currentValue : JSON.stringify(currentValue)}`);
   return entries.join(" · ") || "No additional detail";
+}
+
+function asArray<T = Record<string, unknown>>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function formatBoolean(value: unknown) {
+  if (typeof value !== "boolean") return "Unknown";
+  return value ? "Yes" : "No";
+}
+
+function renderStructuredCheckDetail(check: VacationCheck) {
+  if (check.systemKey === "github_identity") {
+    const scopes = asArray<string>(check.detail.scopes).map((scope) => String(scope));
+    return (
+      <div className="mt-3 grid gap-3 rounded-lg border border-border/50 bg-muted/10 p-3 md:grid-cols-2">
+        <StructuredField label="Host" value={asString(check.detail.host) ?? "Unknown"} />
+        <StructuredField label="Account" value={asString(check.detail.account) ?? "Unknown"} />
+        <StructuredField label="Active account" value={formatBoolean(check.detail.activeAccount)} />
+        <StructuredField label="Git protocol" value={asString(check.detail.gitProtocol) ?? "Unknown"} />
+        <StructuredField label="Config path" value={asString(check.detail.configPath) ?? "Unknown"} className="md:col-span-2" />
+        <StructuredField label="Token" value={asString(check.detail.tokenRedacted) ?? "Unknown"} />
+        <StructuredField
+          label="Scopes"
+          value={scopes.length > 0 ? scopes.join(", ") : "No scopes reported"}
+          className="md:col-span-2"
+        />
+      </div>
+    );
+  }
+
+  if (check.systemKey === "gog_headless_auth") {
+    const accounts = asArray<Record<string, unknown>>(check.detail.accounts);
+    return (
+      <div className="mt-3 space-y-3">
+        <div className="grid gap-3 rounded-lg border border-border/50 bg-muted/10 p-3 md:grid-cols-2">
+          <StructuredField label="Accounts" value={String(check.detail.accountCount ?? accounts.length ?? 0)} />
+          <StructuredField label="Summary" value={asString(check.detail.summary) ?? "No summary"} />
+        </div>
+        {accounts.map((account, index) => {
+          const services = asArray<string>(account.services).map((service) => String(service));
+          const scopes = asArray<string>(account.scopes).map((scope) => String(scope));
+          return (
+            <div key={`${asString(account.email) ?? "account"}-${index}`} className="rounded-lg border border-border/50 bg-background/70 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{asString(account.email) ?? "Unknown account"}</p>
+                {asString(account.client) ? <Badge variant="outline">{String(account.client)}</Badge> : null}
+                {asString(account.auth) ? <Badge variant="outline">{String(account.auth)}</Badge> : null}
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <StructuredField label="Created" value={asString(account.createdAt) ?? "Unknown"} />
+                <StructuredField label="Services" value={services.length > 0 ? services.join(", ") : "No services"} />
+                <StructuredField label="Scopes" value={scopes.length > 0 ? scopes.join(", ") : "No scopes"} className="md:col-span-2" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (check.systemKey === "financial_external_services") {
+    const services = asArray<Record<string, unknown>>(check.detail.services);
+    const marketDataOps = (check.detail.marketDataOps ?? {}) as Record<string, unknown>;
+    return (
+      <div className="mt-3 space-y-3">
+        <div className="grid gap-3 md:grid-cols-3">
+          {services.map((service) => (
+            <div key={String(service.key ?? service.label ?? "service")} className="rounded-lg border border-border/50 bg-background/70 p-3">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">{asString(service.label) ?? "Service"}</p>
+                <Badge variant={checkBadge(asString(service.status) ?? "outline")} className="uppercase">
+                  {asString(service.status) ?? "unknown"}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{asString(service.summary) ?? "No summary"}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-3 rounded-lg border border-border/50 bg-muted/10 p-3 md:grid-cols-2">
+          <StructuredField label="Provider mode" value={asString(marketDataOps.providerMode) ?? "Unknown"} />
+          <StructuredField label="Ops status" value={asString(marketDataOps.status) ?? "Unknown"} />
+          <StructuredField label="Mode reason" value={asString(marketDataOps.providerModeReason) ?? "Unknown"} className="md:col-span-2" />
+          {asString(marketDataOps.degradedReason) ? (
+            <StructuredField label="Degraded reason" value={asString(marketDataOps.degradedReason) ?? "Unknown"} className="md:col-span-2" />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function formatReadinessOutcome(outcome: string | null | undefined) {
@@ -589,10 +688,7 @@ export function VacationOpsTab() {
               <Tabs value={selectedTier} onValueChange={setSelectedTier} className="space-y-3">
                 <TabsList variant="line" className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
                   {tierTabs.map((tierTab) => (
-                    <TabsTrigger key={tierTab.value} value={tierTab.value}>
-                      Tier {tierTab.tier}
-                      <span className="text-[10px] text-muted-foreground">{tierTab.checks.length}</span>
-                    </TabsTrigger>
+                    <TabsTrigger key={tierTab.value} value={tierTab.value}>Tier {tierTab.tier}</TabsTrigger>
                   ))}
                 </TabsList>
 
@@ -618,7 +714,9 @@ export function VacationOpsTab() {
                             <div>{formatFreshnessLabel(check)}</div>
                           </div>
                         </summary>
-                        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-muted/10 p-3 text-xs leading-5 text-muted-foreground">{JSON.stringify(check.detail, null, 2)}</pre>
+                        {renderStructuredCheckDetail(check) ?? (
+                          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-muted/10 p-3 text-xs leading-5 text-muted-foreground">{JSON.stringify(check.detail, null, 2)}</pre>
+                        )}
                       </details>
                     ))}
                   </TabsContent>
@@ -787,5 +885,22 @@ function ActionButton({
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
       <span>{label}</span>
     </Button>
+  );
+}
+
+function StructuredField({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-1", className)}>
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="break-words text-sm leading-6">{value}</p>
+    </div>
   );
 }
