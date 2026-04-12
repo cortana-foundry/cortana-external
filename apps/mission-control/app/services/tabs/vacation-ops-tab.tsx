@@ -293,6 +293,12 @@ export function VacationOpsTab() {
   }, [load]);
 
   React.useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 3_000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  React.useEffect(() => {
     if (!data || data.latestReadiness?.state !== "running") return;
     const interval = window.setInterval(() => void load(), 5_000);
     return () => window.clearInterval(interval);
@@ -401,7 +407,11 @@ export function VacationOpsTab() {
         ) : undefined
       }
     >
-      {notice ? <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200">{notice}</div> : null}
+      {notice ? (
+        <div className="pointer-events-none fixed right-4 top-20 z-50 max-w-sm rounded-xl border border-emerald-200 bg-emerald-50/95 px-4 py-3 text-sm text-emerald-900 shadow-lg backdrop-blur dark:border-emerald-900/50 dark:bg-emerald-950/90 dark:text-emerald-200">
+          {notice}
+        </div>
+      ) : null}
       {activePreflight ? (
         <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-2.5 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-200">
           Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes.
