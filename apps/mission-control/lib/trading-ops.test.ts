@@ -285,6 +285,156 @@ describe("trading ops loader", () => {
     expect(data.tradingRun.data?.canslimNoBuy).toEqual(["TSLA"]);
   });
 
+  it("does not show the stream badge when Schwab streamer is enabled but disconnected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.endsWith("/market-data/ops")) {
+          return new Response(
+            JSON.stringify({
+              generatedAt: "2026-04-03T23:28:00.000Z",
+              data: {
+                serviceOperatorState: "healthy",
+                providerMetrics: {
+                  lastSuccessfulSchwabRestAt: "2026-04-03T23:27:00.000Z",
+                  schwabCooldownUntil: null,
+                  schwabTokenStatus: "ready",
+                },
+                health: {
+                  providers: {
+                    coinmarketcap: "configured",
+                    schwab: "configured",
+                    schwabStreamer: "enabled",
+                    schwabStreamerMeta: {
+                      connected: false,
+                      operatorState: "healthy",
+                      lastLoginAt: "2026-04-03T22:15:15.425Z",
+                      activeSubscriptions: {
+                        LEVELONE_EQUITIES: 55,
+                        ACCT_ACTIVITY: 0,
+                      },
+                    },
+                    fred: "configured",
+                  },
+                },
+              },
+            }),
+          );
+        }
+
+        if (url.endsWith("/alpaca/health")) {
+          return new Response(JSON.stringify({ status: "healthy", environment: "paper", target_environment: "paper" }));
+        }
+
+        if (url.endsWith("/polymarket/health")) {
+          return new Response(
+            JSON.stringify({
+              generatedAt: "2026-04-03T23:28:00.000Z",
+              status: "healthy",
+              apiBaseUrl: "https://api.polymarket.us",
+              gatewayBaseUrl: "https://gateway.polymarket.us",
+              keyIdSuffix: "106dac",
+              balanceCount: 0,
+            }),
+          );
+        }
+
+        if (url.endsWith("/polymarket/live")) {
+          return new Response(
+            JSON.stringify({
+              generatedAt: "2026-04-03T23:28:00.000Z",
+              status: "ok",
+              streamer: {
+                marketsConnected: true,
+                privateConnected: true,
+                operatorState: "healthy",
+                trackedMarketCount: 106,
+                trackedMarketSlugs: ["rdc-usfed-fomc-2026-04-29-cut25bps"],
+                lastMarketMessageAt: "2026-04-03T23:27:59.000Z",
+                lastPrivateMessageAt: "2026-04-03T23:27:58.000Z",
+                lastError: null,
+              },
+              account: {
+                balance: 0,
+                buyingPower: 0,
+                openOrdersCount: 0,
+                positionCount: 0,
+                lastBalanceUpdateAt: "2026-04-03T23:27:58.000Z",
+                lastOrdersUpdateAt: "2026-04-03T23:27:58.000Z",
+                lastPositionsUpdateAt: "2026-04-03T23:27:58.000Z",
+              },
+              markets: [],
+              warnings: [],
+            }),
+          );
+        }
+
+        return new Response(JSON.stringify({ status: "ok" }));
+      }) as typeof fetch,
+    );
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-streamer-disconnected-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-streamer-disconnected-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "summary.json"), {
+      runId: "20260403-163103",
+      completedAt: "2026-04-03T16:38:59.979Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "watchlist-full.json"), {
+      decision: "WATCH",
+      summary: { buy: 0, watch: 36, noBuy: 12 },
+      focus: { ticker: "ABBV", action: "WATCH", strategy: "Dip Buyer" },
+      strategies: {
+        dipBuyer: {
+          buy: [{ ticker: "ABC" }],
+          watch: [{ ticker: "ABBV" }],
+          noBuy: [{ ticker: "AAPL" }],
+        },
+        canslim: {
+          buy: [{ ticker: "NVDA" }],
+          watch: [{ ticker: "MSFT" }],
+          noBuy: [{ ticker: "TSLA" }],
+        },
+      },
+    });
+    await writeFile(
+      path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "message.txt"),
+      "📈 Trading Advisor — Market Snapshot\n🎯 Decision: WATCH\n🔥 Focus: ABBV — WATCH (Dip Buyer)\n",
+    );
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand: async (scriptPath: string) => {
+        if (scriptPath.endsWith("runtime_health_snapshot.py")) {
+          return {
+            generated_at: "2026-04-03T23:25:53.853293+00:00",
+            pre_open_gate_status: "warn",
+            service_health: {
+              operator_state: "provider_cooldown",
+              operator_action: "Wait for cooldown to clear.",
+            },
+            incident_markers: [],
+          };
+        }
+
+        return {
+          generated_at: "2026-04-03T23:26:00.000000+00:00",
+        };
+      },
+      tradingRunStateStore: null,
+    });
+
+    const schwabStreamerRow = data.financialServices.data?.rows.find((row) => row.label === "Schwab streamer");
+
+    expect(schwabStreamerRow?.state).toBe("degraded");
+    expect(schwabStreamerRow?.summary).toBe("disconnected");
+    expect(schwabStreamerRow?.badgeText).toBeNull();
+  });
+
   it("handles missing artifacts without throwing", async () => {
     vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-empty-"));

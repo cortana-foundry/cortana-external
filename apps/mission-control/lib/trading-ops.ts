@@ -650,7 +650,7 @@ function buildSchwabStreamerRow(
         ? `${numberValue(activeSubscriptions?.LEVELONE_EQUITIES) ?? 0} equity subs · ${numberValue(activeSubscriptions?.ACCT_ACTIVITY) ?? 0} acct activity.`
         : opsResult.error ?? "Schwab streamer health was not reported.",
     updatedAt,
-    badgeText: operatorState === "healthy" ? "stream" : undefined,
+    badgeText: connected && operatorState === "healthy" ? "stream" : undefined,
   });
 }
 
