@@ -1260,7 +1260,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Deep Dive ── */}
         <TabsContent value="deep-dive" className="space-y-3">
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <ArtifactPanel title="Prediction accuracy" artifact={data.prediction}>
               {data.prediction.data ? (
                 <div className="space-y-2 text-sm">
@@ -1282,15 +1282,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               ) : null}
             </ArtifactPanel>
 
-            <ArtifactPanel title="Paper lifecycle" artifact={data.lifecycle}>
-              {data.lifecycle.data ? (
-                <div className="space-y-2 text-sm">
-                  <Metric label="Total capital" value={formatMoney(data.lifecycle.data.totalCapital)} />
-                  <Metric label="Available capital" value={formatMoney(data.lifecycle.data.availableCapital)} />
-                  <Metric label="Gross exposure" value={formatPercent(data.lifecycle.data.grossExposurePct)} />
-                </div>
-              ) : null}
-            </ArtifactPanel>
           </section>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">

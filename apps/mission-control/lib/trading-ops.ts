@@ -969,7 +969,7 @@ async function loadLifecycleOverview(
 
   return {
     state: isStale ? "degraded" : "ok",
-    label: "Paper lifecycle",
+    label: "Trade lifecycle",
     message: isStale
       ? compactStrings([
           "Trade lifecycle summary is stale.",
