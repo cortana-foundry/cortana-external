@@ -847,7 +847,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Polymarket ── */}
         <TabsContent value="polymarket" className="space-y-3">
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <section className="space-y-3">
             <ArtifactPanel title="Live stream" artifact={polymarketStreamCardArtifact}>
               {polymarketLiveData ? (
                 <div className="space-y-3 text-sm">
