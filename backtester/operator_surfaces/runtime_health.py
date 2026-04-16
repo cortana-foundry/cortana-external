@@ -5,10 +5,19 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import requests
+
+def _missing_requests_get(*_args: Any, **_kwargs: Any) -> None:
+    raise RuntimeError("requests is not installed")
+
+
+try:
+    import requests
+except ImportError:  # pragma: no cover - exercised in test environments without requests installed
+    requests = SimpleNamespace(get=_missing_requests_get)
 
 from evaluation.artifact_contracts import (
     ARTIFACT_FAMILY_RUNTIME_HEALTH_SNAPSHOT,

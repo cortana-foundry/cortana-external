@@ -15,6 +15,7 @@ import {
 const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
+const STALE_SUMMARY_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 export type LoadState = "ok" | "degraded" | "missing" | "error";
 
@@ -214,7 +215,7 @@ export async function loadTradingOpsDashboardData(
     loadCanaryOverview(repoPath),
     loadPredictionOverview(repoPath),
     loadBenchmarkOverview(repoPath),
-    loadLifecycleOverview(repoPath),
+    loadLifecycleOverview(repoPath, tradingRunSignal),
     loadWorkflowOverview(repoPath, tradingRunSignal),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
     loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
@@ -627,30 +628,44 @@ function buildSchwabStreamerRow(
   opsResult: FetchJsonResult,
 ): FinancialServiceHealthRow {
   const connected = booleanValue(streamerMeta?.connected);
+  const stale = booleanValue(streamerMeta?.stale) ?? false;
   const operatorState = stringValue(streamerMeta?.operatorState) ?? "unknown";
   const configured = stringValue(providers?.schwabStreamer) ?? "disabled";
-  const updatedAt = stringValue(streamerMeta?.lastMessageAt) ?? stringValue(streamerMeta?.lastLoginAt) ?? new Date().toISOString();
+  const updatedAt =
+    stringValue(streamerMeta?.lastMessageAt) ??
+    stringValue(streamerMeta?.lastHeartbeatAt) ??
+    stringValue(streamerMeta?.lastDisconnectAt) ??
+    stringValue(streamerMeta?.lastLoginAt) ??
+    new Date().toISOString();
   const activeSubscriptions = asRecord(streamerMeta?.activeSubscriptions);
+  const lastDisconnectReason = stringValue(streamerMeta?.lastDisconnectReason);
+  const lastDisconnectAt = stringValue(streamerMeta?.lastDisconnectAt);
+  const lastHeartbeatAt = stringValue(streamerMeta?.lastHeartbeatAt);
   const state: LoadState =
     configured !== "enabled"
       ? "error"
-      : connected
-        ? operatorState === "healthy"
-          ? "ok"
-          : "degraded"
-        : "degraded";
+      : !connected || stale || operatorState !== "healthy"
+        ? "degraded"
+        : "ok";
 
   return buildServiceRow({
     label: "Schwab streamer",
     source: "/market-data/ops",
     state,
-    summary: connected ? "connected" : "disconnected",
+    summary: connected ? (stale ? "stale" : "connected") : "disconnected",
     detail:
       connected
-        ? `${numberValue(activeSubscriptions?.LEVELONE_EQUITIES) ?? 0} equity subs · ${numberValue(activeSubscriptions?.ACCT_ACTIVITY) ?? 0} acct activity.`
-        : opsResult.error ?? "Schwab streamer health was not reported.",
+        ? stale
+          ? `Streamer is connected, but the last Schwab update is stale.`
+          : `${numberValue(activeSubscriptions?.LEVELONE_EQUITIES) ?? 0} equity subs · ${numberValue(activeSubscriptions?.ACCT_ACTIVITY) ?? 0} acct activity.`
+        : compactStrings([
+            lastDisconnectReason ? `Disconnected: ${lastDisconnectReason}` : null,
+            lastDisconnectAt ? `Last disconnect ${formatOperatorTimestamp(lastDisconnectAt)}.` : null,
+            lastHeartbeatAt ? `Last heartbeat ${formatOperatorTimestamp(lastHeartbeatAt)}.` : null,
+            opsResult.error ?? "Schwab streamer health was not reported.",
+          ]).join(" "),
     updatedAt,
-    badgeText: operatorState === "healthy" ? "stream" : undefined,
+    badgeText: connected && !stale && operatorState === "healthy" ? "stream" : stale ? "stale" : undefined,
   });
 }
 
@@ -857,11 +872,17 @@ async function loadPredictionOverview(repoPath: string): Promise<ArtifactState<P
     .find((entry) => asRecord(entry?.["1d"]));
   const gradeCounts = asRecord(data.validation_grade_counts);
   const tradeGradeCounts = asRecord(gradeCounts?.trade_validation_grade);
+  const updatedAt = stringValue(data.generated_at) ?? null;
+  const isStale = !updatedAt || isTimestampOlderThanSeconds(updatedAt, STALE_SUMMARY_MAX_AGE_SECONDS);
 
   return {
-    state: "ok",
+    state: isStale ? "degraded" : "ok",
     label: "Prediction loop",
-    message: `${numberValue(data.snapshot_count) ?? 0} snapshots, ${numberValue(data.record_count) ?? 0} settled records tracked.`,
+    message: isStale
+      ? updatedAt
+        ? `Prediction accuracy report is stale. Last refreshed ${formatOperatorTimestamp(updatedAt)} (${formatRelativeAge(updatedAt)}).`
+        : "Prediction accuracy report is stale or missing a generated timestamp."
+      : `${numberValue(data.snapshot_count) ?? 0} snapshots, ${numberValue(data.record_count) ?? 0} settled records tracked.`,
     data: {
       snapshotCount: numberValue(data.snapshot_count) ?? 0,
       recordCount: numberValue(data.record_count) ?? 0,
@@ -877,8 +898,9 @@ async function loadPredictionOverview(repoPath: string): Promise<ArtifactState<P
         : null,
     },
     source: reportPath,
-    updatedAt: stringValue(data.generated_at),
-    warnings: [],
+    updatedAt,
+    warnings: compactStrings([isStale && updatedAt ? `stale:${formatRelativeAge(updatedAt)}` : isStale ? "stale:missing-timestamp" : null]),
+    badgeText: isStale ? "stale" : undefined,
   };
 }
 
@@ -920,7 +942,10 @@ async function loadBenchmarkOverview(repoPath: string): Promise<ArtifactState<Be
   };
 }
 
-async function loadLifecycleOverview(repoPath: string): Promise<ArtifactState<LifecycleOverview>> {
+async function loadLifecycleOverview(
+  repoPath: string,
+  tradingRunSignal: TradingRunSignal | null,
+): Promise<ArtifactState<LifecycleOverview>> {
   const cyclePath = path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json");
   const cycle = await readJsonFile<Record<string, unknown>>(cyclePath);
 
@@ -938,11 +963,23 @@ async function loadLifecycleOverview(repoPath: string): Promise<ArtifactState<Li
   const data = cycle.data;
   const summary = asRecord(data.summary);
   const portfolioSnapshot = asRecord(data.portfolio_snapshot);
+  const updatedAt = stringValue(data.generated_at) ?? null;
+  const isOlderThanTradingRun = isArtifactOlderThanTradingRun(updatedAt, tradingRunSignal);
+  const isStale = !updatedAt || isOlderThanTradingRun || isTimestampOlderThanSeconds(updatedAt, STALE_SUMMARY_MAX_AGE_SECONDS);
 
   return {
-    state: "ok",
+    state: isStale ? "degraded" : "ok",
     label: "Paper lifecycle",
-    message: `${numberValue(summary?.open_count) ?? 0} open, ${numberValue(summary?.closed_total_count) ?? 0} closed.`,
+    message: isStale
+      ? compactStrings([
+          "Trade lifecycle summary is stale.",
+          updatedAt
+            ? isOlderThanTradingRun && tradingRunSignal
+              ? `Latest trading run ${tradingRunSignal.runLabel} is newer than this lifecycle summary.`
+              : `Last refreshed ${formatOperatorTimestamp(updatedAt)} (${formatRelativeAge(updatedAt)}).`
+            : "Lifecycle summary is missing a generated timestamp.",
+        ]).join(" ")
+      : `${numberValue(summary?.open_count) ?? 0} open, ${numberValue(summary?.closed_total_count) ?? 0} closed.`,
     data: {
       openCount: numberValue(summary?.open_count) ?? 0,
       closedCount: numberValue(summary?.closed_total_count) ?? 0,
@@ -951,8 +988,12 @@ async function loadLifecycleOverview(repoPath: string): Promise<ArtifactState<Li
       grossExposurePct: numberValue(portfolioSnapshot?.gross_exposure_pct) == null ? null : (numberValue(portfolioSnapshot?.gross_exposure_pct) ?? 0) * 100,
     },
     source: cyclePath,
-    updatedAt: stringValue(data.generated_at),
-    warnings: [],
+    updatedAt,
+    warnings: compactStrings([
+      isStale && updatedAt ? `stale:${formatRelativeAge(updatedAt)}` : isStale ? "stale:missing-timestamp" : null,
+      isOlderThanTradingRun && tradingRunSignal ? `latest-trading-run:${tradingRunSignal.runLabel}` : null,
+    ]),
+    badgeText: isStale ? "stale" : undefined,
   };
 }
 
@@ -1353,7 +1394,11 @@ async function runBacktesterJsonScript(
 async function readJsonFile<T>(filePath: string): Promise<{ path: string; data: T | null; message?: string; error?: "missing" | "invalid" | "read" }> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    return { path: filePath, data: JSON.parse(raw) as T };
+    const data = JSON.parse(raw) as T;
+    if (looksLikeMockArtifact(data)) {
+      return { path: filePath, data: null, error: "invalid", message: "JSON artifact appears corrupt or test-generated." };
+    }
+    return { path: filePath, data };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") {
@@ -1514,6 +1559,15 @@ function extractTickers(value: unknown): string[] {
 
 function compactStrings(values: Array<string | null | undefined>): string[] {
   return values.filter((value): value is string => Boolean(value && value.trim()));
+}
+
+function looksLikeMockArtifact(value: unknown): boolean {
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" && /MagicMock|<MagicMock|\[object MagicMock\]/u.test(serialized);
+  } catch {
+    return false;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
