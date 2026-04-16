@@ -1414,11 +1414,11 @@ async function refreshPredictionAccuracySummary(
   repoPath: string,
   runJsonCommand: (scriptPath: string, args?: string[]) => Promise<unknown>,
 ): Promise<Record<string, unknown> | null> {
-  const scriptPath = path.join(repoPath, "prediction_accuracy_summary.py");
+  const scriptPath = path.join(repoPath, "backtester", "prediction_accuracy_report.py");
 
   try {
-    const raw = await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]);
-    return asRecord(raw);
+    const raw = asRecord(await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]));
+    return asRecord(raw?.prediction_accuracy);
   } catch {
     return null;
   }

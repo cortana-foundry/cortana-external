@@ -503,15 +503,17 @@ describe("trading ops loader", () => {
     });
 
     const runJsonCommand = vi.fn(async (scriptPath: string, args?: string[]) => {
-      if (scriptPath.endsWith("prediction_accuracy_summary.py")) {
+      if (scriptPath.endsWith("prediction_accuracy_report.py")) {
         expect(args).toEqual(["--json", "--max-snapshots-per-run", "1"]);
         return {
-          generated_at: "2026-04-16T19:49:24.074811+00:00",
-          snapshot_count: 468,
-          record_count: 1984,
-          horizon_status: { "1d": { matured: 924, pending: 401 } },
-          validation_grade_counts: { trade_validation_grade: { good: 340, mixed: 320, unknown: 900 } },
-          summary: [{ strategy: "canslim", action: "NO_BUY", "1d": { samples: 412 } }],
+          prediction_accuracy: {
+            generated_at: "2026-04-16T19:49:24.074811+00:00",
+            snapshot_count: 468,
+            record_count: 1984,
+            horizon_status: { "1d": { matured: 924, pending: 401 } },
+            validation_grade_counts: { trade_validation_grade: { good: 340, mixed: 320, unknown: 900 } },
+            summary: [{ strategy: "canslim", action: "NO_BUY", "1d": { samples: 412 } }],
+          },
         };
       }
       if (scriptPath.endsWith("runtime_health_snapshot.py")) {
@@ -544,7 +546,7 @@ describe("trading ops loader", () => {
       tradingRunStateStore: null,
     });
 
-    expect(runJsonCommand).toHaveBeenCalledWith(expect.stringMatching(/prediction_accuracy_summary\.py$/), ["--json", "--max-snapshots-per-run", "1"]);
+    expect(runJsonCommand).toHaveBeenCalledWith(expect.stringMatching(/prediction_accuracy_report\.py$/), ["--json", "--max-snapshots-per-run", "1"]);
     expect(data.prediction.state).toBe("ok");
     expect(data.prediction.badgeText).toBeUndefined();
     expect(data.prediction.data?.snapshotCount).toBe(468);
