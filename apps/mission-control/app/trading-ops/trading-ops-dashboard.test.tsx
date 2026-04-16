@@ -215,7 +215,7 @@ const fixture: TradingOpsDashboardData = {
   },
   lifecycle: {
     state: "ok",
-    label: "Paper lifecycle",
+    label: "Trade lifecycle",
     message: "1 open, 2 closed.",
     updatedAt: "2026-04-03T22:20:35.951192+00:00",
     source: "/tmp/cycle_summary.json",
