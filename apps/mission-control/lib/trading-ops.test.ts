@@ -250,6 +250,9 @@ describe("trading ops loader", () => {
     expect(data.canary.data?.warningCount).toBe(1);
     expect(data.canary.data?.checkedAt).toBe("2026-04-03T23:15:22.659140+00:00");
     expect(data.canary.data?.freshness).toContain("Apr 3");
+    expect(data.prediction.state).toBe("degraded");
+    expect(data.prediction.badgeText).toBe("stale");
+    expect(data.prediction.message).toContain("Prediction accuracy report is stale");
     expect(data.prediction.data?.oneDayMatured).toBe(880);
     expect(data.benchmark.data?.horizonKey).toBe("5d");
     expect(data.lifecycle.data?.openCount).toBe(1);
@@ -283,6 +286,68 @@ describe("trading ops loader", () => {
     expect(data.tradingRun.data?.canslimBuy).toEqual(["NVDA"]);
     expect(data.tradingRun.data?.canslimWatch).toEqual(["MSFT"]);
     expect(data.tradingRun.data?.canslimNoBuy).toEqual(["TSLA"]);
+  });
+
+  it("keeps the Schwab streamer row explicit when the connection drops", async () => {
+    const disconnectedFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/market-data/ops")) {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-16T15:10:00.000Z",
+            data: {
+              serviceOperatorState: "healthy",
+              providerMetrics: {
+                lastSuccessfulSchwabRestAt: "2026-04-16T15:09:00.000Z",
+                schwabCooldownUntil: null,
+                schwabTokenStatus: "ready",
+              },
+              health: {
+                providers: {
+                  coinmarketcap: "configured",
+                  schwab: "configured",
+                  schwabStreamer: "enabled",
+                  schwabStreamerMeta: {
+                    connected: false,
+                    operatorState: "healthy",
+                    lastMessageAt: "2026-04-16T15:08:50.000Z",
+                    lastDisconnectAt: "2026-04-16T15:09:55.000Z",
+                    lastDisconnectReason: "1000:",
+                    lastHeartbeatAt: "2026-04-16T15:08:59.000Z",
+                    activeSubscriptions: {
+                      LEVELONE_EQUITIES: 55,
+                      ACCT_ACTIVITY: 0,
+                    },
+                  },
+                  fred: "configured",
+                },
+              },
+            },
+          }),
+        );
+      }
+      return externalServiceFetch(input);
+    }) as typeof fetch;
+
+    vi.stubGlobal("fetch", disconnectedFetch);
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-streamer-drop-"));
+    tempDirs.push(repoPath);
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: null,
+    });
+
+    const streamerRow = data.financialServices.data?.rows.find((row) => row.label === "Schwab streamer");
+    expect(streamerRow?.state).toBe("degraded");
+    expect(streamerRow?.summary).toBe("disconnected");
+    expect(streamerRow?.badgeText).toBeNull();
+    expect(streamerRow?.detail).toContain("Disconnected: 1000:");
+    expect(streamerRow?.detail).toContain("Last disconnect");
   });
 
   it("handles missing artifacts without throwing", async () => {
@@ -332,6 +397,11 @@ describe("trading ops loader", () => {
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "leader-baskets-raw.json"), {
       buckets: { monthly: [{ symbol: "OXY" }, { symbol: "GEV" }] },
     });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      summary: { open_count: 1, closed_total_count: 2 },
+      portfolio_snapshot: { total_capital: 100000, available_capital: 85000, gross_exposure_pct: 0.15 },
+    });
     await mkdir(path.join(repoPath, "var", "local-workflows", "20260403-231522"), { recursive: true });
     await writeFile(
       path.join(repoPath, "var", "local-workflows", "20260403-231522", "run-manifest-stages.tsv"),
@@ -373,6 +443,9 @@ describe("trading ops loader", () => {
     expect(data.workflow.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
     expect(data.workflow.message).toContain("Latest trading run Apr 7, 10:53 AM completed after this workflow artifact");
     expect(data.workflow.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this workflow artifact.");
+    expect(data.lifecycle.state).toBe("degraded");
+    expect(data.lifecycle.badgeText).toBe("stale");
+    expect(data.lifecycle.message).toContain("Latest trading run Apr 7, 10:53 AM is newer than this lifecycle summary");
   });
 
   it("renders missing pre-open readiness-check state as not available instead of unknown", async () => {
@@ -409,6 +482,33 @@ describe("trading ops loader", () => {
     expect(data.runtime.data?.preOpenGateStatus).toBe("Readiness check unavailable");
     expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open readiness check artifact is missing");
     expect(data.runtime.data?.preOpenGateFreshness).toContain("Pre-open readiness check artifact is missing");
+  });
+
+  it("rejects obviously mock-contaminated artifacts", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-mock-artifact-"));
+    tempDirs.push(repoPath);
+
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json"), {
+      generated_at: "2026-04-16T15:00:00.000Z",
+      snapshot_count: 1,
+      record_count: 1,
+      horizon_status: { "1d": { matured: 1, pending: 0 } },
+      validation_grade_counts: { trade_validation_grade: { good: 1 } },
+      summary: [{ strategy: "MagicMock", action: "WATCH" }],
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: null,
+    });
+
+    expect(data.prediction.state).toBe("error");
+    expect(data.prediction.message).toContain("corrupt or test-generated");
   });
 
   it("renders provider cooldown timestamps in ET instead of raw ISO", async () => {

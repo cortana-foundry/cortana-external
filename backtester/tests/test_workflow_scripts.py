@@ -10,6 +10,7 @@ REPO_ROOT = Path("/Users/hd/Developer/cortana-external")
 BACKTESTER_ROOT = REPO_ROOT / "backtester"
 DAYTIME_FLOW = BACKTESTER_ROOT / "scripts" / "daytime_flow.sh"
 NIGHTTIME_FLOW = BACKTESTER_ROOT / "scripts" / "nighttime_flow.sh"
+WATCHLIST_WATCH = BACKTESTER_ROOT / "scripts" / "watchlist_watch.sh"
 TREND_SWEEP = REPO_ROOT / "tools" / "stock-discovery" / "trend_sweep.sh"
 OPERATOR_WORKFLOW = BACKTESTER_ROOT / "scripts" / "operator_workflow.sh"
 
@@ -494,6 +495,77 @@ def test_operator_workflow_health_runs_runtime_canary_and_ops_highway(tmp_path):
     assert "run python runtime_health_snapshot.py --pretty" in uv_calls
     assert "run python pre_open_canary.py" in uv_calls
     assert "run python ops_highway_snapshot.py --pretty" in uv_calls
+
+
+def test_watchlist_watch_marks_stale_sources_in_snapshot(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    curl_log = tmp_path / "curl.log"
+    snapshot_path = tmp_path / "watchlist-watch-snapshot.json"
+    polymarket_path = tmp_path / "polymarket_watchlist.json"
+    dynamic_path = tmp_path / "dynamic_watchlist.json"
+
+    polymarket_path.write_text(
+        json.dumps(
+            {
+                "updated_at": "2026-04-01T12:00:00Z",
+                "tickers": [
+                    {"symbol": "SPY", "asset_class": "stock", "themes": ["macro"], "score": 9.5},
+                    {"symbol": "QQQ", "asset_class": "stock", "themes": ["tech"], "score": 8.0},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    dynamic_path.write_text(
+        json.dumps(
+            {
+                "updated_at": "2026-04-16T15:00:00Z",
+                "tickers": [
+                    {"symbol": "SPY", "mentions": 4},
+                    {"symbol": "QQQ", "mentions": 3},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_executable(
+        bin_dir / "curl",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "$*" >>"{curl_log}"
+            cat <<'JSON'
+            {{"data":{{"items":[{{"symbol":"SPY","data":{{"price":679.72}}}},{{"symbol":"QQQ","data":{{"price":611.43}}}}]}}}}
+            JSON
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    env["REQUIRE_MARKET_DATA_SERVICE"] = "0"
+    env["POLYMARKET_MAX_AGE_HOURS"] = "12"
+    env["POLYMARKET_WATCHLIST_PATH"] = str(polymarket_path)
+    env["DYNAMIC_WATCHLIST_PATH"] = str(dynamic_path)
+    env["WATCHLIST_SNAPSHOT_PATH"] = str(snapshot_path)
+
+    result = subprocess.run(
+        ["bash", str(WATCHLIST_WATCH)],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Watchlist watch" in result.stdout
+    assert "- Freshness: degraded" in result.stdout
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["freshness"]["status"] == "degraded"
+    assert "polymarket stale" in snapshot["freshness"]["reasons"]
+    assert snapshot["symbols"] == ["QQQ", "SPY"]
 
 
 def test_trend_sweep_preserves_existing_watchlist_when_x_auth_is_unavailable(tmp_path):

@@ -169,6 +169,43 @@ added = sorted(current_symbols - previous_symbols)
 removed = sorted(previous_symbols - current_symbols)
 
 previous_quotes = previous.get("quotes") or {}
+now = datetime.now(timezone.utc)
+
+polymarket_updated_at = meta.get("polymarketUpdatedAt")
+dynamic_updated_at = meta.get("dynamicUpdatedAt")
+
+
+def parse_dt(raw: str | None):
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+polymarket_dt = parse_dt(polymarket_updated_at)
+dynamic_dt = parse_dt(dynamic_updated_at)
+polymarket_age_hours = None
+dynamic_age_hours = None
+if polymarket_dt is not None:
+    polymarket_age_hours = (now - polymarket_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
+if dynamic_dt is not None:
+    dynamic_age_hours = (now - dynamic_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
+
+polymarket_fresh = bool(meta.get("polymarketIncluded")) and polymarket_age_hours is not None and polymarket_age_hours <= float(os.environ.get("POLYMARKET_MAX_AGE_HOURS", "12"))
+dynamic_fresh = bool(meta.get("dynamicIncluded")) and dynamic_dt is not None
+freshness_status = "ok" if polymarket_fresh and dynamic_fresh else "degraded"
+freshness_reasons = []
+if not polymarket_fresh:
+    if polymarket_updated_at:
+        freshness_reasons.append("polymarket stale")
+    else:
+        freshness_reasons.append("polymarket missing")
+if not dynamic_fresh:
+    freshness_reasons.append("dynamic missing")
+if not freshness_reasons:
+    freshness_reasons.append("fresh inputs")
 
 print("Watchlist watch")
 print("")
@@ -191,6 +228,10 @@ if added:
     print("- New since last check: " + ", ".join(added[:10]) + (f" (+{len(added)-10} more)" if len(added) > 10 else ""))
 if removed:
     print("- Dropped since last check: " + ", ".join(removed[:10]) + (f" (+{len(removed)-10} more)" if len(removed) > 10 else ""))
+print(
+    f"- Freshness: {freshness_status} | "
+    + "; ".join(freshness_reasons)
+)
 
 print("")
 print("Quotes")
@@ -240,6 +281,14 @@ for entry in entries:
 os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
 snapshot = {
     "updatedAt": datetime.now(timezone.utc).isoformat(),
+    "freshness": {
+        "status": freshness_status,
+        "reasons": freshness_reasons,
+        "polymarketUpdatedAt": polymarket_updated_at,
+        "polymarketAgeHours": polymarket_age_hours,
+        "dynamicUpdatedAt": dynamic_updated_at,
+        "dynamicAgeHours": dynamic_age_hours,
+    },
     "symbols": sorted(current_symbols),
     "quotes": {
         str(symbol).upper(): ((quotes.get(str(symbol).upper(), {}).get("data") or {}).get("price"))
