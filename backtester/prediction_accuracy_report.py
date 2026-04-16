@@ -21,9 +21,17 @@ from governance.registry import load_experiment_registry
 def main() -> None:
     parser = argparse.ArgumentParser(description="Settle prediction snapshots and build an accuracy artifact")
     parser.add_argument("--json", action="store_true", help="Emit summary as JSON")
+    parser.add_argument(
+        "--max-snapshots-per-run",
+        type=int,
+        default=None,
+        help="Bound how many unsettled snapshots are processed before rebuilding the bundle",
+    )
     args = parser.parse_args()
 
-    settle_prediction_snapshots()
+    settle_prediction_snapshots(
+        max_snapshots_per_run=args.max_snapshots_per_run if args.max_snapshots_per_run is not None else 200,
+    )
     summary = build_prediction_accuracy_summary()
     decision_review = build_decision_review_artifact()
     benchmark_summary = build_benchmark_comparison_artifact()
