@@ -32,6 +32,7 @@ const LIVE_STREAM_RETRY_MS = 2_000;
 const POLYMARKET_POLL_MS = 30_000;
 const POLYMARKET_LIVE_POLL_MS = 15_000;
 const POLYMARKET_LIVE_STREAM_RETRY_MS = 2_000;
+const POLYMARKET_STARTUP_GRACE_MS = 12_000;
 const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
 
 /* ── main component ── */
@@ -53,6 +54,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const [polymarketLiveError, setPolymarketLiveError] = useState<string | null>(null);
   const [lastPolymarketLiveAt, setLastPolymarketLiveAt] = useState<string | null>(null);
   const [polymarketPinPendingSlugs, setPolymarketPinPendingSlugs] = useState<string[]>([]);
+  const [polymarketWarmupComplete, setPolymarketWarmupComplete] = useState(false);
 
   const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
     setLiveData(payload);
@@ -86,6 +88,19 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     setPolymarketLiveData(payload);
     setPolymarketLiveError(null);
     setLastPolymarketLiveAt(payload.generatedAt);
+    if (isPolymarketLiveReady(payload)) {
+      setPolymarketWarmupComplete(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setPolymarketWarmupComplete(true);
+    }, POLYMARKET_STARTUP_GRACE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   const fetchPolymarketData = useCallback(async () => {
@@ -391,63 +406,86 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   }, [applyPolymarketLiveData, fetchPolymarketLiveData]);
 
   const liveArtifact = buildLiveArtifact(liveData, liveError, lastSuccessfulAt);
-  const polymarketStatusArtifact = buildPolymarketStatusArtifact(polymarketData, polymarketError);
-  const polymarketLiveArtifact = buildPolymarketLiveArtifact(
-    polymarketLiveData,
-    polymarketLiveError,
-    lastPolymarketLiveAt,
-  );
+  const polymarketWarmupActive = !polymarketWarmupComplete && !isPolymarketLiveReady(polymarketLiveData);
+  const displayPolymarketData = polymarketWarmupActive ? null : polymarketData;
+  const displayPolymarketLiveData = polymarketWarmupActive ? null : polymarketLiveData;
+  const polymarketStatusArtifact = polymarketWarmupActive
+    ? buildWarmupArtifact<TradingOpsPolymarketData>(
+        "Loading Polymarket status",
+        "Waiting for Polymarket services to settle after page load.",
+        "/api/trading-ops/polymarket",
+      )
+    : buildPolymarketStatusArtifact(polymarketData, polymarketError);
+  const polymarketLiveArtifact = polymarketWarmupActive
+    ? buildWarmupArtifact<TradingOpsPolymarketLiveData>(
+        "Loading Polymarket live",
+        "Waiting for Polymarket live streams to settle after page load.",
+        "/api/trading-ops/polymarket/live/stream",
+      )
+    : buildPolymarketLiveArtifact(
+        polymarketLiveData,
+        polymarketLiveError,
+        lastPolymarketLiveAt,
+      );
   const polymarketAccountArtifact =
-    polymarketData?.account ?? buildPendingArtifact<PolymarketAccountOverview>("Loading account", polymarketError);
+    polymarketWarmupActive
+      ? buildWarmupArtifact<PolymarketAccountOverview>("Loading account", "Waiting for Polymarket account state.", "/api/trading-ops/polymarket")
+      : polymarketData?.account ?? buildPendingArtifact<PolymarketAccountOverview>("Loading account", polymarketError);
   const polymarketSignalArtifact =
-    polymarketData?.signal ?? buildPendingArtifact<PolymarketSignalOverview>("Loading overlay", polymarketError);
+    polymarketWarmupActive
+      ? buildWarmupArtifact<PolymarketSignalOverview>("Loading overlay", "Waiting for Polymarket signal state.", "/api/trading-ops/polymarket")
+      : polymarketData?.signal ?? buildPendingArtifact<PolymarketSignalOverview>("Loading overlay", polymarketError);
   const polymarketWatchlistArtifact =
-    polymarketData?.watchlist ?? buildPendingArtifact<PolymarketWatchlistOverview>("Loading watchlist", polymarketError);
+    polymarketWarmupActive
+      ? buildWarmupArtifact<PolymarketWatchlistOverview>("Loading watchlist", "Waiting for Polymarket linked watchlist.", "/api/trading-ops/polymarket")
+      : polymarketData?.watchlist ?? buildPendingArtifact<PolymarketWatchlistOverview>("Loading watchlist", polymarketError);
   const polymarketResultsArtifact =
-    polymarketData?.results ?? buildPendingArtifact<PolymarketResultsOverview>("Loading results", polymarketError);
+    polymarketWarmupActive
+      ? buildWarmupArtifact<PolymarketResultsOverview>("Loading results", "Waiting for pinned market state.", "/api/trading-ops/polymarket")
+      : polymarketData?.results ?? buildPendingArtifact<PolymarketResultsOverview>("Loading results", polymarketError);
   const tradingRunSymbols = collectTradingRunSymbols(data);
-  const polymarketOverlap = (polymarketData?.watchlist.data?.symbols ?? [])
+  const polymarketOverlap = (displayPolymarketData?.watchlist.data?.symbols ?? [])
     .map((entry) => entry.symbol)
     .filter((symbol) => tradingRunSymbols.has(symbol));
-  const polymarketPinnedRows = (polymarketLiveData?.markets ?? []).filter((market) => market.pinned);
+  const polymarketPinnedRows = (displayPolymarketLiveData?.markets ?? []).filter((market) => market.pinned);
   const polymarketPinnedEventRows = polymarketPinnedRows.filter((market) => market.bucket === "events");
   const polymarketPinnedSportsRows = polymarketPinnedRows.filter((market) => market.bucket === "sports");
-  const polymarketEventRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "events" && !market.pinned);
-  const polymarketSportsRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "sports" && !market.pinned);
+  const polymarketEventRows = (displayPolymarketLiveData?.markets ?? []).filter((market) => market.bucket === "events" && !market.pinned);
+  const polymarketSportsRows = (displayPolymarketLiveData?.markets ?? []).filter((market) => market.bucket === "sports" && !market.pinned);
   const polymarketEventBoardEmptyState = describePolymarketBoardEmptyState({
     bucket: "events",
     visibleCount: polymarketEventRows.length,
     pinnedCount: polymarketPinnedEventRows.length,
-    candidateCount: polymarketLiveData?.roster?.candidateEventsCount ?? 0,
+    candidateCount: displayPolymarketLiveData?.roster?.candidateEventsCount ?? 0,
     warnings: polymarketLiveArtifact.warnings,
   });
   const polymarketSportsBoardEmptyState = describePolymarketBoardEmptyState({
     bucket: "sports",
     visibleCount: polymarketSportsRows.length,
     pinnedCount: polymarketPinnedSportsRows.length,
-    candidateCount: polymarketLiveData?.roster?.candidateSportsCount ?? 0,
+    candidateCount: displayPolymarketLiveData?.roster?.candidateSportsCount ?? 0,
     warnings: polymarketLiveArtifact.warnings,
   });
   const polymarketEventRosterState = usePolymarketRosterState(
     polymarketEventRows,
-    polymarketLiveData?.streamer.lastMarketMessageAt ?? polymarketLiveData?.generatedAt ?? null,
+    displayPolymarketLiveData?.streamer.lastMarketMessageAt ?? displayPolymarketLiveData?.generatedAt ?? null,
   );
   const polymarketSportsRosterState = usePolymarketRosterState(
     polymarketSportsRows,
-    polymarketLiveData?.streamer.lastMarketMessageAt ?? polymarketLiveData?.generatedAt ?? null,
+    displayPolymarketLiveData?.streamer.lastMarketMessageAt ?? displayPolymarketLiveData?.generatedAt ?? null,
   );
-  const polymarketResultsRows = polymarketData?.results.data?.rows ?? [];
+  const polymarketResultsRows = displayPolymarketData?.results.data?.rows ?? [];
   const polymarketResultsBySlug = new Map(polymarketResultsRows.map((row) => [row.marketSlug, row]));
   const polymarketSettledRows = polymarketResultsRows.filter((row) => row.status === "settled");
-  const polymarketStreamCardArtifact = polymarketLiveData
+  const polymarketStreamCardArtifact = displayPolymarketLiveData
     ? {
         ...polymarketLiveArtifact,
-        message: polymarketLiveData.streamer.marketsConnected && polymarketLiveData.streamer.privateConnected
+        message: displayPolymarketLiveData.streamer.marketsConnected && displayPolymarketLiveData.streamer.privateConnected
           ? "Market and private streams are live."
           : "One or more Polymarket streams are reconnecting.",
       }
     : polymarketLiveArtifact;
-  const polymarketPinnedCardArtifact = polymarketLiveData
+  const polymarketPinnedCardArtifact = displayPolymarketLiveData
     ? {
         ...polymarketLiveArtifact,
         message: polymarketPinnedRows.length > 0
@@ -456,7 +494,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         badgeText: String(polymarketPinnedRows.length),
       }
     : polymarketLiveArtifact;
-  const polymarketEventsCardArtifact = polymarketLiveData
+  const polymarketEventsCardArtifact = displayPolymarketLiveData
     ? {
         ...polymarketLiveArtifact,
         message: polymarketEventRows.length > 0
@@ -465,7 +503,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         badgeText: String(polymarketEventRows.length),
       }
     : polymarketLiveArtifact;
-  const polymarketSportsCardArtifact = polymarketLiveData
+  const polymarketSportsCardArtifact = displayPolymarketLiveData
     ? {
         ...polymarketLiveArtifact,
         message: polymarketSportsRows.length > 0
@@ -568,18 +606,18 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 <Metric
                   label="Account"
                   value={
-                    polymarketData?.account.data
-                      ? `${polymarketData.account.data.positionCount} positions · ${polymarketData.account.data.openOrdersCount} orders`
+                    displayPolymarketData?.account.data
+                      ? `${displayPolymarketData.account.data.positionCount} positions · ${displayPolymarketData.account.data.openOrdersCount} orders`
                       : "Waiting for account read"
                   }
                 />
                 <Metric
                   label="Overlay"
-                  value={polymarketData?.signal.data?.overlaySummary ?? polymarketData?.signal.data?.alignment ?? "Loading"}
+                  value={displayPolymarketData?.signal.data?.overlaySummary ?? displayPolymarketData?.signal.data?.alignment ?? "Loading"}
                 />
                 <Metric
                   label="Linked symbols"
-                  value={String(polymarketData?.watchlist.data?.totalCount ?? 0)}
+                  value={String(displayPolymarketData?.watchlist.data?.totalCount ?? 0)}
                 />
                 <Metric
                   label="Trading Ops overlap"
@@ -588,17 +626,17 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 <Metric
                   label="Stream"
                   value={
-                    polymarketLiveData
-                      ? polymarketLiveData.streamer.marketsConnected && polymarketLiveData.streamer.privateConnected
-                        ? `${polymarketLiveData.markets.length} live markets`
-                        : formatLabel(polymarketLiveData.streamer.operatorState)
+                    displayPolymarketLiveData
+                      ? displayPolymarketLiveData.streamer.marketsConnected && displayPolymarketLiveData.streamer.privateConnected
+                        ? `${displayPolymarketLiveData.markets.length} live markets`
+                        : formatLabel(displayPolymarketLiveData.streamer.operatorState)
                       : "Waiting for stream"
                   }
                 />
               </div>
-              {polymarketData?.signal.data?.compactLines[0] ? (
+              {displayPolymarketData?.signal.data?.compactLines[0] ? (
                 <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                  {polymarketData.signal.data.compactLines[0]}
+                  {displayPolymarketData.signal.data.compactLines[0]}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
@@ -849,38 +887,38 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         <TabsContent value="polymarket" className="space-y-3">
           <section className="space-y-3">
             <ArtifactPanel title="Live stream" artifact={polymarketStreamCardArtifact}>
-              {polymarketLiveData ? (
+              {displayPolymarketLiveData ? (
                 <div className="space-y-3 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={badgeVariantForPolymarketStreamer(polymarketLiveData)} className="text-[10px]">
-                      {polymarketLiveData.streamer.marketsConnected ? "Markets live" : "Markets reconnecting"}
+                    <Badge variant={badgeVariantForPolymarketStreamer(displayPolymarketLiveData)} className="text-[10px]">
+                      {displayPolymarketLiveData.streamer.marketsConnected ? "Markets live" : "Markets reconnecting"}
                     </Badge>
-                    <Badge variant={polymarketLiveData.streamer.privateConnected ? "success" : "outline"} className="text-[10px]">
-                      {polymarketLiveData.streamer.privateConnected ? "Private live" : "Private waiting"}
+                    <Badge variant={displayPolymarketLiveData.streamer.privateConnected ? "success" : "outline"} className="text-[10px]">
+                      {displayPolymarketLiveData.streamer.privateConnected ? "Private live" : "Private waiting"}
                     </Badge>
                     <p className="text-xs text-muted-foreground">
                       Last refresh {lastPolymarketLiveAt ? formatOperatorTimestamp(lastPolymarketLiveAt) : "waiting"}.
                     </p>
                   </div>
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    <Metric label="Tracked markets" value={String(polymarketLiveData.streamer.trackedMarketCount)} />
-                    <Metric label="Open orders" value={String(polymarketLiveData.account.openOrdersCount ?? 0)} />
-                    <Metric label="Positions" value={String(polymarketLiveData.account.positionCount ?? 0)} />
-                    <Metric label="Buying power" value={formatMoney(polymarketLiveData.account.buyingPower)} />
-                    <Metric label="Last market msg" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
-                    <Metric label="Last private msg" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastPrivateMessageAt)} />
+                    <Metric label="Tracked markets" value={String(displayPolymarketLiveData.streamer.trackedMarketCount)} />
+                    <Metric label="Open orders" value={String(displayPolymarketLiveData.account.openOrdersCount ?? 0)} />
+                    <Metric label="Positions" value={String(displayPolymarketLiveData.account.positionCount ?? 0)} />
+                    <Metric label="Buying power" value={formatMoney(displayPolymarketLiveData.account.buyingPower)} />
+                    <Metric label="Last market msg" value={formatOperatorTimestamp(displayPolymarketLiveData.streamer.lastMarketMessageAt)} />
+                    <Metric label="Last private msg" value={formatOperatorTimestamp(displayPolymarketLiveData.streamer.lastPrivateMessageAt)} />
                   </dl>
                 </div>
               ) : null}
             </ArtifactPanel>
 
             <ArtifactPanel title="Pinned" artifact={polymarketPinnedCardArtifact}>
-              {polymarketLiveData ? (
+              {displayPolymarketLiveData ? (
                 <div className="space-y-3 text-sm">
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <Metric label="Pinned count" value={String(polymarketPinnedRows.length)} />
-                    <Metric label="Open live" value={String(polymarketData?.results.data?.openPositionCount ?? 0)} />
-                    <Metric label="Settled" value={String(polymarketData?.results.data?.settledCount ?? 0)} />
+                    <Metric label="Open live" value={String(displayPolymarketData?.results.data?.openPositionCount ?? 0)} />
+                    <Metric label="Settled" value={String(displayPolymarketData?.results.data?.settledCount ?? 0)} />
                   </dl>
                   {polymarketPinnedRows.length > 0 ? (
                     <div className="space-y-1.5">
@@ -902,7 +940,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <ArtifactPanel title="Top events" artifact={polymarketEventsCardArtifact}>
-              {polymarketLiveData ? (
+              {displayPolymarketLiveData ? (
                 <div className="space-y-3 text-sm">
                   {polymarketEventBoardEmptyState.kind !== "exhausted" ? (
                     <RosterChangeSummary state={polymarketEventRosterState} />
@@ -914,7 +952,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                       value={polymarketEventRows[0]?.title ?? (polymarketEventBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketEventRosterState.leaderChanged}
                     />
-                    <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
+                    <RosterMetric label="Updated" value={formatOperatorTimestamp(displayPolymarketLiveData.streamer.lastMarketMessageAt)} />
                   </dl>
                   {polymarketEventRows.length > 0 ? (
                     <div className="space-y-1.5">
@@ -936,7 +974,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             </ArtifactPanel>
 
             <ArtifactPanel title="Top sports" artifact={polymarketSportsCardArtifact}>
-              {polymarketLiveData ? (
+              {displayPolymarketLiveData ? (
                 <div className="space-y-3 text-sm">
                   {polymarketSportsBoardEmptyState.kind !== "exhausted" ? (
                     <RosterChangeSummary state={polymarketSportsRosterState} />
@@ -948,7 +986,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                       value={polymarketSportsRows[0]?.title ?? (polymarketSportsBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketSportsRosterState.leaderChanged}
                     />
-                    <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
+                    <RosterMetric label="Updated" value={formatOperatorTimestamp(displayPolymarketLiveData.streamer.lastMarketMessageAt)} />
                   </dl>
                   {polymarketSportsRows.length > 0 ? (
                     <div className="space-y-1.5">
@@ -972,21 +1010,21 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-4">
             <ArtifactPanel title="Account" artifact={polymarketAccountArtifact}>
-              {polymarketData?.account.data ? (
+              {displayPolymarketData?.account.data ? (
                 <div className="space-y-2 text-sm">
                   <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Status" value={formatLabel(polymarketData.account.data.status)} />
+                    <Metric label="Status" value={formatLabel(displayPolymarketData.account.data.status)} />
                     <Metric
                       label="Key"
-                      value={polymarketData.account.data.keyIdSuffix ? `...${polymarketData.account.data.keyIdSuffix}` : "Not exposed"}
+                      value={displayPolymarketData.account.data.keyIdSuffix ? `...${displayPolymarketData.account.data.keyIdSuffix}` : "Not exposed"}
                     />
-                    <Metric label="Balances" value={String(polymarketData.account.data.balanceCount)} />
-                    <Metric label="Positions" value={String(polymarketData.account.data.positionCount)} />
-                    <Metric label="Open orders" value={String(polymarketData.account.data.openOrdersCount)} />
+                    <Metric label="Balances" value={String(displayPolymarketData.account.data.balanceCount)} />
+                    <Metric label="Positions" value={String(displayPolymarketData.account.data.positionCount)} />
+                    <Metric label="Open orders" value={String(displayPolymarketData.account.data.openOrdersCount)} />
                   </dl>
-                  {polymarketData.account.data.balances.length > 0 ? (
+                  {displayPolymarketData.account.data.balances.length > 0 ? (
                     <div className="space-y-1.5">
-                      {polymarketData.account.data.balances.map((balance) => (
+                      {displayPolymarketData.account.data.balances.map((balance) => (
                         <div key={balance.currency} className="flex items-center justify-between rounded-md border border-border/50 px-2 py-1.5 text-xs">
                           <span className="font-mono">{balance.currency}</span>
                           <span>
@@ -1005,26 +1043,26 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             </ArtifactPanel>
 
             <ArtifactPanel title="Signal overlay" artifact={polymarketSignalArtifact}>
-              {polymarketData?.signal.data ? (
+              {displayPolymarketData?.signal.data ? (
                 <div className="space-y-3 text-sm">
                   <div className="rounded-md border border-border/50 bg-muted/30 p-2">
                     <p className="terminal-metric-label">Overlay summary</p>
                     <p className="mt-1 font-medium">
-                      {polymarketData.signal.data.overlaySummary ?? "No overlay summary yet"}
+                      {displayPolymarketData.signal.data.overlaySummary ?? "No overlay summary yet"}
                     </p>
-                    {polymarketData.signal.data.overlayDetail ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{polymarketData.signal.data.overlayDetail}</p>
+                    {displayPolymarketData.signal.data.overlayDetail ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{displayPolymarketData.signal.data.overlayDetail}</p>
                     ) : null}
                   </div>
                   <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Alignment" value={formatLabel(polymarketData.signal.data.alignment)} />
-                    <Metric label="Conviction" value={formatLabel(polymarketData.signal.data.conviction)} />
-                    <Metric label="Aggression" value={formatLabel(polymarketData.signal.data.aggressionDial)} />
-                    <Metric label="Divergence" value={polymarketData.signal.data.divergenceSummary ?? "None flagged"} />
+                    <Metric label="Alignment" value={formatLabel(displayPolymarketData.signal.data.alignment)} />
+                    <Metric label="Conviction" value={formatLabel(displayPolymarketData.signal.data.conviction)} />
+                    <Metric label="Aggression" value={formatLabel(displayPolymarketData.signal.data.aggressionDial)} />
+                    <Metric label="Divergence" value={displayPolymarketData.signal.data.divergenceSummary ?? "None flagged"} />
                   </dl>
-                  {polymarketData.signal.data.topMarkets.length > 0 ? (
+                  {displayPolymarketData.signal.data.topMarkets.length > 0 ? (
                     <div className="space-y-2">
-                      {polymarketData.signal.data.topMarkets.map((market) => (
+                      {displayPolymarketData.signal.data.topMarkets.map((market) => (
                         <div key={`${market.theme}-${market.title}`} className="rounded-md border border-border/50 bg-muted/20 p-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="font-medium">{market.title}</p>
@@ -1064,12 +1102,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             </ArtifactPanel>
 
             <ArtifactPanel title="Linked watchlist" artifact={polymarketWatchlistArtifact}>
-              {polymarketData?.watchlist.data ? (
+              {displayPolymarketData?.watchlist.data ? (
                 <div className="space-y-3 text-sm">
                   <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Stocks" value={String(polymarketData.watchlist.data.buckets.stocks.length)} />
-                    <Metric label="Funds" value={String(polymarketData.watchlist.data.buckets.funds.length)} />
-                    <Metric label="Crypto proxies" value={String(polymarketData.watchlist.data.buckets.cryptoProxies.length)} />
+                    <Metric label="Stocks" value={String(displayPolymarketData.watchlist.data.buckets.stocks.length)} />
+                    <Metric label="Funds" value={String(displayPolymarketData.watchlist.data.buckets.funds.length)} />
+                    <Metric label="Crypto proxies" value={String(displayPolymarketData.watchlist.data.buckets.cryptoProxies.length)} />
                     <Metric label="Trading Ops overlap" value={polymarketOverlap.length > 0 ? String(polymarketOverlap.length) : "0"} />
                   </dl>
                   {polymarketOverlap.length > 0 ? (
@@ -1085,7 +1123,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                     </div>
                   ) : null}
                   <div className="space-y-1.5">
-                    {polymarketData.watchlist.data.symbols.slice(0, 10).map((symbol) => (
+                    {displayPolymarketData.watchlist.data.symbols.slice(0, 10).map((symbol) => (
                       <div key={symbol.symbol} className="flex items-start justify-between gap-3 rounded-md border border-border/50 px-2 py-1.5 text-xs">
                         <div>
                           <p className="font-mono font-medium">{symbol.symbol}</p>
@@ -1106,12 +1144,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             </ArtifactPanel>
 
             <ArtifactPanel title="Results" artifact={polymarketResultsArtifact}>
-              {polymarketData?.results.data ? (
+              {displayPolymarketData?.results.data ? (
                 <div className="space-y-3 text-sm">
                   <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Settled" value={String(polymarketData.results.data.settledCount)} />
-                    <Metric label="With P&L" value={String(polymarketData.results.data.tradedCount)} />
-                    <Metric label="Open live" value={String(polymarketData.results.data.openPositionCount)} />
+                    <Metric label="Settled" value={String(displayPolymarketData.results.data.settledCount)} />
+                    <Metric label="With P&L" value={String(displayPolymarketData.results.data.tradedCount)} />
+                    <Metric label="Open live" value={String(displayPolymarketData.results.data.openPositionCount)} />
                   </dl>
                   {polymarketSettledRows.length > 0 ? (
                     <div className="space-y-1.5">
@@ -1410,6 +1448,26 @@ function buildPendingArtifact<T>(label: string, error: string | null): ArtifactS
     source: "/api/trading-ops/polymarket",
     warnings: error ? [error] : [],
   };
+}
+
+function buildWarmupArtifact<T>(label: string, message: string, source: string): ArtifactState<T> {
+  return {
+    state: "missing",
+    label,
+    message,
+    data: null,
+    updatedAt: null,
+    source,
+    warnings: [],
+  };
+}
+
+function isPolymarketLiveReady(data: TradingOpsPolymarketLiveData | null): boolean {
+  if (!data) {
+    return false;
+  }
+
+  return data.streamer.marketsConnected && data.streamer.privateConnected;
 }
 
 function summarizeArtifactStates(states: Array<TradingOpsPolymarketData["account"]["state"]>): TradingOpsPolymarketData["account"]["state"] {
