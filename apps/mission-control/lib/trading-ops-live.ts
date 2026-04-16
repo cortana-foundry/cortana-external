@@ -9,7 +9,6 @@ const LIVE_OPS_TIMEOUT_MS = 6_000;
 const LIVE_TAPE_TIMEOUT_MS = 8_000;
 const LIVE_WATCHLIST_TIMEOUT_MS = 12_000;
 const LIVE_WATCHLIST_CHUNK_SIZE = 20;
-const AFTER_HOURS_RETAINED_QUOTE_WINDOW_MS = 10 * 60_000;
 const AFTER_HOURS_WAITING_BADGE_WINDOW_MS = 2 * 60_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
@@ -219,6 +218,7 @@ export async function loadTradingOpsLiveData(
 
 export function clearTradingOpsLiveRetainedQuotesForTests() {
   retainedSchwabQuotes.clear();
+  quietAfterHoursGapSince.clear();
 }
 
 export function getTradingOpsLiveRetainedQuoteKeysForTests(): string[] {
@@ -416,6 +416,30 @@ function buildLiveQuoteRow(
     warning: null,
   }, context.nowMs);
 
+  const isSchwabStreamerQuote =
+    quoteItem.source === "schwab_streamer" || quoteItem.source === "schwab_streamer_shared";
+  if (!context.streamerConnected && isSchwabStreamerQuote && price != null) {
+    return {
+      symbol: row.symbol,
+      label: row.label,
+      sourceSymbol: row.sourceSymbol,
+      price,
+      changePercent,
+      source: quoteItem.source,
+      timestamp,
+      stalenessSeconds: quoteItem.stalenessSeconds ?? null,
+      state: "degraded",
+      warning: buildRetainedLiveQuoteWarning({
+        price,
+        changePercent,
+        source: quoteItem.source,
+        timestamp,
+        stalenessSeconds: quoteItem.stalenessSeconds ?? null,
+        observedAtMs: context.nowMs,
+      }),
+    };
+  }
+
   const shouldSoftenAfterHoursGap = shouldSoftenMissingLiveQuote(quoteItem, context);
   if (shouldSoftenAfterHoursGap) {
     const hadRetainedQuote = retainedSchwabQuotes.has(row.sourceSymbol);
@@ -468,7 +492,12 @@ function buildMissingLiveQuoteWarning(
   sourceSymbol: string,
   preferUnavailable = false,
 ): string | null {
-  if (!context.streamerConnected || !context.isAfterHours) return null;
+  if (!context.streamerConnected) {
+    return preferUnavailable
+      ? "No retained Schwab streamer quote is available while the stream reconnects."
+      : "No retained Schwab streamer quote is available yet.";
+  }
+  if (!context.isAfterHours) return null;
   if (preferUnavailable) {
     return "No after-hours Schwab quote has arrived for this symbol yet.";
   }
@@ -483,9 +512,9 @@ function buildMissingLiveQuoteWarning(
 function buildRetainedLiveQuoteWarning(retainedQuote: RetainedLiveQuote): string {
   const ageSeconds = retainedQuote.stalenessSeconds ?? 0;
   if (ageSeconds <= 0) {
-    return "Holding the last known Schwab quote while the next after-hours update comes in.";
+    return "Holding the last known Schwab streamer quote while the stream reconnects.";
   }
-  return `Holding the last known Schwab quote from ${formatAgeSeconds(ageSeconds)} while the next after-hours update comes in.`;
+  return `Holding the last known Schwab streamer quote from ${formatAgeSeconds(ageSeconds)} while the stream reconnects.`;
 }
 
 function normalizeLoadState(status: string | null | undefined, price: number | null): LoadState {
@@ -561,35 +590,17 @@ function buildFreshnessMessage(
   }
 
   if (hasStreamerQuotes) {
-    if (hasAfterHoursRetainedSchwabQuotes && !hasErrors) {
-      return "Using last-known Schwab quotes while the streamer reconnects.";
+    if (!hasErrors) {
+      return "Using last-known Schwab streamer quotes while the stream reconnects.";
     }
-    if (hasAfterHoursRetainedSchwabQuotes) {
-      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
-    }
-    if (hasUsableQuotes && !hasErrors) {
-      return "Using last-known Schwab quotes while the streamer reconnects.";
-    }
-    if (hasUsableQuotes) {
-      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
-    }
+    return "Using last-known Schwab streamer quotes while the stream reconnects. Some symbols are unavailable.";
   }
 
-  if (tapeMode.providerMode === "alpaca_fallback") {
-    return tapeMode.providerModeReason ?? "Quotes are in the declared Alpaca fallback lane.";
-  }
-  if (tapeMode.providerMode === "cache_fallback") {
-    return tapeMode.providerModeReason ?? "Quotes are using a cache fallback lane.";
-  }
-  if (tapeMode.providerMode === "multi_mode") {
-    return tapeMode.providerModeReason ?? "Quotes are using more than one provider mode across subsystems.";
+  if (tapeMode.providerMode === "schwab_streamer_stale_or_unavailable") {
+    return tapeMode.providerModeReason ?? "Live tape is streamer-only. Quotes stay stale or unavailable until the stream resumes.";
   }
 
-  if (quoteSources.size > 0) {
-    return "Using REST fallback while streamer reconnects.";
-  }
-
-  return "Live quotes are unavailable right now.";
+  return "Live streamer is disconnected and no retained Schwab streamer quotes are available.";
 }
 
 function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
@@ -691,13 +702,11 @@ function getRetainedSchwabQuote(
   sourceSymbol: string,
   context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
 ): RetainedLiveQuote | null {
-  if (!context.streamerConnected || !context.isAfterHours) return null;
-
   const retainedQuote = retainedSchwabQuotes.get(sourceSymbol);
   if (!retainedQuote) return null;
 
   const stalenessSeconds = computeRetainedStalenessSeconds(retainedQuote, context.nowMs);
-  if (stalenessSeconds == null || stalenessSeconds * 1000 > AFTER_HOURS_RETAINED_QUOTE_WINDOW_MS) {
+  if (stalenessSeconds == null) {
     return null;
   }
 
@@ -726,7 +735,8 @@ function shouldSoftenMissingLiveQuote(
   quoteItem: QuoteBatchItem,
   context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
 ): boolean {
-  if (!context.streamerConnected || !context.isAfterHours) return false;
+  if (!context.streamerConnected) return false;
+  if (!context.isAfterHours) return false;
   if (quoteItem.status === "ok") return false;
   const degradedReason = quoteItem.degradedReason ?? "";
   return (

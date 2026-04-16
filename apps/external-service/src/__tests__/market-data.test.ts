@@ -1429,7 +1429,7 @@ describe("market-data routes", () => {
 
     expect(opsResponse.status).toBe(200);
     expect(opsBody.data.providerMetrics.lastSuccessfulUniverseRefreshAt).toBeTruthy();
-    expect(opsBody.data.providerLaneGuidance.liveQuotes.providerMode).toBe("schwab_primary");
+    expect(opsBody.data.providerLaneGuidance.liveQuotes.providerMode).toBe("schwab_streamer_stale_or_unavailable");
     expect(opsBody.data.providerLaneGuidance.history.providerMode).toBe("schwab_primary");
     expect(opsBody.data.universe.latest?.source).toBe("local_json");
     expect(opsBody.data.universe.audit[0]?.symbolCount).toBeGreaterThan(500);
@@ -1731,7 +1731,7 @@ describe("market-data routes", () => {
     }
   });
 
-  it("falls back to Schwab REST for a live-watchlist single quote when streamer/shared coverage is missing", async () => {
+  it("returns unavailable for a live-watchlist single quote when streamer/shared coverage is missing", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-live-watchlist-single-"));
     const sharedStatePath = path.join(tempDir, "streamer-state.json");
     fs.writeFileSync(
@@ -1755,28 +1755,7 @@ describe("market-data routes", () => {
         SCHWAB_STREAMER_ROLE: "follower",
         SCHWAB_STREAMER_SHARED_STATE_PATH: sharedStatePath,
       },
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("/marketdata/v1/quotes") && url.includes("symbols=IWM")) {
-          return new Response(
-            JSON.stringify({
-              IWM: {
-                quote: { symbol: "IWM", lastPrice: 260.44, tradeTimeInLong: 1_710_000_000_000 },
-                reference: { currency: "USD" },
-                fundamental: {},
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      },
+      fetchImpl: async () => new Response("not found", { status: 404 }),
     });
     registerMarketDataRoutes(app, service);
 
@@ -1790,14 +1769,14 @@ describe("market-data routes", () => {
       data: { symbol: string; price?: number };
     };
 
-    expect(response.status).toBe(200);
-    expect(body.status).toBe("ok");
-    expect(body.source).toBe("schwab");
-    expect(body.providerMode).toBe("schwab_primary");
+    expect(response.status).toBe(503);
+    expect(body.status).toBe("error");
+    expect(body.source).toBe("service");
+    expect(body.providerMode).toBe("unavailable");
     expect(body.fallbackEngaged).toBe(false);
-    expect(body.degradedReason).toBeNull();
+    expect(body.degradedReason).toBe("No live Schwab quote available for IWM");
     expect(body.data.symbol).toBe("IWM");
-    expect(body.data.price).toBe(260.44);
+    expect(body.data.price).toBeUndefined();
   });
 
   it("deduplicates concurrent Schwab token refreshes", async () => {
@@ -2194,7 +2173,7 @@ describe("market-data routes", () => {
     delete process.env.ALPACA_DATA_URL;
   });
 
-  it("falls back to Schwab REST for live-watchlist symbols that are missing streamer/shared coverage", async () => {
+  it("keeps the live-watchlist batch streamer-only when some symbols are missing streamer/shared coverage", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-live-watchlist-lane-"));
     const sharedStatePath = path.join(tempDir, "streamer-state.json");
     fs.writeFileSync(
@@ -2232,8 +2211,6 @@ describe("market-data routes", () => {
       ),
     );
 
-    let schwabRestQuoteCalls = 0;
-    let alpacaQuoteCalls = 0;
     const app = new Hono();
     const service = new MarketDataService({
       config: {
@@ -2241,38 +2218,7 @@ describe("market-data routes", () => {
         SCHWAB_STREAMER_ROLE: "follower",
         SCHWAB_STREAMER_SHARED_STATE_PATH: sharedStatePath,
       },
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("/marketdata/v1/quotes")) {
-          schwabRestQuoteCalls += 1;
-          const symbol = url.includes("DIA") ? "DIA" : "IWM";
-          const price = symbol === "DIA" ? 478.92 : 260.44;
-          return new Response(
-            JSON.stringify({
-              [symbol]: {
-                quote: { symbol, lastPrice: price, tradeTimeInLong: 1_710_000_000_000 },
-                reference: { currency: "USD" },
-                fundamental: {},
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("data.alpaca.markets") && url.includes("/trades/latest")) {
-          alpacaQuoteCalls += 1;
-          return new Response(JSON.stringify({ message: "unexpected alpaca call" }), {
-            status: 500,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        return new Response("not found", { status: 404 });
-      },
+      fetchImpl: async () => new Response("not found", { status: 404 }),
     });
     registerMarketDataRoutes(app, service);
 
@@ -2294,10 +2240,10 @@ describe("market-data routes", () => {
       };
     };
     expect(response.status).toBe(200);
-    expect(body.status).toBe("ok");
-    expect(body.providerMode).toBe("schwab_primary");
+    expect(body.status).toBe("degraded");
+    expect(body.providerMode).toBe("multi_mode");
     expect(body.fallbackEngaged).toBe(false);
-    expect(body.degradedReason).toBeNull();
+    expect(body.degradedReason).toBe("2 batch item(s) failed");
     expect(body.data.items).toEqual([
       expect.objectContaining({
         symbol: "SPY",
@@ -2315,23 +2261,19 @@ describe("market-data routes", () => {
       }),
       expect.objectContaining({
         symbol: "IWM",
-        source: "schwab",
-        status: "ok",
-        providerMode: "schwab_primary",
-        degradedReason: null,
-        data: expect.objectContaining({ price: 260.44 }),
+        source: "service",
+        status: "error",
+        providerMode: "unavailable",
+        degradedReason: "No live Schwab quote available for IWM",
       }),
       expect.objectContaining({
         symbol: "DIA",
-        source: "schwab",
-        status: "ok",
-        providerMode: "schwab_primary",
-        degradedReason: null,
-        data: expect.objectContaining({ price: 478.92 }),
+        source: "service",
+        status: "error",
+        providerMode: "unavailable",
+        degradedReason: "No live Schwab quote available for DIA",
       }),
     ]);
-    expect(schwabRestQuoteCalls).toBe(2);
-    expect(alpacaQuoteCalls).toBe(0);
   });
 
   it("preserves streamer-backed batch rows when other live-watchlist symbols have no usable Schwab quote", async () => {

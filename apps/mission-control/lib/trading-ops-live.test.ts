@@ -248,7 +248,7 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(false);
     expect(data.streamer.cooldownSummary).toContain("REST cooldown");
-    expect(data.tape.freshnessMessage).toContain("Using last-known Schwab quotes while the streamer reconnects");
+    expect(data.tape.freshnessMessage).toContain("Using last-known Schwab streamer quotes while the stream reconnects");
     expect(data.tape.providerMode).toBe("multi_mode");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");
     expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
@@ -468,7 +468,7 @@ describe("trading ops live loader", () => {
       expect(secondLoad.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
         state: "degraded",
         price: 261.41,
-        warning: expect.stringContaining("last known Schwab quote"),
+        warning: expect.stringContaining("last known Schwab streamer quote"),
       });
       expect(secondLoad.tape.rows.find((row) => row.symbol === "QQQ")).toMatchObject({
         state: "degraded",
@@ -478,7 +478,7 @@ describe("trading ops live loader", () => {
         state: "degraded",
         sourceSymbol: "DIA",
         price: 479.05,
-        warning: expect.stringContaining("last known Schwab quote"),
+        warning: expect.stringContaining("last known Schwab streamer quote"),
       });
       expect(secondLoad.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
     } finally {
@@ -486,7 +486,7 @@ describe("trading ops live loader", () => {
     }
   });
 
-  it("expires retained Schwab rows after the bounded after-hours window and marks them unavailable", async () => {
+  it("keeps retained Schwab streamer rows stale across longer gaps instead of expiring into REST recovery", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T22:00:00.000Z"));
     try {
@@ -580,17 +580,15 @@ describe("trading ops live loader", () => {
 
       expect(firstQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
         state: "degraded",
-        price: null,
-        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
+        price: 261.41,
+        warning: expect.stringContaining("last known Schwab streamer quote"),
       });
       expect(firstQuietGap.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
         state: "degraded",
-        price: null,
-        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
+        price: 479.05,
+        warning: expect.stringContaining("last known Schwab streamer quote"),
       });
-      expect(firstQuietGap.tape.freshnessMessage).toBe(
-        "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.",
-      );
+      expect(firstQuietGap.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
 
       vi.setSystemTime(new Date("2026-04-10T22:21:00.000Z"));
 
@@ -602,12 +600,10 @@ describe("trading ops live loader", () => {
 
       expect(secondQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
         state: "degraded",
-        price: null,
-        warning: "No after-hours Schwab quote has arrived for this symbol yet.",
+        price: 261.41,
+        warning: expect.stringContaining("last known Schwab streamer quote"),
       });
-      expect(secondQuietGap.tape.freshnessMessage).toBe(
-        "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.",
-      );
+      expect(secondQuietGap.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
     } finally {
       vi.useRealTimers();
     }

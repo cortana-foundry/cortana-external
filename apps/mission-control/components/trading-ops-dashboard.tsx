@@ -562,7 +562,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
-                    {liveData.streamer.connected ? "Streamer connected" : "REST fallback"}
+                    {liveData.streamer.connected ? "Streamer connected" : "Streamer disconnected"}
                   </Badge>
                 </div>
                 <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
@@ -1351,10 +1351,11 @@ function buildLiveArtifact(
   const hasProblems =
     liveData.streamer.operatorState !== "healthy" ||
     liveData.tape.rows.some((row) => row.state !== "ok");
+  const hasUsableLiveRows = liveData.tape.rows.some((row) => row.price != null);
 
   return {
     state: hasProblems ? "degraded" : "ok",
-    label: liveData.streamer.connected ? "Live stream" : "Fallback live data",
+    label: liveData.streamer.connected ? "Live stream" : hasUsableLiveRows ? "Stale live data" : "Live unavailable",
     message: liveError
       ? `${liveData.tape.freshnessMessage} Last request error: ${liveError}`
       : liveData.tape.freshnessMessage,

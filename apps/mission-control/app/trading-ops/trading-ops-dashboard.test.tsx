@@ -997,9 +997,9 @@ describe("TradingOpsDashboard", () => {
             warnings: ["streamer:reconnecting"],
           },
           tape: {
-            freshnessMessage: "Using REST fallback while streamer reconnects.",
+            freshnessMessage: "Using last-known Schwab streamer quotes while the stream reconnects.",
             rows: [
-              { ...liveRow("SPY", "SPY", "SPY", 510.12, 1.25), source: "schwab", state: "ok" },
+              { ...liveRow("SPY", "SPY", "SPY", 510.12, 1.25), source: "schwab_streamer_shared", state: "degraded" },
             ],
           },
           watchlists: {
@@ -1023,8 +1023,8 @@ describe("TradingOpsDashboard", () => {
     });
 
     await waitFor(() => {
-      expect(container).toHaveTextContent("REST fallback");
-      expect(container).toHaveTextContent("Using REST fallback while streamer reconnects.");
+      expect(container).toHaveTextContent("Using last-known Schwab streamer quotes while the stream reconnects.");
+      expect(container).not.toHaveTextContent("REST fallback");
     });
   });
 
