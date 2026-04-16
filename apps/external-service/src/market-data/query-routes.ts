@@ -104,21 +104,10 @@ export class MarketDataQueryRoutes {
           if (primary?.quote?.price != null) {
             return this.buildQuoteBatchItem(symbol, primary, compareProvider);
           }
-          try {
-            const schwabFallback = await this.providerChain.fetchPrimaryQuote(symbol, {
-              subsystem: context.subsystem,
-              allowAlpacaFallback: false,
-            });
-            if (schwabFallback?.quote?.price != null) {
-              return this.buildQuoteBatchItem(symbol, schwabFallback, compareProvider);
-            }
-          } catch {
-            // Fall through to an explicit error item below so the batch stays partial.
-          }
           return this.buildQuoteBatchErrorItem(
             symbol,
             new Error(`No live Schwab quote available for ${symbol}`),
-            "Quote batch could not keep a live Schwab lane for this symbol.",
+            "Quote batch could not keep a streamer-only Schwab lane for this symbol.",
           );
         }),
       );
@@ -251,7 +240,15 @@ export class MarketDataQueryRoutes {
     }
     try {
       const subsystem = resolveSubsystem(_request.url);
-      const primary = await this.providerChain.fetchPrimaryQuote(symbol, buildQuoteRouteContext(subsystem));
+      const context = buildQuoteRouteContext(subsystem);
+      const primary = context.preferLiveSchwabLane
+        ? await this.providerChain.fetchSchwabLiveQuoteOnly(symbol, { allowAfterHoursStale: true }).then((result) => {
+            if (result?.quote?.price == null) {
+              throw new Error(`No live Schwab quote available for ${symbol}`);
+            }
+            return result;
+          })
+        : await this.providerChain.fetchPrimaryQuote(symbol, context);
       this.providerChain.recordSourceUsage(primary.source);
       const compareProvider = resolveCompareProvider(compareWith);
       if (compareProvider === null) {

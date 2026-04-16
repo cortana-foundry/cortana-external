@@ -73,12 +73,10 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
   const historyLaneReason = restCooldownActive
     ? "Schwab REST is cooling down, so history callers should prefer recent Schwab cache first and Alpaca only where explicitly allowed."
     : "Schwab REST is healthy enough for primary history reads.";
-  const liveQuoteLaneMode = streamerConnected ? "schwab_primary" : restCooldownActive ? "alpaca_fallback" : "schwab_primary";
+  const liveQuoteLaneMode = streamerConnected ? "schwab_primary" : "schwab_streamer_stale_or_unavailable";
   const liveQuoteLaneReason = streamerConnected
     ? "Live quote lane is using the Schwab streamer primary path."
-    : restCooldownActive
-      ? "Streamer is not connected and Schwab REST is cooling down; approved live quote subsystems may need Alpaca fallback."
-      : "Live quote lane is relying on Schwab REST/shared state because the streamer is not connected.";
+    : "Live quote lane is streamer-only. When the streamer disconnects, consumers should keep last-known Schwab streamer quotes marked stale or show unavailable until streaming resumes.";
   return {
     streamerRoleConfigured: args.streamerRuntime.getConfiguredRole(),
     streamerRoleActive: args.streamerRuntime.getActiveRole(),
@@ -91,7 +89,7 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
     providerLaneGuidance: {
       liveQuotes: {
         providerMode: liveQuoteLaneMode,
-        fallbackEngaged: liveQuoteLaneMode !== "schwab_primary",
+        fallbackEngaged: false,
         providerModeReason: liveQuoteLaneReason,
       },
       history: {

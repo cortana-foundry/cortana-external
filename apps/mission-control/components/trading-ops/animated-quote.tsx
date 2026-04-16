@@ -107,7 +107,7 @@ function badgeVariantForQuoteState(state: LoadState) {
 function quoteBadgeLabel(row: LiveQuoteRow): string {
   if (isQuietAfterHoursGapRow(row)) return "waiting";
   if (isStaleSchwabRow(row)) return "stale";
-  if (row.state === "ok" && row.source === "schwab_streamer") return "live";
+  if (row.state === "ok" && (row.source === "schwab_streamer" || row.source === "schwab_streamer_shared")) return "live";
   if (row.state === "ok") return "rest";
   if (row.state === "degraded") return "degraded";
   if (row.state === "error") return "error";
