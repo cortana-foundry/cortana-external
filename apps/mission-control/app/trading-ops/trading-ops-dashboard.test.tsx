@@ -316,6 +316,7 @@ describe("TradingOpsDashboard", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -855,11 +856,149 @@ describe("TradingOpsDashboard", () => {
     });
 
     await waitFor(() => {
-      expect(container).toHaveTextContent("Waiting for first Polymarket live snapshot.");
-      expect(container).toHaveTextContent("Waiting for first Polymarket snapshot.");
+      expect(container).toHaveTextContent("Waiting for Polymarket live streams to settle after page load.");
+      expect(container).toHaveTextContent("Waiting for Polymarket account state.");
     });
 
     expect(container).not.toHaveTextContent("Polymarket live unavailable");
+  });
+
+  it("keeps reconnecting Polymarket payloads neutral during startup grace, then surfaces them after warmup", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-16T17:58:00.000Z"));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/trading-ops/polymarket") {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-16T17:58:01.000Z",
+            account: {
+              state: "error",
+              label: "error",
+              message: "Live account stream is error. 0 live balance snapshots, 0 positions, 0 open orders.",
+              updatedAt: "2026-04-16T17:58:01.000Z",
+              source: "/api/trading-ops/polymarket/live",
+              warnings: ["stream not ready"],
+              data: {
+                status: "error",
+                keyIdSuffix: null,
+                balanceCount: 0,
+                positionCount: 0,
+                openOrdersCount: 0,
+                balances: [],
+              },
+            },
+            signal: {
+              state: "missing",
+              label: "No live event stream",
+              message: "Polymarket event markets are not streaming yet.",
+              updatedAt: "2026-04-16T17:58:01.000Z",
+              source: "/api/trading-ops/polymarket/live",
+              warnings: ["stream not ready"],
+              data: null,
+            },
+            watchlist: {
+              state: "degraded",
+              label: "Live linked watchlist degraded",
+              message: "Live linked watchlist has 3 symbols across funds.",
+              updatedAt: "2026-04-16T17:58:01.000Z",
+              source: "/api/trading-ops/polymarket/live",
+              warnings: ["stream not ready"],
+              data: {
+                updatedAt: "2026-04-16T17:58:01.000Z",
+                totalCount: 3,
+                buckets: {
+                  stocks: [],
+                  funds: ["SPY", "QQQ", "DIA"],
+                  crypto: [],
+                  cryptoProxies: [],
+                },
+                symbols: [],
+              },
+            },
+            results: {
+              state: "ok",
+              label: "Pinned results waiting",
+              message: "Pinned markets will appear here after settlement.",
+              updatedAt: "2026-04-16T17:58:01.000Z",
+              source: "/api/trading-ops/polymarket/results",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-16T17:58:01.000Z",
+                settledCount: 0,
+                tradedCount: 0,
+                openPositionCount: 0,
+                rows: [],
+              },
+            },
+          }),
+        );
+      }
+
+      if (url === "/api/trading-ops/polymarket/live") {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-16T17:58:01.000Z",
+            streamer: {
+              marketsConnected: false,
+              privateConnected: false,
+              operatorState: "reconnecting",
+              trackedMarketCount: 0,
+              trackedMarketSlugs: [],
+              lastMarketMessageAt: null,
+              lastPrivateMessageAt: null,
+              lastError: "operation aborted",
+            },
+            account: {
+              balance: null,
+              buyingPower: null,
+              openOrdersCount: 0,
+              positionCount: 0,
+              lastBalanceUpdateAt: null,
+              lastOrdersUpdateAt: null,
+              lastPositionsUpdateAt: null,
+            },
+            roster: {
+              candidateEventsCount: 0,
+              candidateSportsCount: 0,
+            },
+            markets: [],
+            warnings: ["operation aborted"],
+          }),
+        );
+      }
+
+      return new Promise<Response>(() => {
+        // Keep unrelated fetches dormant.
+      });
+    }) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
+    fireEvent.mouseDown(polymarketTab);
+    fireEvent.click(polymarketTab);
+
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(container).toHaveTextContent("Waiting for Polymarket live streams to settle after page load.");
+    expect(container).toHaveTextContent("Waiting for Polymarket account state.");
+
+    expect(container).not.toHaveTextContent("Markets reconnecting");
+    expect(container).not.toHaveTextContent("Live account stream is error.");
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_001);
+      await Promise.resolve();
+    });
+
+    expect(container).toHaveTextContent("One or more Polymarket streams are reconnecting.");
+    expect(container).toHaveTextContent("Live account stream is error. 0 live balance snapshots, 0 positions, 0 open orders.");
   });
 
   it("shows the freshest pinned market timestamp when quote updates are newer than the last trade", async () => {
