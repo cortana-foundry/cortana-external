@@ -104,6 +104,17 @@ export class MarketDataQueryRoutes {
           if (primary?.quote?.price != null) {
             return this.buildQuoteBatchItem(symbol, primary, compareProvider);
           }
+          try {
+            const schwabFallback = await this.providerChain.fetchPrimaryQuote(symbol, {
+              subsystem: context.subsystem,
+              allowAlpacaFallback: false,
+            });
+            if (schwabFallback?.quote?.price != null) {
+              return this.buildQuoteBatchItem(symbol, schwabFallback, compareProvider);
+            }
+          } catch {
+            // Fall through to an explicit error item below so the batch stays partial.
+          }
           return this.buildQuoteBatchErrorItem(
             symbol,
             new Error(`No live Schwab quote available for ${symbol}`),
