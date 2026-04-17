@@ -205,11 +205,22 @@ Supporting success signals:
 - breakout and expansion-after-contraction setups
 - meta-model ranking across strategies once enough clean artifact history exists
 
-### Open Questions
+### Resolved Decisions
 
-- Which regime taxonomy should be canonical for V2: broad market posture only, or posture plus volatility and breadth sub-states?
-- Should the primary output remain a discrete action first, or should V2 produce a ranked opportunity score that maps into `BUY`, `WATCH`, and `NO_BUY` second?
-- Which minimum sample thresholds should gate trust labels for incumbent versus challenger strategies?
+- V2 will use a hierarchical regime taxonomy. The canonical regime model will include:
+  - a primary market-posture label
+  - a volatility sub-state
+  - a breadth sub-state
+  The default operator surface should summarize the primary market posture first, while deeper evaluation and trust reports should segment by the richer combined regime state. This keeps the UI readable while preserving enough structure for research credibility.
+
+- V2 will treat a ranked opportunity score as the primary model output and map that score into `BUY`, `WATCH`, and `NO_BUY` as the operator-facing action layer. This gives the system a cleaner optimization target, allows finer calibration and challenger comparison, and preserves the current discrete action surface the operator uses today.
+
+- Trust labels will be gated by minimum sample thresholds instead of being inferred from limited history:
+  - challenger strategies can earn `exploratory` status after 30 settled samples
+  - challenger strategies can earn `limited trust` after 100 settled samples, provided they beat the benchmark ladder and show acceptable drawdown behavior
+  - any strategy can earn `trusted` status only after 250 settled samples with regime coverage across the main posture states and no material walk-forward breakdown
+  - incumbent strategies that fall below freshness, regime coverage, or walk-forward robustness standards should be demoted even if they have deep historical sample counts
+  These thresholds should be treated as phase-1 defaults and may tighten later once the artifact and governance pipeline matures.
 
 ### Collaboration Topics
 
