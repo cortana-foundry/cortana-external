@@ -112,6 +112,7 @@ def test_load_cached_tape_quotes_uses_previous_session_history(monkeypatch, tmp_
 
 
 def test_build_snapshot_collects_expected_sections(monkeypatch):
+    monkeypatch.setattr(module, "load_last_known_regime_status", lambda *args, **kwargs: None)
     monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: make_status())
     monkeypatch.setattr(
         module,
