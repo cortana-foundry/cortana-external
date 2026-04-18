@@ -2683,6 +2683,7 @@ describe("market-data routes", () => {
 
     const app = new Hono();
     const service = new MarketDataService({
+      config: TEST_CONFIG,
       fetchImpl: async (input) => {
         const url = String(input);
         if (url.includes("data.alpaca.markets") && url.includes("/bars")) {

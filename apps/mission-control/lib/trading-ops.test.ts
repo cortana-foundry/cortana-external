@@ -498,6 +498,7 @@ describe("trading ops loader", () => {
     vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-prediction-refresh-"));
     tempDirs.push(repoPath);
+    const refreshedAt = new Date().toISOString();
 
     const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
     await writeJson(reportPath, {
@@ -522,7 +523,7 @@ describe("trading ops loader", () => {
         expect(args).toEqual(["--json", "--max-snapshots-per-run", "1"]);
         return {
           prediction_accuracy: {
-            generated_at: "2026-04-16T19:49:24.074811+00:00",
+            generated_at: refreshedAt,
             snapshot_count: 468,
             record_count: 1984,
             horizon_status: { "1d": { matured: 924, pending: 401 } },
