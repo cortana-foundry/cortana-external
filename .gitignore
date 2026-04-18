@@ -14,6 +14,8 @@ cortana-external
 # Python
 __pycache__/
 *.pyc
+.venv/
+backtester/.venv/
 
 # Data cache
 .cache/

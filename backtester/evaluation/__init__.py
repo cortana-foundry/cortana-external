@@ -25,6 +25,7 @@ __all__ = [
     "RUN_MANIFEST_OUTCOME_FAILED",
     "TaxonomyResult",
     "annotate_artifact",
+    "artifact_contracts",
     "attach_model_family_scores",
     "build_artifact_metadata",
     "build_default_model_families",
@@ -33,6 +34,7 @@ __all__ = [
     "classify_strategy_outcome",
     "compare_model_families",
     "render_model_comparison_report",
+    "run_manifest",
     "score_enhanced_rank",
     "validate_artifact_payload",
 ]
@@ -44,6 +46,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ARTIFACT_FAMILY_STRATEGY_ALERT": ("evaluation.artifact_contracts", "ARTIFACT_FAMILY_STRATEGY_ALERT"),
     "ARTIFACT_SCHEMA_VERSION": ("evaluation.artifact_contracts", "ARTIFACT_SCHEMA_VERSION"),
     "annotate_artifact": ("evaluation.artifact_contracts", "annotate_artifact"),
+    "artifact_contracts": ("evaluation", "artifact_contracts"),
     "build_artifact_metadata": ("evaluation.artifact_contracts", "build_artifact_metadata"),
     "validate_artifact_payload": ("evaluation.artifact_contracts", "validate_artifact_payload"),
     "ModelFamily": ("evaluation.comparison", "ModelFamily"),
@@ -64,10 +67,19 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "RUN_MANIFEST_OUTCOME_COMPLETED": ("evaluation.run_manifest", "RUN_MANIFEST_OUTCOME_COMPLETED"),
     "RUN_MANIFEST_OUTCOME_FAILED": ("evaluation.run_manifest", "RUN_MANIFEST_OUTCOME_FAILED"),
     "build_run_manifest": ("evaluation.run_manifest", "build_run_manifest"),
+    "run_manifest": ("evaluation", "run_manifest"),
 }
 
 
 def __getattr__(name: str) -> Any:
+    if name == "artifact_contracts":
+        module = import_module("evaluation.artifact_contracts")
+        globals()[name] = module
+        return module
+    if name == "run_manifest":
+        module = import_module("evaluation.run_manifest")
+        globals()[name] = module
+        return module
     module_name, attr_name = _EXPORTS[name]
     value = getattr(import_module(module_name), attr_name)
     globals()[name] = value
