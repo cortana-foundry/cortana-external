@@ -98,9 +98,14 @@ None required beyond existing Codex CLI auth on the host machine. Mission Contro
 
 - `/sessions` evolves from a read-only OpenClaw analytics page into a session hub that can render Codex-backed session rows and open transcript detail.
 - Operators can create a new Codex chat or resume an existing Codex session directly from Mission Control.
+- When Mission Control resumes an existing Codex session, it targets the same Codex session id and local Codex state store rather than creating a Mission Control-only fork of the transcript.
 - Assistant output streams into the browser while the Codex subprocess runs.
 - Runtime failures are first-class UI states: CLI missing, auth missing, session id missing, transcript backfill failed, unsupported execution mode, subprocess non-zero exit.
 - Transcript history persists in Mission Control and can be reloaded without re-running the Codex command.
+
+Shared-session caveat:
+
+- Mission Control should aim for session compatibility with other Codex clients that read the same local store, but the first release must not promise instantaneous UI reflection inside those clients because app-side caching/refresh behavior is outside Mission Control's control.
 
 ---
 
@@ -186,6 +191,10 @@ Recommended implementation notes:
 | **Success Response** | `202 { streamId }` or SSE upgrade |
 | **Error Responses** | `404` unknown session, `412` unsupported runtime mode, `500` subprocess failure |
 
+Additional contract note:
+
+- Resume requests must use the exact Codex session id discovered from the shared local session index so Mission Control continues the same underlying session rather than writing a parallel transcript.
+
 ### [NEW] Codex Session Stream
 
 | Field | Value |
@@ -225,6 +234,7 @@ Recommended implementation notes:
 - API route tests for list/detail/create/resume/stream happy paths and failure paths.
 - UI tests for session list rendering, transcript rendering, composer submit, pending state, and explicit error banners.
 - Manual local validation against a real Codex install to confirm session creation, resume, and transcript recovery after Mission Control restart.
+- Manual compatibility validation against another Codex client on the same machine to confirm that a Mission Control-resumed session is visible there after the client refreshes or reopens the transcript.
 
 Special regression areas:
 

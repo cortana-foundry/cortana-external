@@ -128,6 +128,7 @@ Week 4: V5
 - Session list shows Codex rows from API data with stable ordering by update time.
 - Selecting a session loads transcript history and latest usage state.
 - Sending a new prompt shows pending state, streamed assistant messages, and final completion state without page reload.
+- Resuming a pre-existing Codex session uses the same session id so the turn can be observed from another Codex client reading the same local store after refresh/reopen.
 
 ---
 
@@ -143,7 +144,7 @@ Week 4: V5
 
 - Sub-task 1: Add restart/recovery logic so Mission Control can rehydrate recent Codex transcripts from mirrored rows and `.codex` fallback files.
 - Sub-task 2: Update Mission Control docs and README references for the new planning and runtime surface.
-- Sub-task 3: Add a manual operator validation checklist for real Codex session create/resume/recovery behavior.
+- Sub-task 3: Add a manual operator validation checklist for real Codex session create/resume/recovery behavior, including cross-client shared-session verification against the Codex app or another Codex client using the same local state store.
 - Sub-task 4: Confirm log/error wording is operator-readable and points to the correct remediation path.
 
 #### Testing

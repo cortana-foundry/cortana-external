@@ -46,6 +46,7 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 - Operators can start or continue a Codex session from Mission Control without opening the Codex terminal UI.
 - Mission Control can render recent Codex sessions with thread name, updated time, cwd, and latest message state.
 - A resumed session produces streamed assistant output in Mission Control with no manual refresh required.
+- When Mission Control resumes an existing Codex session through the same local Codex profile/state store, the resulting turn is visible in the Codex clients that read that same session store, subject to client-side refresh or caching behavior.
 - Transcript recovery succeeds when Mission Control restarts because normalized session data is mirrored in-app and can be backfilled from `.codex` files.
 - Error states are explicit: missing CLI, missing auth, malformed session index, and unsupported approval mode failures surface as operator-readable errors instead of silent empty states.
 
@@ -101,6 +102,7 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 |--------|------------|-------|
 | Proposed | As an operator I want to see my recent Codex sessions inside Mission Control so that I can resume work from the browser instead of the terminal picker. | Session rows should include at minimum thread name, updated time, cwd, and session id. |
 | Proposed | As an operator I want to open a specific Codex session and read its latest transcript so that I can reorient without switching tools. | Mission Control should prefer mirrored events and fall back to `.codex` session files when needed. |
+| Proposed | As an operator I want a Mission Control-resumed Codex session to remain the same underlying session that Codex clients already know about so that I do not fork my work into two different chat histories. | This is shared-session compatibility, not desktop-app-specific API integration. |
 
 ---
 
@@ -143,16 +145,19 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 1. Should Mission Control integrate with the Codex desktop app directly?
    Recommended answer: No. Use Codex CLI as the supported runtime boundary and treat the desktop app as a separate client.
 
-2. Should raw `.codex` files be the only source of truth for transcript rendering?
+2. Is the product goal shared-session compatibility with Codex clients or a Mission Control-only transcript?
+   Recommended answer: Shared-session compatibility. Mission Control should write through Codex CLI into the same session id and local Codex state store whenever the operator resumes an existing session.
+
+3. Should raw `.codex` files be the only source of truth for transcript rendering?
    Recommended answer: No. Read `.codex` for discovery and recovery, but persist normalized session and event rows in Mission Control as the preferred source.
 
-3. Should the first release use `codex app-server`?
+4. Should the first release use `codex app-server`?
    Recommended answer: No. Start with `codex exec --json` and `codex exec resume --json` because they are concrete and testable now. Revisit app-server only after the browser client proves out.
 
-4. How should approvals work in a browser-initiated run?
+5. How should approvals work in a browser-initiated run?
    Recommended answer: Keep approval-heavy flows out of the first release boundary. Require a backend-safe Codex execution profile and fail fast when the requested runtime mode would rely on an invisible TTY approval prompt.
 
-5. Should Mission Control replace the existing OpenClaw Sessions page?
+6. Should Mission Control replace the existing OpenClaw Sessions page?
    Recommended answer: No. Reframe `/sessions` as a session hub with provider-aware tabs or filters so OpenClaw analytics and Codex chat can coexist.
 
 ### Technical Considerations
