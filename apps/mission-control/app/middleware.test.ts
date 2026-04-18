@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 
 const originalMissionControlToken = process.env.MISSION_CONTROL_API_TOKEN;
 const originalOpenClawToken = process.env.OPENCLAW_EVENT_TOKEN;
@@ -19,14 +19,14 @@ afterEach(() => {
   }
 });
 
-describe("mission control middleware", () => {
+describe("mission control proxy", () => {
   it("allows remote browser GET requests without token bootstrap", () => {
     delete process.env.MISSION_CONTROL_API_TOKEN;
     const request = new NextRequest("http://100.120.198.12:3000/api/services/workspace", {
       headers: { host: "100.120.198.12:3000" },
     });
 
-    const response = middleware(request);
+    const response = proxy(request);
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toBeNull();
   });
@@ -40,7 +40,7 @@ describe("mission control middleware", () => {
       },
     });
 
-    const response = middleware(request);
+    const response = proxy(request);
     expect(response.status).toBe(200);
   });
 
@@ -53,7 +53,7 @@ describe("mission control middleware", () => {
       },
     });
 
-    const response = middleware(request);
+    const response = proxy(request);
     expect(response.status).toBe(403);
   });
 
@@ -64,7 +64,7 @@ describe("mission control middleware", () => {
       headers: { host: "100.120.198.12:3000" },
     });
 
-    const response = middleware(request);
+    const response = proxy(request);
     expect(response.status).toBe(401);
   });
 
@@ -78,7 +78,7 @@ describe("mission control middleware", () => {
       },
     });
 
-    const response = middleware(request);
+    const response = proxy(request);
     expect(response.status).toBe(200);
   });
 });

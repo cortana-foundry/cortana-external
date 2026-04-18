@@ -283,16 +283,21 @@ const fixture: TradingOpsDashboardData = {
       actualPosture: "paused",
       desiredAutonomy: "supervised_live",
       actualAutonomy: "advisory",
+      stateAlignment: "drifted",
       releaseKey: "bt-v4-control-loop",
       releaseMode: "steady",
       releaseStatus: "ok",
+      releaseValidation: "valid",
       rollbackReady: true,
       driftStatus: "degraded",
       driftSummary: "Observed drift requires a temporary authority reduction.",
       pendingActionCount: 2,
       appliedActionCount: 1,
       activeInterventionCount: 1,
+      interventionTypes: ["manual_pause"],
       topAction: "rebalance_posture",
+      topActionStatus: "proposed",
+      operatorAction: "Resolve visible interventions before restoring authority. Review the pending reconciliation actions before widening posture.",
     },
   },
   workflow: {
@@ -429,7 +434,10 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Do not size up");
     expect(container).toHaveTextContent("Control tower");
     expect(container).toHaveTextContent("Desired posture");
+    expect(container).toHaveTextContent("Alignment");
     expect(container).toHaveTextContent("bt-v4-control-loop");
+    expect(container).toHaveTextContent("manual pause");
+    expect(container).toHaveTextContent("Next operator step");
     expect(container).toHaveTextContent("trusted · supervised_live");
     expect(container).toHaveTextContent("dip_buyer $25,000");
 

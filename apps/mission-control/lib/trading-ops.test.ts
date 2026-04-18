@@ -248,6 +248,9 @@ describe("trading ops loader", () => {
     await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "intervention_events.json"), {
       generated_at: "2026-04-03T22:20:35.951192+00:00",
       active_event_count: 1,
+      summary: {
+        event_types: ["manual_pause"],
+      },
     });
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
       generated_at: "2026-04-03T23:15:25.794002+00:00",
@@ -366,9 +369,14 @@ describe("trading ops loader", () => {
     expect(data.controlTower.state).toBe("degraded");
     expect(data.controlTower.data?.desiredPosture).toBe("selective");
     expect(data.controlTower.data?.actualPosture).toBe("paused");
+    expect(data.controlTower.data?.stateAlignment).toBe("drifted");
+    expect(data.controlTower.data?.releaseValidation).toBe("valid");
     expect(data.controlTower.data?.pendingActionCount).toBe(2);
     expect(data.controlTower.data?.activeInterventionCount).toBe(1);
+    expect(data.controlTower.data?.interventionTypes).toEqual(["manual_pause"]);
     expect(data.controlTower.data?.topAction).toBe("rebalance_posture");
+    expect(data.controlTower.data?.topActionStatus).toBe("proposed");
+    expect(data.controlTower.data?.operatorAction).toContain("Resolve visible interventions");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");
@@ -482,6 +490,38 @@ describe("trading ops loader", () => {
     expect(data.runtime.state).toBe("error");
     expect(data.opsHighway.state).toBe("error");
     expect(data.tradingRun.state).toBe("missing");
+  });
+
+  it("falls back to a synthesized control tower view when dedicated V4 state files are missing", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-fallback-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-fallback-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json"), {
+      generated_at: "2026-04-18T20:00:00.000Z",
+      summary: {
+        open_count: 2,
+        closed_total_count: 7,
+      },
+    });
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json"), {
+      generated_at: "2026-04-18T20:00:00.000Z",
+      summary: { highest_autonomy_mode: "advisory" },
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      tradingRunStateStore: null,
+    });
+
+    expect(data.controlTower.state).toBe("degraded");
+    expect(data.controlTower.badgeText).toBe("fallback");
+    expect(data.controlTower.data?.stateAlignment).toBe("fallback");
+    expect(data.controlTower.data?.releaseStatus).toBe("legacy");
+    expect(data.controlTower.data?.operatorAction).toContain("Run the V4 lifecycle cycle");
   });
 
   it("marks older market and workflow artifacts as stale when a newer trading run exists", async () => {

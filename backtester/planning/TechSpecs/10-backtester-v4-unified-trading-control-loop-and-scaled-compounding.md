@@ -1,6 +1,6 @@
 # Technical Specification - Backtester V4 Unified Trading Control Loop And Scaled Compounding
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 

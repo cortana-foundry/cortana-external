@@ -108,16 +108,21 @@ export type ControlTowerOverview = {
   actualPosture: string | null;
   desiredAutonomy: string | null;
   actualAutonomy: string | null;
+  stateAlignment: string | null;
   releaseKey: string | null;
   releaseMode: string | null;
   releaseStatus: string | null;
+  releaseValidation: string | null;
   rollbackReady: boolean | null;
   driftStatus: string | null;
   driftSummary: string | null;
   pendingActionCount: number;
   appliedActionCount: number;
   activeInterventionCount: number;
+  interventionTypes: string[];
   topAction: string | null;
+  topActionStatus: string | null;
+  operatorAction: string | null;
 };
 
 export type WorkflowOverview = {
