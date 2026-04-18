@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD) - Backtester V4 Unified Trading Control Loop And Scaled Compounding
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -151,9 +151,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a trading system, I want a canonical desired-state artifact for posture, authority, release version, and risk budgets so that the product knows what "good" is supposed to look like right now. | Core V4 contract. |
-| Draft | As an operator, I want a matching actual-state artifact for positions, exposures, runtime health, drift, freshness, and realized outcomes so that I can see reality without piecing together multiple tools. | Actual state is equally first-class. |
-| Draft | As a control loop, I want reconciliation actions to be explicit and idempotent so that repeated runs reduce drift instead of compounding side effects. | Directly reflects the wiki control-loop guidance. |
+| Complete | As a trading system, I want a canonical desired-state artifact for posture, authority, release version, and risk budgets so that the product knows what "good" is supposed to look like right now. | Core V4 contract. |
+| Complete | As an operator, I want a matching actual-state artifact for positions, exposures, runtime health, drift, freshness, and realized outcomes so that I can see reality without piecing together multiple tools. | Actual state is equally first-class. |
+| Complete | As a control loop, I want reconciliation actions to be explicit and idempotent so that repeated runs reduce drift instead of compounding side effects. | Directly reflects the wiki control-loop guidance. |
 
 ---
 
@@ -161,9 +161,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an account owner, I want scarce capital allocated to the best risk-adjusted opportunities so that the system improves compounding instead of just idea generation. | Capital allocation is the economic center. |
-| Draft | As a portfolio engine, I want drawdown budget, exposure budget, concentration caps, and per-position limits to shape allocation so that survivability comes before aggressiveness. | Reflects the wiki's risk and drawdown emphasis. |
-| Draft | As a reviewer, I want recovery duration and time under water tracked alongside returns so that a high-return but operationally painful strategy does not get mistaken for scalable quality. | Usability matters. |
+| Complete | As an account owner, I want scarce capital allocated to the best risk-adjusted opportunities so that the system improves compounding instead of just idea generation. | Capital allocation is the economic center. |
+| Complete | As a portfolio engine, I want drawdown budget, exposure budget, concentration caps, and per-position limits to shape allocation so that survivability comes before aggressiveness. | Reflects the wiki's risk and drawdown emphasis. |
+| Complete | As a reviewer, I want recovery duration and time under water tracked alongside returns so that a high-return but operationally painful strategy does not get mistaken for scalable quality. | Usability matters. |
 
 ---
 
@@ -171,9 +171,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a system maintainer, I want every strategy, model, and policy change packaged as a full release unit with code, feature logic, dependencies, and configuration so that rollout and rollback are real. | Mirrors the wiki's MLOps release-unit principle. |
-| Draft | As an operator, I want canary, shadow, and staged rollout modes so that a promising change proves itself before it is trusted with more authority. | Pre-failure control. |
-| Draft | As a monitoring system, I want drift, training-serving skew, and prediction-quality changes detected continuously so that adaptation is deliberate rather than reactive. | Continuous validation is required. |
+| Complete | As a system maintainer, I want every strategy, model, and policy change packaged as a full release unit with code, feature logic, dependencies, and configuration so that rollout and rollback are real. | Mirrors the wiki's MLOps release-unit principle. |
+| Complete | As an operator, I want canary, shadow, and staged rollout modes so that a promising change proves itself before it is trusted with more authority. | Pre-failure control. |
+| Complete | As a monitoring system, I want drift, training-serving skew, and prediction-quality changes detected continuously so that adaptation is deliberate rather than reactive. | Continuous validation is required. |
 
 ---
 
@@ -181,9 +181,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want to ask new questions about a bad day, a bad strategy, or a bad rollout without shipping new code first so that investigation speed scales with system complexity. | Direct observability requirement. |
-| Draft | As a maintainer, I want logs, metrics, traces, and model-quality artifacts correlated by run, release, and strategy so that I can move from symptom to cause quickly. | Supports real debugging. |
-| Draft | As a risk-conscious owner, I want kill switches, authority reducers, and pause modes available before the incident so that intervention is fast and boring. | Risk management is proactive. |
+| Complete | As an operator, I want to ask new questions about a bad day, a bad strategy, or a bad rollout without shipping new code first so that investigation speed scales with system complexity. | Direct observability requirement. |
+| Complete | As a maintainer, I want logs, metrics, traces, and model-quality artifacts correlated by run, release, and strategy so that I can move from symptom to cause quickly. | Supports real debugging. |
+| Complete | As a risk-conscious owner, I want kill switches, authority reducers, and pause modes available before the incident so that intervention is fast and boring. | Risk management is proactive. |
 
 ---
 
@@ -191,8 +191,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want Mission Control to show desired posture, actual posture, drift, authority, release state, and intervention controls in one place so that the product feels unified. | This is the visible V4 surface. |
-| Draft | As a maintainer, I want all overrides, demotions, rollout holds, and recovery actions visible in that same control surface so that human decisions stay legible. | Operational truth surface. |
+| Complete | As an operator, I want Mission Control to show desired posture, actual posture, drift, authority, release state, and intervention controls in one place so that the product feels unified. | This is the visible V4 surface. |
+| Complete | As a maintainer, I want all overrides, demotions, rollout holds, and recovery actions visible in that same control surface so that human decisions stay legible. | Operational truth surface. |
 
 ---
 
@@ -200,8 +200,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a platform owner, I want new strategies, research feeds, and future account scopes to plug into the same contracts and policy loops so that scale comes from structure, not one-off integration work. | Long-term scale path. |
-| Draft | As a roadmap owner, I want the product to support iteration on top of the same core loop rather than needing a rewrite every time we add a new strategy family or authority mode. | Product compounding, not just capital compounding. |
+| Complete | As a platform owner, I want new strategies, research feeds, and future account scopes to plug into the same contracts and policy loops so that scale comes from structure, not one-off integration work. | Long-term scale path. |
+| Complete | As a roadmap owner, I want the product to support iteration on top of the same core loop rather than needing a rewrite every time we add a new strategy family or authority mode. | Product compounding, not just capital compounding. |
 
 ---
 

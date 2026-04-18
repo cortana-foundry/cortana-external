@@ -127,16 +127,21 @@ export type ControlTowerOverview = {
   actualPosture: string | null;
   desiredAutonomy: string | null;
   actualAutonomy: string | null;
+  stateAlignment: string | null;
   releaseKey: string | null;
   releaseMode: string | null;
   releaseStatus: string | null;
+  releaseValidation: string | null;
   rollbackReady: boolean | null;
   driftStatus: string | null;
   driftSummary: string | null;
   pendingActionCount: number;
   appliedActionCount: number;
   activeInterventionCount: number;
+  interventionTypes: string[];
   topAction: string | null;
+  topActionStatus: string | null;
+  operatorAction: string | null;
 };
 
 export type WorkflowOverview = {
@@ -1275,6 +1280,8 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const releasePath = path.join(lifecycleRoot, "release_unit.json");
   const driftPath = path.join(lifecycleRoot, "drift_monitor.json");
   const interventionsPath = path.join(lifecycleRoot, "intervention_events.json");
+  const cyclePath = path.join(lifecycleRoot, "cycle_summary.json");
+  const authorityPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json");
 
   const [desired, actual, reconciliation, release, drift, interventions] = await Promise.all([
     readJsonFile<Record<string, unknown>>(desiredPath),
@@ -1286,6 +1293,52 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   ]);
 
   if (!desired?.data || !actual?.data) {
+    const [cycleSummary, authority] = await Promise.all([
+      readJsonFile<Record<string, unknown>>(cyclePath),
+      readJsonFile<Record<string, unknown>>(authorityPath),
+    ]);
+    const cycleData = asRecord(cycleSummary?.data) ?? {};
+    const cycleSummaryData = asRecord(cycleData.summary) ?? {};
+    const authorityData = asRecord(authority?.data) ?? {};
+    const authoritySummary = asRecord(authorityData.summary) ?? {};
+    if (cycleSummary?.data) {
+      const legacyPosture = "unknown";
+      const legacyAutonomy = stringValue(authoritySummary.highest_autonomy_mode) ?? "advisory";
+      const updatedAt = stringValue(cycleData.generated_at) ?? null;
+      return {
+        state: "degraded",
+        label: "Control tower (fallback)",
+        message: "Dedicated desired-state and actual-state artifacts are missing. Showing a synthesized legacy control-tower view until the next V4 lifecycle cycle writes the full state set.",
+        data: {
+          desiredPosture: legacyPosture,
+          actualPosture: legacyPosture,
+          desiredAutonomy: legacyAutonomy,
+          actualAutonomy: legacyAutonomy,
+          stateAlignment: "fallback",
+          releaseKey: "legacy-trade-lifecycle",
+          releaseMode: "steady",
+          releaseStatus: "legacy",
+          releaseValidation: "unknown",
+          rollbackReady: null,
+          driftStatus: null,
+          driftSummary: "Dedicated V4 drift artifacts are not available yet.",
+          pendingActionCount: 0,
+          appliedActionCount: 0,
+          activeInterventionCount: 0,
+          interventionTypes: [],
+          topAction: null,
+          topActionStatus: null,
+          operatorAction: compactStrings([
+            `Legacy lifecycle snapshot shows ${numberValue(cycleSummaryData.open_count) ?? 0} open and ${numberValue(cycleSummaryData.closed_total_count) ?? 0} closed positions.`,
+            "Run the V4 lifecycle cycle to materialize desired, actual, release, drift, and intervention artifacts.",
+          ]).join(" "),
+        },
+        source: [cyclePath, authorityPath].join(" · "),
+        updatedAt,
+        warnings: ["control-tower:fallback"],
+        badgeText: "fallback",
+      };
+    }
     return {
       state: desired?.error === "missing" || actual?.error === "missing" ? "missing" : "error",
       label: "Control tower unavailable",
@@ -1309,7 +1362,11 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const rollbackState = asRecord(releaseData.rollback_state) ?? {};
   const releaseValidation = asRecord(releaseData.validation) ?? {};
   const reconciliationSummary = asRecord(reconciliationData.summary) ?? {};
+  const interventionSummary = asRecord(interventionsData.summary) ?? {};
   const actionRows = asArray(reconciliationData.actions)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const interventionRows = asArray(interventionsData.events)
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
   const proposedCount = numberValue(reconciliationSummary.proposed_count)
@@ -1317,8 +1374,35 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const appliedCount = numberValue(reconciliationSummary.applied_count)
     ?? actionRows.filter((entry) => stringValue(entry.action_status) === "applied").length;
   const activeInterventionCount = numberValue(interventionsData.active_event_count) ?? 0;
+  const desiredPosture = stringValue(desiredSummary.desired_posture_state);
+  const actualPosture = stringValue(actualSummary.actual_posture_state);
+  const desiredAutonomy = stringValue(desiredSummary.desired_autonomy_mode);
+  const actualAutonomy = stringValue(actualSummary.actual_autonomy_mode);
   const driftStatus = stringValue(driftSummary.drift_status) ?? stringValue(driftData.status);
   const releaseStatus = stringValue(releaseCanary.status) ?? (booleanValue(releaseValidation.is_valid) ? "ok" : "degraded");
+  const releaseValidationStatus = booleanValue(releaseValidation.is_valid) == null
+    ? null
+    : booleanValue(releaseValidation.is_valid)
+      ? "valid"
+      : "invalid";
+  const interventionTypes = Array.from(new Set([
+    ...interventionRows
+      .filter((entry) => !entry.cleared_at)
+      .map((entry) => stringValue(entry.event_type))
+      .filter((value): value is string => Boolean(value)),
+    ...asArray(interventionSummary.event_types)
+      .map((entry) => (typeof entry === "string" ? entry : null))
+      .filter((value): value is string => Boolean(value)),
+  ]));
+  const stateAlignment = desiredPosture === actualPosture && desiredAutonomy === actualAutonomy ? "aligned" : "drifted";
+  const topAction = stringValue(reconciliationSummary.top_action) ?? stringValue(actionRows[0]?.action_type);
+  const topActionStatus = stringValue(actionRows[0]?.action_status);
+  const operatorAction = compactStrings([
+    activeInterventionCount > 0 ? "Resolve visible interventions before restoring authority." : null,
+    proposedCount > 0 ? "Review the pending reconciliation actions before widening posture." : null,
+    releaseValidationStatus === "invalid" ? "Keep rollout constrained until the release bundle validates cleanly." : null,
+    driftStatus && driftStatus !== "ok" ? "Investigate drift before restoring full trust." : null,
+  ]).join(" ") || "No immediate operator action required.";
   const updatedAt = stringValue(actualData.generated_at)
     ?? stringValue(desiredData.generated_at)
     ?? stringValue(releaseData.generated_at)
@@ -1337,22 +1421,28 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
       stringValue(driftSummary.headline),
       proposedCount > 0 ? `${proposedCount} proposed reconciliation action${proposedCount === 1 ? "" : "s"} pending.` : null,
       activeInterventionCount > 0 ? `${activeInterventionCount} active intervention${activeInterventionCount === 1 ? "" : "s"} visible.` : null,
+      operatorAction,
     ]).join(" ") || "Desired and actual state are aligned.",
     data: {
-      desiredPosture: stringValue(desiredSummary.desired_posture_state),
-      actualPosture: stringValue(actualSummary.actual_posture_state),
-      desiredAutonomy: stringValue(desiredSummary.desired_autonomy_mode),
-      actualAutonomy: stringValue(actualSummary.actual_autonomy_mode),
+      desiredPosture,
+      actualPosture,
+      desiredAutonomy,
+      actualAutonomy,
+      stateAlignment,
       releaseKey: stringValue(releaseData.release_key),
       releaseMode: stringValue(releaseCanary.stage) ?? stringValue(releaseCanary.mode),
       releaseStatus,
+      releaseValidation: releaseValidationStatus,
       rollbackReady: booleanValue(rollbackState.rollback_ready),
       driftStatus,
       driftSummary: stringValue(driftSummary.headline),
       pendingActionCount: proposedCount ?? 0,
       appliedActionCount: appliedCount ?? 0,
       activeInterventionCount,
-      topAction: stringValue(reconciliationSummary.top_action) ?? stringValue(actionRows[0]?.action_type),
+      interventionTypes,
+      topAction,
+      topActionStatus,
+      operatorAction,
     },
     source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath].join(" · "),
     updatedAt,
@@ -1360,6 +1450,7 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
       driftStatus && driftStatus !== "ok" ? `drift:${driftStatus}` : null,
       proposedCount > 0 ? `pending-actions:${proposedCount}` : null,
       activeInterventionCount > 0 ? `active-interventions:${activeInterventionCount}` : null,
+      releaseValidationStatus === "invalid" ? "release-validation:invalid" : null,
     ]),
     badgeText: driftStatus && driftStatus !== "ok" ? driftStatus : proposedCount > 0 ? `${proposedCount} pending` : undefined,
   };

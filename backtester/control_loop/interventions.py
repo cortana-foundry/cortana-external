@@ -37,6 +37,23 @@ def build_intervention_event(
     }
 
 
+def clear_intervention_event(
+    event: Mapping[str, Any],
+    *,
+    cleared_at: str,
+    actor: str = "operator",
+    clear_reason: str | None = None,
+) -> dict[str, Any]:
+    cleared_event = dict(event)
+    cleared_event["cleared_at"] = _normalize_timestamp(cleared_at)
+    cleared_event["clear_actor"] = str(actor).strip() or "operator"
+    reason = dict(cleared_event.get("reason") or {})
+    if clear_reason:
+        reason["clear_reason"] = str(clear_reason).strip()
+    cleared_event["reason"] = reason
+    return cleared_event
+
+
 def derive_intervention_events(
     *,
     generated_at: str,
@@ -109,14 +126,17 @@ def build_intervention_events_artifact(
     normalized_generated_at = _normalize_timestamp(generated_at)
     normalized_events = [dict(item) for item in events or [] if isinstance(item, Mapping)]
     active_event_count = sum(1 for event in normalized_events if not event.get("cleared_at"))
+    cleared_event_count = sum(1 for event in normalized_events if event.get("cleared_at"))
     warnings = [str(event.get("event_type") or "").strip() for event in normalized_events if str(event.get("event_type") or "").strip()]
     return annotate_artifact(
         {
             "intervention_set_id": _deterministic_key("trading_intervention_set", normalized_generated_at, active_event_count),
             "events": normalized_events,
             "active_event_count": active_event_count,
+            "cleared_event_count": cleared_event_count,
             "summary": {
                 "active_event_count": active_event_count,
+                "cleared_event_count": cleared_event_count,
                 "event_types": sorted(dict.fromkeys(warnings)),
             },
             "warnings": warnings,

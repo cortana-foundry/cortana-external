@@ -1390,15 +1390,29 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <Metric label="Actual posture" value={data.controlTower.data.actualPosture ? formatLabel(data.controlTower.data.actualPosture) : "unknown"} />
                   <Metric label="Desired autonomy" value={data.controlTower.data.desiredAutonomy ? formatLabel(data.controlTower.data.desiredAutonomy) : "unknown"} />
                   <Metric label="Actual autonomy" value={data.controlTower.data.actualAutonomy ? formatLabel(data.controlTower.data.actualAutonomy) : "unknown"} />
+                  <Metric label="Alignment" value={data.controlTower.data.stateAlignment ? formatLabel(data.controlTower.data.stateAlignment) : "unknown"} />
                   <Metric
                     label="Release"
                     value={[data.controlTower.data.releaseKey, data.controlTower.data.releaseMode].filter(Boolean).join(" · ") || "steady-state"}
                   />
                   <Metric label="Release status" value={data.controlTower.data.releaseStatus ? formatLabel(data.controlTower.data.releaseStatus) : "unknown"} />
+                  <Metric label="Release validation" value={data.controlTower.data.releaseValidation ? formatLabel(data.controlTower.data.releaseValidation) : "unknown"} />
                   <Metric label="Drift" value={data.controlTower.data.driftSummary ?? data.controlTower.data.driftStatus ?? "No drift summary yet"} />
+                  <Metric
+                    label="Top action"
+                    value={[data.controlTower.data.topAction, data.controlTower.data.topActionStatus].filter(Boolean).join(" · ") || "none"}
+                  />
                   <Metric label="Pending / applied" value={`${data.controlTower.data.pendingActionCount} / ${data.controlTower.data.appliedActionCount}`} />
-                  <Metric label="Interventions" value={`${data.controlTower.data.activeInterventionCount}`} />
+                  <Metric
+                    label="Interventions"
+                    value={
+                      data.controlTower.data.interventionTypes.length > 0
+                        ? `${data.controlTower.data.activeInterventionCount} · ${data.controlTower.data.interventionTypes.map((value) => formatLabel(value)).join(", ")}`
+                        : `${data.controlTower.data.activeInterventionCount}`
+                    }
+                  />
                   <Metric label="Rollback ready" value={data.controlTower.data.rollbackReady == null ? "unknown" : data.controlTower.data.rollbackReady ? "yes" : "no"} />
+                  <Metric label="Next operator step" value={data.controlTower.data.operatorAction ?? "No immediate operator action required."} />
                 </div>
               ) : null}
             </ArtifactPanel>

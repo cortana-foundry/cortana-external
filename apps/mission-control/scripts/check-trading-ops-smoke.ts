@@ -54,12 +54,33 @@ async function main() {
   if (data.runtime.state === "error") {
     throw new Error(`Trading Ops smoke check failed: runtime card is in error state (${data.runtime.message}).`);
   }
+  const controlTower = data.controlTower.data;
+  if (!controlTower) {
+    throw new Error("Trading Ops smoke check failed: control tower card has no data.");
+  }
+  if (data.controlTower.state === "error") {
+    throw new Error(`Trading Ops smoke check failed: control tower card is in error state (${data.controlTower.message}).`);
+  }
+  if (!controlTower.desiredPosture || !controlTower.actualPosture) {
+    throw new Error("Trading Ops smoke check failed: desired and actual posture are not both visible.");
+  }
+  if (!controlTower.releaseKey || !controlTower.releaseStatus) {
+    throw new Error("Trading Ops smoke check failed: release-unit state is not visible in control tower.");
+  }
+  if (!controlTower.operatorAction) {
+    throw new Error("Trading Ops smoke check failed: control tower is missing next operator action guidance.");
+  }
 
   console.log("Trading Ops smoke check passed.");
   console.log(`Latest run: ${tradingRun.runId} (${tradingRun.runLabel})`);
   console.log(`Decision/counts: ${tradingRun.decision} | BUY ${tradingRun.buyCount} · WATCH ${tradingRun.watchCount} · NO_BUY ${tradingRun.noBuyCount}`);
   console.log(`Delivery: ${tradingRun.notifiedAt ?? "not notified"}`);
   console.log(`Runtime: ${data.runtime.data?.operatorState ?? data.runtime.label} | ${data.runtime.message}`);
+  console.log(
+    `Control tower: ${controlTower.desiredPosture} -> ${controlTower.actualPosture} | `
+      + `${controlTower.releaseKey} ${controlTower.releaseStatus} | `
+      + `${controlTower.operatorAction}`,
+  );
 }
 
 main().catch((error) => {

@@ -1,6 +1,6 @@
 # QA Plan - Backtester V4 Unified Trading Control Loop And Scaled Compounding
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -183,9 +183,9 @@ The V4 release is QA-complete when all of the following are true:
 
 ## Sign-Off Checklist
 
-- [ ] Desired-state and actual-state contracts verified
-- [ ] Reconciliation idempotence verified
-- [ ] Intervention-event recording verified
-- [ ] Release-unit canary and rollback path verified
-- [ ] Drift-triggered hold or authority-reduction path verified
-- [ ] Mission Control control-tower truth verified
+- [x] Desired-state and actual-state contracts verified
+- [x] Reconciliation idempotence verified
+- [x] Intervention-event recording verified
+- [x] Release-unit canary and rollback path verified
+- [x] Drift-triggered hold or authority-reduction path verified
+- [x] Mission Control control-tower truth verified

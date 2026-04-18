@@ -1,6 +1,6 @@
 # Implementation Plan - Backtester V4 Unified Trading Control Loop And Scaled Compounding
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -48,9 +48,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/control_loop/desired_state.py` and `backtester/control_loop/actual_state.py`.
-- [ ] Sub-task 2: Emit `trading_desired_state_snapshots_v1` and `trading_actual_state_snapshots_v1`.
-- [ ] Sub-task 3: Update Mission Control loaders to distinguish desired state from actual state instead of flattening them into one summary.
+- [x] Sub-task 1: Add `backtester/control_loop/desired_state.py` and `backtester/control_loop/actual_state.py`.
+- [x] Sub-task 2: Emit `trading_desired_state_snapshots_v1` and `trading_actual_state_snapshots_v1`.
+- [x] Sub-task 3: Update Mission Control loaders to distinguish desired state from actual state instead of flattening them into one summary.
 
 #### Testing
 
@@ -70,9 +70,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/control_loop/reconciler.py` and `backtester/control_loop/interventions.py`.
-- [ ] Sub-task 2: Emit `trading_reconciliation_actions_v1` for proposed and applied actions.
-- [ ] Sub-task 3: Record kill switches, pauses, resumes, rollout holds, and override acknowledgments as `trading_intervention_events_v1`.
+- [x] Sub-task 1: Add `backtester/control_loop/reconciler.py` and `backtester/control_loop/interventions.py`.
+- [x] Sub-task 2: Emit `trading_reconciliation_actions_v1` for proposed and applied actions.
+- [x] Sub-task 3: Record kill switches, pauses, resumes, rollout holds, and override acknowledgments as `trading_intervention_events_v1`.
 
 #### Testing
 
@@ -90,9 +90,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/release/release_units.py` and persist `trading_release_units_v1`.
-- [ ] Sub-task 2: Define canary, shadow, staged, and rollback-ready fields for release units.
-- [ ] Sub-task 3: Surface release-unit health in Mission Control and tie it to authority/rollout policy.
+- [x] Sub-task 1: Add `backtester/release/release_units.py` and persist `trading_release_units_v1`.
+- [x] Sub-task 2: Define canary, shadow, staged, and rollback-ready fields for release units.
+- [x] Sub-task 3: Surface release-unit health in Mission Control and tie it to authority/rollout policy.
 
 #### Testing
 
@@ -112,9 +112,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/release/drift_monitor.py` for data, prediction, and rollout drift checks.
-- [ ] Sub-task 2: Correlate runtime health, drift, and release state into actual-state artifacts.
-- [ ] Sub-task 3: Add policy hooks that reduce authority or hold rollout under material drift.
+- [x] Sub-task 1: Add `backtester/release/drift_monitor.py` for data, prediction, and rollout drift checks.
+- [x] Sub-task 2: Correlate runtime health, drift, and release state into actual-state artifacts.
+- [x] Sub-task 3: Add policy hooks that reduce authority or hold rollout under material drift.
 
 #### Important Planning Notes
 
@@ -139,9 +139,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Update `apps/mission-control/lib/trading-ops.ts`, `apps/mission-control/lib/trading-ops-contract.ts`, and related loaders for desired/actual/reconciliation state.
-- [ ] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` with control-tower panels for posture, release, drift, and interventions.
-- [ ] Sub-task 3: Add clear operator wording and action surfaces for rollout holds, pauses, and authority reductions.
+- [x] Sub-task 1: Update `apps/mission-control/lib/trading-ops.ts`, `apps/mission-control/lib/trading-ops-contract.ts`, and related loaders for desired/actual/reconciliation state.
+- [x] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` with control-tower panels for posture, release, drift, and interventions.
+- [x] Sub-task 3: Add clear operator wording and action surfaces for rollout holds, pauses, and authority reductions.
 
 #### Testing
 
@@ -161,9 +161,9 @@ Week 5: V6
 
 #### Jira
 
-- [ ] Sub-task 1: Add replay fixtures for desired/actual/reconciliation state transitions.
-- [ ] Sub-task 2: Add rollback drills for release units and intervention-event clearing.
-- [ ] Sub-task 3: Extend smoke checks and QA runbooks to cover the new control-loop surface.
+- [x] Sub-task 1: Add replay fixtures for desired/actual/reconciliation state transitions.
+- [x] Sub-task 2: Add rollback drills for release units and intervention-event clearing.
+- [x] Sub-task 3: Extend smoke checks and QA runbooks to cover the new control-loop surface.
 
 #### Testing
 
