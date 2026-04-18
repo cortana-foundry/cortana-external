@@ -17,7 +17,7 @@ const MACHINE_RULES = new Map<string, MachineRule>([
 
 const isUnsafeMethod = (method: string) => !["GET", "HEAD", "OPTIONS"].includes(method);
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (pathname.startsWith("/api")) {
