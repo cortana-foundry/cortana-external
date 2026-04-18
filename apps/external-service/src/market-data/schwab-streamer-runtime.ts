@@ -303,6 +303,10 @@ export class SchwabStreamerRuntime {
       preferencesProvider: this.preferencesProvider,
       connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
       freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
+      staleCacheRetentionMs: Math.max(
+        this.config.SCHWAB_STREAMER_QUOTE_TTL_MS * 2,
+        this.config.SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS,
+      ),
       subscriptionSoftCap: this.config.SCHWAB_STREAMER_SYMBOL_SOFT_CAP,
       cacheSoftCap: this.config.SCHWAB_STREAMER_CACHE_SOFT_CAP,
       subscriptionFields: this.config.SCHWAB_STREAMER_EQUITY_FIELDS,
