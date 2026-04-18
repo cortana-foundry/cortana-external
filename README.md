@@ -86,13 +86,13 @@ Note: there is currently **no top-level `services/` or `scripts/` directory** in
 Provider implementations for Whoop, Tonal, and Alpaca now live under `apps/external-service/src/`.
 
 Backtester/Polymarket operator surfaces now include:
-- `python advisor.py --quick-check NVDA`
-- `python advisor.py --quick-check BTC`
-- `python experimental_alpha.py --symbols NVDA,BTC,COIN`
-- `python experimental_alpha.py --persist`
-- `python experimental_alpha.py --settle`
-- `python experimental_alpha.py --calibrate --minimum-samples 20`
-- `python nightly_discovery.py --limit 20`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python advisor.py --quick-check NVDA`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python advisor.py --quick-check BTC`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python experimental_alpha.py --symbols NVDA,BTC,COIN`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python experimental_alpha.py --persist`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python experimental_alpha.py --settle`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python experimental_alpha.py --calibrate --minimum-samples 20`
+- `cd /Users/hd/Developer/cortana-external/backtester && uv run python nightly_discovery.py --limit 20`
 - `./tools/market-intel/run_market_intel.sh`
 
 Research-only surface:
@@ -392,16 +392,16 @@ Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 ### Run
 ```bash
 cd ~/Developer/cortana-external/backtester
-source venv/bin/activate
-python advisor.py --market
-python advisor.py --symbol NVDA
-python canslim_alert.py --limit 8 --min-score 6
-python main.py --symbol AAPL --years 2 --compare
+uv sync --group dev
+uv run python advisor.py --market
+uv run python advisor.py --symbol NVDA
+uv run python canslim_alert.py --limit 8 --min-score 6
+uv run python main.py --symbol AAPL --years 2 --compare
 ```
 
 ### Dependencies
-- Python venv (`backtester/venv`)
-- `requirements.txt` (pandas, numpy, requests, etc.)
+- `backtester/pyproject.toml` (Python project definition)
+- `backtester/uv.lock` (Python lockfile)
 - Alpaca credentials via `alpaca_keys.json`
 
 ---
@@ -488,8 +488,9 @@ tail -n 50 watchdog/logs/watchdog.log
 
 ## Backtester (on-demand)
 ```bash
-cd backtester && source venv/bin/activate
-python canslim_alert.py --limit 8 --min-score 6
+cd backtester
+uv sync --group dev
+uv run python canslim_alert.py --limit 8 --min-score 6
 ```
 
 ---

@@ -1749,7 +1749,7 @@ class TradingAdvisor:
         df = self._apply_strategy_family_budgets(df)
         return self._sort_runtime_candidates(
             df,
-            primary_desc_columns=['opportunity_score', 'trade_quality_score', 'position_size_pct', 'total_score'],
+            primary_desc_columns=['trade_quality_score', 'position_size_pct', 'opportunity_score', 'total_score'],
         )
     
     def _generate_recommendation(
@@ -1869,14 +1869,10 @@ class TradingAdvisor:
                 **base_fields,
             }
 
-        if total_score < 7 or opportunity_action == 'NO_BUY':
+        if total_score < 7:
             return {
                 'action': 'NO_BUY',
-                'reason': (
-                    f'Score too low ({total_score}/12). Need >= 7.'
-                    if total_score < 7
-                    else f'Opportunity score {opportunity_score:.1f} remains below the V2 action threshold.'
-                ),
+                'reason': f'Score too low ({total_score}/12). Need >= 7.',
                 **base_fields,
             }
 

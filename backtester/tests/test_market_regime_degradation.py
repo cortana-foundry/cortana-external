@@ -33,14 +33,14 @@ def _write_snapshot(path: Path, *, generated_at: datetime) -> None:
 
 def _history_frame(days: int = 90) -> pd.DataFrame:
     index = pd.date_range(end=datetime.now(timezone.utc), periods=days, freq="B")
-    closes = [100 + i * 0.6 for i in range(days)]
+    closes = [100 + i * 0.6 for i in range(len(index))]
     return pd.DataFrame(
         {
             "Open": closes,
             "High": [value + 1.0 for value in closes],
             "Low": [value - 1.0 for value in closes],
             "Close": closes,
-            "Volume": [1_000_000 + (i * 1_000) for i in range(days)],
+            "Volume": [1_000_000 + (i * 1_000) for i in range(len(index))],
         },
         index=index,
     )

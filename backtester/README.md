@@ -42,9 +42,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 cd /Users/hd/Developer/cortana-external/backtester
 uv python install
-uv venv .venv
-source .venv/bin/activate
-uv pip sync requirements.txt
+uv sync --group dev
 ```
 
 Start the local TS market-data service in a separate terminal:
@@ -943,10 +941,8 @@ If `.cache` is missing:
 cd /Users/hd/Developer/cortana-external/backtester
 
 # Setup or refresh env
-uv venv .venv
-source .venv/bin/activate
-uv pip sync requirements.txt
+uv sync --group dev
 
 # Example targeted test run
-uv run pytest tests/test_nightly_discovery.py tests/test_universe_selection.py
+uv run python -m pytest tests/test_nightly_discovery.py tests/test_universe_selection.py
 ```
