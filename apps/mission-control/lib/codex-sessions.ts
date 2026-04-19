@@ -21,6 +21,19 @@ export type CodexSessionSummary = {
   transcriptPath: string | null;
 };
 
+export type CodexSessionEvent = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number | null;
+  phase: string | null;
+  rawType: string;
+};
+
+export type CodexSessionDetail = CodexSessionSummary & {
+  events: CodexSessionEvent[];
+};
+
 type SessionIndexEntry = {
   id: string;
   threadName: string | null;
@@ -41,6 +54,8 @@ type ListCodexSessionsOptions = {
   sessionsRoot?: string;
   archivedRoot?: string;
 };
+
+type CodexSessionLookupOptions = Omit<ListCodexSessionsOptions, "limit">;
 
 function truncatePreview(value: string, maxLength = 160): string {
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -162,6 +177,47 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
   return metadata;
 }
 
+export function parseCodexTranscriptEvents(raw: string): CodexSessionEvent[] {
+  const events: CodexSessionEvent[] = [];
+
+  for (const line of raw.split(/\r?\n/)) {
+    const record = parseJsonLine(line);
+    if (!record || record.type !== "event_msg") continue;
+
+    const payload = record.payload;
+    if (!payload || typeof payload !== "object") continue;
+
+    const typed = payload as Record<string, unknown>;
+    const payloadType = parseString(typed.type);
+    const message = parseString(typed.message);
+
+    if (payloadType === "user_message" && message) {
+      events.push({
+        id: `${events.length}:user`,
+        role: "user",
+        text: message,
+        timestamp: parseTimestamp(record.timestamp),
+        phase: null,
+        rawType: payloadType,
+      });
+      continue;
+    }
+
+    if (payloadType === "agent_message" && message) {
+      events.push({
+        id: `${events.length}:assistant`,
+        role: "assistant",
+        text: message,
+        timestamp: parseTimestamp(record.timestamp),
+        phase: parseString(typed.phase),
+        rawType: payloadType,
+      });
+    }
+  }
+
+  return events;
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -256,3 +312,65 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
   return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot)));
 }
 
+export async function getCodexSessionDetail(
+  sessionId: string,
+  options: CodexSessionLookupOptions = {},
+): Promise<CodexSessionDetail> {
+  const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
+  const sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
+  const archivedRoot = options.archivedRoot ?? DEFAULT_ARCHIVED_ROOT;
+
+  const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
+  const entry = parseCodexSessionIndex(rawIndex).find((item) => item.id === sessionId) ?? {
+    id: sessionId,
+    threadName: null,
+    updatedAt: Date.now(),
+  };
+
+  const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot);
+  if (!transcriptPath || !(await fileExists(transcriptPath))) {
+    throw new Error(`Codex session ${sessionId} not found`);
+  }
+
+  const rawTranscript = await fs.readFile(transcriptPath, "utf8");
+  const metadata = parseCodexTranscriptMetadata(rawTranscript);
+  const events = parseCodexTranscriptEvents(rawTranscript);
+  const latestEvent = events.at(-1)?.timestamp ?? null;
+
+  return {
+    sessionId: entry.id,
+    threadName: entry.threadName,
+    updatedAt: entry.updatedAt ?? latestEvent,
+    cwd: metadata.cwd,
+    model: metadata.model,
+    source: metadata.source,
+    cliVersion: metadata.cliVersion,
+    lastMessagePreview: metadata.lastMessagePreview,
+    transcriptPath,
+    events,
+  };
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function waitForCodexSessionDetail(
+  sessionId: string,
+  options: CodexSessionLookupOptions & { attempts?: number; delayMs?: number } = {},
+): Promise<CodexSessionDetail> {
+  const attempts = options.attempts ?? 5;
+  const delayMs = options.delayMs ?? 200;
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await getCodexSessionDetail(sessionId, options);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Codex session ${sessionId} not found`);
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCodexSessionIndex, parseCodexTranscriptMetadata } from "@/lib/codex-sessions";
+import { parseCodexSessionIndex, parseCodexTranscriptEvents, parseCodexTranscriptMetadata } from "@/lib/codex-sessions";
 
 describe("parseCodexSessionIndex", () => {
   it("parses valid lines and sorts newest first", () => {
@@ -76,3 +76,45 @@ describe("parseCodexTranscriptMetadata", () => {
   });
 });
 
+describe("parseCodexTranscriptEvents", () => {
+  it("extracts chat transcript messages from event records", () => {
+    const raw = [
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:55.266Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "Hello Codex",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:56.764Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Hello operator",
+          phase: "final_answer",
+        },
+      }),
+    ].join("\n");
+
+    expect(parseCodexTranscriptEvents(raw)).toEqual([
+      {
+        id: "0:user",
+        role: "user",
+        text: "Hello Codex",
+        timestamp: Date.parse("2026-04-18T22:26:55.266Z"),
+        phase: null,
+        rawType: "user_message",
+      },
+      {
+        id: "1:assistant",
+        role: "assistant",
+        text: "Hello operator",
+        timestamp: Date.parse("2026-04-18T22:26:56.764Z"),
+        phase: "final_answer",
+        rawType: "agent_message",
+      },
+    ]);
+  });
+});

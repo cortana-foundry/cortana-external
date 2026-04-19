@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { formatInt, formatCost } from "@/lib/format-utils";
+import { cn } from "@/lib/utils";
 
 type OpenClawSession = {
   key: string | null;
@@ -31,8 +34,22 @@ type CodexSession = {
   transcriptPath: string | null;
 };
 
+type CodexSessionEvent = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number | null;
+  phase: string | null;
+  rawType: string;
+};
+
+type CodexSessionDetail = CodexSession & {
+  events: CodexSessionEvent[];
+};
+
 type OpenClawSessionsResponse = { sessions: OpenClawSession[]; error?: string };
 type CodexSessionsResponse = { sessions: CodexSession[]; error?: string };
+type CodexSessionDetailResponse = { session?: CodexSessionDetail; error?: string };
 
 export function summarizeOpenClawSessions(sessions: OpenClawSession[]) {
   return sessions.reduce(
@@ -85,9 +102,61 @@ export function summarizeCodexSessions(sessions: CodexSession[]) {
 export default function SessionsPage() {
   const [openClawSessions, setOpenClawSessions] = useState<OpenClawSession[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
+  const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
+  const [selectedCodexSession, setSelectedCodexSession] = useState<CodexSessionDetail | null>(null);
   const [openClawError, setOpenClawError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
+  const [codexDetailLoading, setCodexDetailLoading] = useState(false);
+  const [newCodexPrompt, setNewCodexPrompt] = useState("");
+  const [replyPrompt, setReplyPrompt] = useState("");
+  const [codexMutationPending, setCodexMutationPending] = useState<"create" | "reply" | null>(null);
+  const [codexMutationError, setCodexMutationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  async function fetchCodexSessions() {
+    const response = await fetch("/api/codex/sessions", { cache: "no-store" });
+    const payload = (await response.json()) as CodexSessionsResponse;
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load Codex sessions");
+    }
+
+    return payload.sessions ?? [];
+  }
+
+  async function loadCodexSessionDetail(sessionId: string) {
+    setCodexDetailLoading(true);
+    try {
+      const response = await fetch(`/api/codex/sessions/${sessionId}`, { cache: "no-store" });
+      const payload = (await response.json()) as CodexSessionDetailResponse;
+
+      if (!response.ok || !payload.session) {
+        throw new Error(payload.error ?? "Failed to load Codex transcript");
+      }
+
+      setSelectedCodexSession(payload.session);
+      setCodexMutationError(null);
+    } catch (err) {
+      setSelectedCodexSession(null);
+      setCodexMutationError(err instanceof Error ? err.message : "Failed to load Codex transcript");
+    } finally {
+      setCodexDetailLoading(false);
+    }
+  }
+
+  async function refreshCodexSessions(preferredSessionId?: string | null) {
+    const sessions = await fetchCodexSessions();
+    setCodexSessions(sessions);
+    setCodexError(null);
+
+    const nextSelected =
+      preferredSessionId && sessions.some((session) => session.sessionId === preferredSessionId)
+        ? preferredSessionId
+        : sessions[0]?.sessionId ?? null;
+
+    setSelectedCodexSessionId(nextSelected);
+    return { sessions, selectedSessionId: nextSelected };
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +164,7 @@ export default function SessionsPage() {
     async function load() {
       const [openClawResult, codexResult] = await Promise.allSettled([
         fetch("/api/sessions", { cache: "no-store" }),
-        fetch("/api/codex/sessions", { cache: "no-store" }),
+        fetchCodexSessions(),
       ]);
 
       if (cancelled) return;
@@ -116,11 +185,8 @@ export default function SessionsPage() {
 
       if (codexResult.status === "fulfilled") {
         try {
-          const payload = (await codexResult.value.json()) as CodexSessionsResponse;
-          if (!codexResult.value.ok) {
-            throw new Error(payload.error ?? "Failed to load Codex sessions");
-          }
-          setCodexSessions(payload.sessions ?? []);
+          setCodexSessions(codexResult.value);
+          setSelectedCodexSessionId(codexResult.value[0]?.sessionId ?? null);
         } catch (err) {
           setCodexError(err instanceof Error ? err.message : "Failed to load Codex sessions");
         }
@@ -139,9 +205,76 @@ export default function SessionsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedCodexSessionId) {
+      setSelectedCodexSession(null);
+      return;
+    }
+
+    void loadCodexSessionDetail(selectedCodexSessionId);
+  }, [selectedCodexSessionId]);
+
   const openClawSummary = useMemo(() => summarizeOpenClawSessions(openClawSessions), [openClawSessions]);
   const codexSummary = useMemo(() => summarizeCodexSessions(codexSessions), [codexSessions]);
   const hasData = openClawSessions.length > 0 || codexSessions.length > 0;
+
+  async function handleCreateCodexSession() {
+    const prompt = newCodexPrompt.trim();
+    if (!prompt) return;
+
+    setCodexMutationPending("create");
+    setCodexMutationError(null);
+    try {
+      const response = await fetch("/api/codex/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const payload = (await response.json()) as CodexSessionDetailResponse;
+
+      if (!response.ok || !payload.session) {
+        throw new Error(payload.error ?? "Failed to create Codex session");
+      }
+
+      const { selectedSessionId } = await refreshCodexSessions(payload.session.sessionId);
+      setSelectedCodexSession(payload.session);
+      setSelectedCodexSessionId(selectedSessionId);
+      setNewCodexPrompt("");
+    } catch (err) {
+      setCodexMutationError(err instanceof Error ? err.message : "Failed to create Codex session");
+    } finally {
+      setCodexMutationPending(null);
+    }
+  }
+
+  async function handleReplyToCodexSession() {
+    if (!selectedCodexSessionId) return;
+    const prompt = replyPrompt.trim();
+    if (!prompt) return;
+
+    setCodexMutationPending("reply");
+    setCodexMutationError(null);
+    try {
+      const response = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const payload = (await response.json()) as CodexSessionDetailResponse;
+
+      if (!response.ok || !payload.session) {
+        throw new Error(payload.error ?? "Failed to send message to Codex session");
+      }
+
+      await refreshCodexSessions(payload.session.sessionId);
+      setSelectedCodexSession(payload.session);
+      setReplyPrompt("");
+    } catch (err) {
+      setCodexMutationError(err instanceof Error ? err.message : "Failed to send message to Codex session");
+    } finally {
+      setCodexMutationPending(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -229,30 +362,127 @@ export default function SessionsPage() {
 
               <TabsContent value="codex" className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Discovery reads the local Codex session index from <code>~/.codex</code>. Transcript and resume flows land next.
+                  Mission Control reads the local Codex session store from <code>~/.codex</code> and can now start or resume a session through Codex CLI.
                 </p>
                 {codexError ? <p className="text-sm text-destructive">{codexError}</p> : null}
-                {!codexError && codexSessions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No Codex sessions found.</p>
-                ) : (
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
                   <div className="space-y-3">
-                    {codexSessions.map((session) => (
-                      <div key={session.sessionId} className="rounded-md border p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-medium">{session.threadName ?? "Untitled Codex session"}</p>
-                          <p className="text-xs text-muted-foreground">{session.model ?? "unknown-model"}</p>
-                        </div>
-                        <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {session.cwd ?? "cwd unavailable"} · {session.updatedAt ? new Date(session.updatedAt).toLocaleString() : "unknown update"}
-                        </p>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {session.lastMessagePreview ?? "No transcript preview available yet."}
-                        </p>
-                      </div>
-                    ))}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Start new Codex session</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <Textarea
+                          value={newCodexPrompt}
+                          onChange={(event) => setNewCodexPrompt(event.target.value)}
+                          placeholder="Start a fresh Codex thread from Mission Control"
+                        />
+                        <Button
+                          onClick={() => void handleCreateCodexSession()}
+                          disabled={codexMutationPending === "create" || !newCodexPrompt.trim()}
+                        >
+                          {codexMutationPending === "create" ? "Starting…" : "Start Codex session"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Recent Codex sessions</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {!codexError && codexSessions.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No Codex sessions found.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {codexSessions.map((session) => (
+                              <button
+                                key={session.sessionId}
+                                type="button"
+                                onClick={() => setSelectedCodexSessionId(session.sessionId)}
+                                className={cn(
+                                  "w-full rounded-md border p-3 text-left transition-colors",
+                                  session.sessionId === selectedCodexSessionId ? "border-foreground/40 bg-muted/50" : "hover:bg-muted/30",
+                                )}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="font-medium">{session.threadName ?? "Untitled Codex session"}</p>
+                                  <p className="text-xs text-muted-foreground">{session.model ?? "unknown-model"}</p>
+                                </div>
+                                <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId}</p>
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {session.cwd ?? "cwd unavailable"} · {session.updatedAt ? new Date(session.updatedAt).toLocaleString() : "unknown update"}
+                                </p>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  {session.lastMessagePreview ?? "No transcript preview available yet."}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
-                )}
+
+                  <div className="space-y-3">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">
+                          {selectedCodexSession?.threadName ?? "Codex transcript"}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {codexDetailLoading ? <p className="text-sm text-muted-foreground">Loading Codex transcript…</p> : null}
+                        {!codexDetailLoading && !selectedCodexSession ? (
+                          <p className="text-sm text-muted-foreground">Select a Codex session to inspect the transcript.</p>
+                        ) : null}
+                        {!codexDetailLoading && selectedCodexSession && selectedCodexSession.events.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No transcript messages parsed yet.</p>
+                        ) : null}
+                        {selectedCodexSession?.events.map((event) => (
+                          <div
+                            key={event.id}
+                            className={cn(
+                              "rounded-md border p-3",
+                              event.role === "assistant" ? "bg-muted/40" : "bg-background",
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {event.role === "assistant" ? "Codex" : "You"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {event.timestamp ? new Date(event.timestamp).toLocaleString() : "Unknown time"}
+                              </p>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap text-sm">{event.text}</p>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Reply to selected Codex session</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {codexMutationError ? <p className="text-sm text-destructive">{codexMutationError}</p> : null}
+                        <Textarea
+                          value={replyPrompt}
+                          onChange={(event) => setReplyPrompt(event.target.value)}
+                          placeholder={selectedCodexSessionId ? "Send a message to the selected Codex session" : "Select a session first"}
+                          disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
+                        />
+                        <Button
+                          onClick={() => void handleReplyToCodexSession()}
+                          disabled={!selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply"}
+                        >
+                          {codexMutationPending === "reply" ? "Sending…" : "Send to Codex session"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="openclaw" className="space-y-3">
