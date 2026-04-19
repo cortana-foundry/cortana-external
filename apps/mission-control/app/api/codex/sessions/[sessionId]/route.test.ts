@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const codexMocks = vi.hoisted(() => ({
-  getCodexSessionDetail: vi.fn(),
+  getVisibleCodexSessionDetail: vi.fn(),
 }));
 
-vi.mock("@/lib/codex-sessions", () => ({
-  getCodexSessionDetail: codexMocks.getCodexSessionDetail,
+vi.mock("@/lib/codex-session-access", () => ({
+  getVisibleCodexSessionDetail: codexMocks.getVisibleCodexSessionDetail,
 }));
 
 import { GET } from "@/app/api/codex/sessions/[sessionId]/route";
@@ -16,7 +16,7 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
   });
 
   it("returns session detail", async () => {
-    codexMocks.getCodexSessionDetail.mockResolvedValueOnce({
+    codexMocks.getVisibleCodexSessionDetail.mockResolvedValueOnce({
       sessionId: "abc",
       threadName: "Brainstorm",
       updatedAt: 123,
@@ -38,11 +38,11 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
 
     expect(response.status).toBe(200);
     expect(payload.session.sessionId).toBe("abc");
-    expect(codexMocks.getCodexSessionDetail).toHaveBeenCalledWith("abc");
+    expect(codexMocks.getVisibleCodexSessionDetail).toHaveBeenCalledWith("abc");
   });
 
   it("returns 404 when the session is missing", async () => {
-    codexMocks.getCodexSessionDetail.mockRejectedValueOnce(new Error("Codex session abc not found"));
+    codexMocks.getVisibleCodexSessionDetail.mockRejectedValueOnce(new Error("Codex session abc not found"));
 
     const response = await GET(new Request("http://localhost/api/codex/sessions/abc"), {
       params: Promise.resolve({ sessionId: "abc" }),
@@ -53,4 +53,3 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
     expect(payload.error).toContain("not found");
   });
 });
-

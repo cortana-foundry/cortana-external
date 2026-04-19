@@ -57,6 +57,12 @@ type ListCodexSessionsOptions = {
 
 type CodexSessionLookupOptions = Omit<ListCodexSessionsOptions, "limit">;
 
+type UnindexedCodexSession = {
+  sessionId: string;
+  threadName: string;
+  transcriptPath: string;
+};
+
 function truncatePreview(value: string, maxLength = 160): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
@@ -218,6 +224,93 @@ export function parseCodexTranscriptEvents(raw: string): CodexSessionEvent[] {
   return events;
 }
 
+function parseFirstUserMessage(raw: string): string | null {
+  for (const line of raw.split(/\r?\n/)) {
+    const record = parseJsonLine(line);
+    if (!record || record.type !== "event_msg") continue;
+
+    const payload = record.payload;
+    if (!payload || typeof payload !== "object") continue;
+
+    const typed = payload as Record<string, unknown>;
+    if (typed.type !== "user_message") continue;
+
+    const message = parseString(typed.message);
+    if (message) return message;
+  }
+
+  return null;
+}
+
+function buildThreadName(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Untitled Codex session";
+  return normalized.length > 72 ? `${normalized.slice(0, 71)}…` : normalized;
+}
+
+function extractSessionIdFromTranscriptFile(entry: string) {
+  const match = entry.match(/([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/i);
+  return match?.[1] ?? null;
+}
+
+async function readDailyTranscriptFiles(directoryPath: string) {
+  try {
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => path.join(directoryPath, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+export async function listUnindexedCodexSessions(
+  options: CodexSessionLookupOptions & { limit?: number; lookbackDays?: number } = {},
+): Promise<UnindexedCodexSession[]> {
+  const limit = clampLimit(options.limit);
+  const lookbackDays = Math.max(1, Math.min(options.lookbackDays ?? 2, 7));
+  const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
+  const sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
+
+  const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
+  const indexedSessionIds = new Set(parseCodexSessionIndex(rawIndex).map((entry) => entry.id));
+
+  const candidatePaths: string[] = [];
+  for (let offset = 0; offset < lookbackDays; offset += 1) {
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - offset);
+    const directoryPath = path.join(
+      sessionsRoot,
+      String(day.getUTCFullYear()),
+      String(day.getUTCMonth() + 1).padStart(2, "0"),
+      String(day.getUTCDate()).padStart(2, "0"),
+    );
+    candidatePaths.push(...(await readDailyTranscriptFiles(directoryPath)));
+  }
+
+  const recentPaths = candidatePaths.sort().reverse();
+  const results: UnindexedCodexSession[] = [];
+
+  for (const transcriptPath of recentPaths) {
+    if (results.length >= limit) break;
+
+    const sessionId = extractSessionIdFromTranscriptFile(path.basename(transcriptPath));
+    if (!sessionId || indexedSessionIds.has(sessionId)) continue;
+
+    const rawTranscript = await fs.readFile(transcriptPath, "utf8");
+    const firstUserMessage = parseFirstUserMessage(rawTranscript);
+    if (!firstUserMessage) continue;
+
+    results.push({
+      sessionId,
+      threadName: buildThreadName(firstUserMessage),
+      transcriptPath,
+    });
+  }
+
+  return results;
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -286,11 +379,12 @@ async function enrichSessionEntry(
 
   const rawTranscript = await fs.readFile(transcriptPath, "utf8");
   const metadata = parseCodexTranscriptMetadata(rawTranscript);
+  const latestEventTimestamp = parseCodexTranscriptEvents(rawTranscript).at(-1)?.timestamp ?? null;
 
   return {
     sessionId: entry.id,
     threadName: entry.threadName,
-    updatedAt: entry.updatedAt,
+    updatedAt: Math.max(entry.updatedAt ?? 0, latestEventTimestamp ?? 0) || null,
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
@@ -340,7 +434,7 @@ export async function getCodexSessionDetail(
   return {
     sessionId: entry.id,
     threadName: entry.threadName,
-    updatedAt: entry.updatedAt ?? latestEvent,
+    updatedAt: Math.max(entry.updatedAt ?? 0, latestEvent ?? 0) || null,
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCodexSessionDetail } from "@/lib/codex-sessions";
+import { getVisibleCodexSessionDetail } from "@/lib/codex-session-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,7 +13,10 @@ export async function GET(
   const { sessionId } = await context.params;
 
   try {
-    const session = await getCodexSessionDetail(sessionId);
+    const session = await getVisibleCodexSessionDetail(sessionId);
+    if (!session) {
+      throw new Error(`Codex session ${sessionId} not found`);
+    }
     return NextResponse.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load Codex session";
@@ -21,4 +24,3 @@ export async function GET(
     return NextResponse.json({ error: message }, { status });
   }
 }
-

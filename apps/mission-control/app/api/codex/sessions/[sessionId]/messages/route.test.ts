@@ -1,23 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const codexCliMocks = vi.hoisted(() => ({
-  runCodexJson: vi.fn(),
-  streamCodexJson: vi.fn(),
+const codexAppServerMocks = vi.hoisted(() => ({
+  replyToCodexThread: vi.fn(),
 }));
 
-const codexSessionMocks = vi.hoisted(() => ({
-  getCodexSessionDetail: vi.fn(),
-  waitForCodexSessionDetail: vi.fn(),
+const codexSessionAccessMocks = vi.hoisted(() => ({
+  getVisibleCodexSessionDetail: vi.fn(),
+  waitForVisibleCodexSessionDetail: vi.fn(),
 }));
 
-vi.mock("@/lib/codex-cli", () => ({
-  runCodexJson: codexCliMocks.runCodexJson,
-  streamCodexJson: codexCliMocks.streamCodexJson,
+const codexMirrorMocks = vi.hoisted(() => ({
+  recordCodexMirrorNotification: vi.fn(),
+  upsertCodexMirrorThread: vi.fn(),
 }));
 
-vi.mock("@/lib/codex-sessions", () => ({
-  getCodexSessionDetail: codexSessionMocks.getCodexSessionDetail,
-  waitForCodexSessionDetail: codexSessionMocks.waitForCodexSessionDetail,
+vi.mock("@/lib/codex-app-server", () => ({
+  replyToCodexThread: codexAppServerMocks.replyToCodexThread,
+}));
+
+vi.mock("@/lib/codex-session-access", () => ({
+  getVisibleCodexSessionDetail: codexSessionAccessMocks.getVisibleCodexSessionDetail,
+  waitForVisibleCodexSessionDetail: codexSessionAccessMocks.waitForVisibleCodexSessionDetail,
+}));
+
+vi.mock("@/lib/codex-mirror", () => ({
+  recordCodexMirrorNotification: codexMirrorMocks.recordCodexMirrorNotification,
+  upsertCodexMirrorThread: codexMirrorMocks.upsertCodexMirrorThread,
 }));
 
 import { POST } from "@/app/api/codex/sessions/[sessionId]/messages/route";
@@ -28,15 +36,17 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
   });
 
   it("resumes an existing codex session and returns refreshed detail", async () => {
-    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+    codexSessionAccessMocks.getVisibleCodexSessionDetail.mockResolvedValueOnce({
       sessionId: "abc",
+      threadName: "Brainstorm",
       cwd: "/Users/hd/Developer/cortana-external",
     });
-    codexCliMocks.runCodexJson.mockResolvedValueOnce([]);
-    codexSessionMocks.waitForCodexSessionDetail.mockResolvedValueOnce({
+    codexAppServerMocks.replyToCodexThread.mockResolvedValueOnce(undefined);
+    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
       sessionId: "abc",
       events: [],
     });
+    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
 
     const response = await POST(
       new Request("http://localhost/api/codex/sessions/abc/messages", {
@@ -51,29 +61,34 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(codexCliMocks.runCodexJson).toHaveBeenCalledWith(
-      ["exec", "resume", "--json", "abc", "Resume this session"],
-      expect.objectContaining({ cwd: "/Users/hd/Developer/cortana-external" }),
+    expect(codexAppServerMocks.replyToCodexThread).toHaveBeenCalledWith(
+      "abc",
+      "Resume this session",
+      "/Users/hd/Developer/cortana-external",
+      expect.objectContaining({
+        onNotification: expect.any(Function),
+      }),
     );
     expect(payload.session.sessionId).toBe("abc");
   });
 
   it("streams a resumed codex session when requested", async () => {
-    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+    codexSessionAccessMocks.getVisibleCodexSessionDetail.mockResolvedValueOnce({
       sessionId: "abc",
+      threadName: "Brainstorm",
       cwd: "/Users/hd/Developer/cortana-external",
     });
-    codexCliMocks.streamCodexJson.mockImplementationOnce(async (_args, options) => {
+    codexAppServerMocks.replyToCodexThread.mockImplementationOnce(async (_threadId, _prompt, _cwd, options) => {
       options?.onEvent?.({
-        type: "item.completed",
-        item: { type: "agent_message", text: "streamed reply" },
+        type: "item.delta",
+        item: { type: "agent_message", id: "assistant-1", delta: "streamed reply" },
       });
-      return [];
     });
-    codexSessionMocks.waitForCodexSessionDetail.mockResolvedValueOnce({
+    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
       sessionId: "abc",
       events: [],
     });
+    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
 
     const response = await POST(
       new Request("http://localhost/api/codex/sessions/abc/messages", {
@@ -89,9 +104,14 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/event-stream");
-    expect(codexCliMocks.streamCodexJson).toHaveBeenCalledWith(
-      ["exec", "resume", "--json", "abc", "Resume this session with streaming"],
-      expect.objectContaining({ cwd: "/Users/hd/Developer/cortana-external", signal: expect.any(AbortSignal) }),
+    expect(codexAppServerMocks.replyToCodexThread).toHaveBeenCalledWith(
+      "abc",
+      "Resume this session with streaming",
+      "/Users/hd/Developer/cortana-external",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        onNotification: expect.any(Function),
+      }),
     );
     expect(body).toContain("event: ready");
     expect(body).toContain("event: codex_event");

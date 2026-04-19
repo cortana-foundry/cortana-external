@@ -1,8 +1,9 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 
-import { runCodexJson, streamCodexJson } from "@/lib/codex-cli";
-import { getCodexSessionDetail, waitForCodexSessionDetail } from "@/lib/codex-sessions";
+import { replyToCodexThread } from "@/lib/codex-app-server";
+import { recordCodexMirrorNotification, upsertCodexMirrorThread } from "@/lib/codex-mirror";
+import { getVisibleCodexSessionDetail, waitForVisibleCodexSessionDetail } from "@/lib/codex-session-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,6 +52,9 @@ function buildEventStreamResponse(
         sendEvent(controller, "ready", { kind: "reply", sessionId, ts: Date.now() });
         await run(controller);
       } catch (error) {
+        if (request.signal.aborted) {
+          return;
+        }
         sendEvent(controller, "error", {
           error: error instanceof Error ? error.message : "Failed to resume Codex session",
         });
@@ -93,26 +97,83 @@ export async function POST(
 
   if (wantsEventStream(request)) {
     return buildEventStreamResponse(request, sessionId, async (controller) => {
-      const existing = await getCodexSessionDetail(sessionId);
+      const existing = await getVisibleCodexSessionDetail(sessionId);
+      if (!existing) {
+        throw new Error(`Codex session ${sessionId} not found`);
+      }
 
-      await streamCodexJson(["exec", "resume", "--json", sessionId, prompt], {
-        cwd: existing.cwd ?? DEFAULT_CWD,
-        signal: request.signal,
-        onEvent: (event) => sendEvent(controller, "codex_event", event),
+      await upsertCodexMirrorThread({
+        sessionId,
+        threadName: existing.threadName,
+        cwd: existing.cwd,
+        model: existing.model,
+        source: existing.source,
+        cliVersion: existing.cliVersion,
+        transcriptPath: existing.transcriptPath,
+        lastMessagePreview: existing.lastMessagePreview,
+        updatedAt: existing.updatedAt ? new Date(existing.updatedAt) : null,
       });
 
-      const session = await waitForCodexSessionDetail(sessionId);
+      await replyToCodexThread(sessionId, prompt, existing.cwd ?? DEFAULT_CWD, {
+        signal: request.signal,
+        onEvent: (event) => sendEvent(controller, "codex_event", event),
+        onNotification: (notification) => {
+          void recordCodexMirrorNotification(notification);
+        },
+      });
+
+      const session = await waitForVisibleCodexSessionDetail(sessionId);
+      await upsertCodexMirrorThread({
+        sessionId,
+        threadName: session.threadName,
+        cwd: session.cwd,
+        model: session.model,
+        source: session.source,
+        cliVersion: session.cliVersion,
+        transcriptPath: session.transcriptPath,
+        lastMessagePreview: session.lastMessagePreview,
+        updatedAt: session.updatedAt ? new Date(session.updatedAt) : null,
+      });
       sendEvent(controller, "done", { sessionId, session });
     });
   }
 
   try {
-    const existing = await getCodexSessionDetail(sessionId);
-    await runCodexJson(["exec", "resume", "--json", sessionId, prompt], {
-      cwd: existing.cwd ?? DEFAULT_CWD,
+    const existing = await getVisibleCodexSessionDetail(sessionId);
+    if (!existing) {
+      throw new Error(`Codex session ${sessionId} not found`);
+    }
+
+    await upsertCodexMirrorThread({
+      sessionId,
+      threadName: existing.threadName,
+      cwd: existing.cwd,
+      model: existing.model,
+      source: existing.source,
+      cliVersion: existing.cliVersion,
+      transcriptPath: existing.transcriptPath,
+      lastMessagePreview: existing.lastMessagePreview,
+      updatedAt: existing.updatedAt ? new Date(existing.updatedAt) : null,
     });
 
-    const session = await waitForCodexSessionDetail(sessionId);
+    await replyToCodexThread(sessionId, prompt, existing.cwd ?? DEFAULT_CWD, {
+      onNotification: (notification) => {
+        void recordCodexMirrorNotification(notification);
+      },
+    });
+
+    const session = await waitForVisibleCodexSessionDetail(sessionId);
+    await upsertCodexMirrorThread({
+      sessionId,
+      threadName: session.threadName,
+      cwd: session.cwd,
+      model: session.model,
+      source: session.source,
+      cliVersion: session.cliVersion,
+      transcriptPath: session.transcriptPath,
+      lastMessagePreview: session.lastMessagePreview,
+      updatedAt: session.updatedAt ? new Date(session.updatedAt) : null,
+    });
     return NextResponse.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resume Codex session";

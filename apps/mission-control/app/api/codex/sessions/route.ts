@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 
 import path from "node:path";
 
-import { getCodexThreadId, runCodexJson, streamCodexJson } from "@/lib/codex-cli";
-import { listCodexSessions, waitForCodexSessionDetail } from "@/lib/codex-sessions";
+import { backfillCodexThreadName, createCodexThread } from "@/lib/codex-app-server";
+import { recordCodexMirrorNotification, upsertCodexMirrorThread } from "@/lib/codex-mirror";
+import { listVisibleCodexSessions, waitForVisibleCodexSessionDetail } from "@/lib/codex-session-access";
+import { listUnindexedCodexSessions } from "@/lib/codex-sessions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +14,12 @@ export const runtime = "nodejs";
 const DEFAULT_LIMIT = 20;
 const DEFAULT_CWD = path.resolve(process.cwd(), "..", "..");
 const encoder = new TextEncoder();
+
+function buildThreadName(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Untitled Codex session";
+  return normalized.length > 72 ? `${normalized.slice(0, 71)}…` : normalized;
+}
 
 function parseLimit(value: string | null): number {
   if (!value) return DEFAULT_LIMIT;
@@ -25,8 +33,13 @@ export async function GET(request: Request) {
   const limit = parseLimit(searchParams.get("limit"));
 
   try {
-    const sessions = await listCodexSessions({ limit });
-    return NextResponse.json({ sessions });
+    const unindexedSessions = await listUnindexedCodexSessions({ limit });
+    await Promise.allSettled(
+      unindexedSessions.map((session) => backfillCodexThreadName(session.sessionId, session.threadName)),
+    );
+
+    const result = await listVisibleCodexSessions(limit);
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load Codex sessions";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -72,6 +85,9 @@ function buildEventStreamResponse(
         sendEvent(controller, "ready", { kind: "create", ts: Date.now() });
         await run(controller);
       } catch (error) {
+        if (request.signal.aborted) {
+          return;
+        }
         sendEvent(controller, "error", {
           error: error instanceof Error ? error.message : "Failed to create Codex session",
         });
@@ -110,31 +126,69 @@ export async function POST(request: Request) {
 
   if (wantsEventStream(request)) {
     return buildEventStreamResponse(request, async (controller) => {
-      const events = await streamCodexJson(["exec", "--json", prompt], {
-        cwd: DEFAULT_CWD,
+      const provisionalName = buildThreadName(prompt);
+      const { threadId: sessionId } = await createCodexThread(prompt, DEFAULT_CWD, {
         signal: request.signal,
         onEvent: (event) => sendEvent(controller, "codex_event", event),
+        onNotification: (notification) => {
+          void recordCodexMirrorNotification(notification);
+        },
       });
-      const sessionId = getCodexThreadId(events);
 
-      if (!sessionId) {
-        throw new Error("Codex did not return a session id");
-      }
+      await upsertCodexMirrorThread({
+        sessionId,
+        threadName: provisionalName,
+        cwd: DEFAULT_CWD,
+        source: "vscode",
+        status: "active",
+        lastMessagePreview: prompt,
+        updatedAt: new Date(),
+      });
 
-      const session = await waitForCodexSessionDetail(sessionId);
+      const session = await waitForVisibleCodexSessionDetail(sessionId);
+      await upsertCodexMirrorThread({
+        sessionId,
+        threadName: session.threadName,
+        cwd: session.cwd,
+        model: session.model,
+        source: session.source,
+        cliVersion: session.cliVersion,
+        transcriptPath: session.transcriptPath,
+        lastMessagePreview: session.lastMessagePreview,
+        updatedAt: session.updatedAt ? new Date(session.updatedAt) : null,
+      });
       sendEvent(controller, "done", { sessionId, session });
     });
   }
 
   try {
-    const events = await runCodexJson(["exec", "--json", prompt], { cwd: DEFAULT_CWD });
-    const sessionId = getCodexThreadId(events);
-
-    if (!sessionId) {
-      return NextResponse.json({ error: "Codex did not return a session id" }, { status: 502 });
-    }
-
-    const session = await waitForCodexSessionDetail(sessionId);
+    const provisionalName = buildThreadName(prompt);
+    const { threadId: sessionId } = await createCodexThread(prompt, DEFAULT_CWD, {
+      onNotification: (notification) => {
+        void recordCodexMirrorNotification(notification);
+      },
+    });
+    await upsertCodexMirrorThread({
+      sessionId,
+      threadName: provisionalName,
+      cwd: DEFAULT_CWD,
+      source: "vscode",
+      status: "active",
+      lastMessagePreview: prompt,
+      updatedAt: new Date(),
+    });
+    const session = await waitForVisibleCodexSessionDetail(sessionId);
+    await upsertCodexMirrorThread({
+      sessionId,
+      threadName: session.threadName,
+      cwd: session.cwd,
+      model: session.model,
+      source: session.source,
+      cliVersion: session.cliVersion,
+      transcriptPath: session.transcriptPath,
+      lastMessagePreview: session.lastMessagePreview,
+      updatedAt: session.updatedAt ? new Date(session.updatedAt) : null,
+    });
     return NextResponse.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create Codex session";
