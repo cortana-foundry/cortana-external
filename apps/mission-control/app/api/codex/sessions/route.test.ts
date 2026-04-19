@@ -8,6 +8,7 @@ const codexMocks = vi.hoisted(() => ({
 const codexCliMocks = vi.hoisted(() => ({
   runCodexJson: vi.fn(),
   getCodexThreadId: vi.fn(),
+  streamCodexJson: vi.fn(),
 }));
 
 vi.mock("@/lib/codex-sessions", () => ({
@@ -18,6 +19,7 @@ vi.mock("@/lib/codex-sessions", () => ({
 vi.mock("@/lib/codex-cli", () => ({
   runCodexJson: codexCliMocks.runCodexJson,
   getCodexThreadId: codexCliMocks.getCodexThreadId,
+  streamCodexJson: codexCliMocks.streamCodexJson,
 }));
 
 import { GET, POST } from "@/app/api/codex/sessions/route";
@@ -104,6 +106,42 @@ describe("POST /api/codex/sessions", () => {
       expect.any(Object),
     );
     expect(payload.session.sessionId).toBe("new-thread");
+  });
+
+  it("streams codex events when the client requests event-stream", async () => {
+    codexCliMocks.streamCodexJson.mockImplementationOnce(async (_args, options) => {
+      options?.onEvent?.({ type: "thread.started", thread_id: "new-thread" });
+      options?.onEvent?.({
+        type: "item.completed",
+        item: { type: "agent_message", text: "streamed answer" },
+      });
+      return [{ type: "thread.started", thread_id: "new-thread" }];
+    });
+    codexCliMocks.getCodexThreadId.mockReturnValueOnce("new-thread");
+    codexMocks.waitForCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "new-thread",
+      events: [],
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/codex/sessions", {
+        method: "POST",
+        headers: { Accept: "text/event-stream" },
+        body: JSON.stringify({ prompt: "Start a streamed codex session" }),
+      }),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(codexCliMocks.streamCodexJson).toHaveBeenCalledWith(
+      ["exec", "--json", "Start a streamed codex session"],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(body).toContain("event: ready");
+    expect(body).toContain("event: codex_event");
+    expect(body).toContain("streamed answer");
+    expect(body).toContain("event: done");
   });
 
   it("rejects empty prompts", async () => {

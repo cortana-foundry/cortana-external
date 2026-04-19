@@ -47,9 +47,76 @@ type CodexSessionDetail = CodexSession & {
   events: CodexSessionEvent[];
 };
 
+type StreamingCodexEvent = {
+  id: string;
+  role: "assistant";
+  text: string;
+};
+
 type OpenClawSessionsResponse = { sessions: OpenClawSession[]; error?: string };
 type CodexSessionsResponse = { sessions: CodexSession[]; error?: string };
 type CodexSessionDetailResponse = { session?: CodexSessionDetail; error?: string };
+
+type CodexStreamEnvelope = {
+  event: string;
+  data: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function parseCodexSseChunk(rawChunk: string): CodexStreamEnvelope | null {
+  const normalized = rawChunk.replace(/\r/g, "");
+  const lines = normalized.split("\n");
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  try {
+    return {
+      event,
+      data: JSON.parse(dataLines.join("\n")),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getCodexStreamError(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+  const error = data.error;
+  if (typeof error === "string" && error.trim().length > 0) return error;
+  const message = data.message;
+  if (typeof message === "string" && message.trim().length > 0) return message;
+  return null;
+}
+
+function getCodexStreamSession(data: unknown): CodexSessionDetail | null {
+  if (!isRecord(data)) return null;
+  const session = data.session;
+  return isRecord(session) ? (session as CodexSessionDetail) : null;
+}
+
+function getStreamedAssistantText(data: unknown): string | null {
+  if (!isRecord(data) || data.type !== "item.completed") return null;
+  const item = data.item;
+  if (!isRecord(item) || item.type !== "agent_message") return null;
+  const text = item.text;
+  return typeof text === "string" && text.trim().length > 0 ? text : null;
+}
 
 export function summarizeOpenClawSessions(sessions: OpenClawSession[]) {
   return sessions.reduce(
@@ -104,6 +171,8 @@ export default function SessionsPage() {
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
   const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
   const [selectedCodexSession, setSelectedCodexSession] = useState<CodexSessionDetail | null>(null);
+  const [streamedAssistantEvents, setStreamedAssistantEvents] = useState<StreamingCodexEvent[]>([]);
+  const [pendingCodexUserEvent, setPendingCodexUserEvent] = useState<CodexSessionEvent | null>(null);
   const [openClawError, setOpenClawError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [codexDetailLoading, setCodexDetailLoading] = useState(false);
@@ -158,6 +227,77 @@ export default function SessionsPage() {
     return { sessions, selectedSessionId: nextSelected };
   }
 
+  async function consumeCodexStream(
+    response: Response,
+    onDone: (session: CodexSessionDetail) => Promise<void>,
+  ) {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Codex stream response did not include a body");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let completed = false;
+
+    const handleChunk = async (rawChunk: string) => {
+      const envelope = parseCodexSseChunk(rawChunk);
+      if (!envelope) return;
+
+      if (envelope.event === "codex_event") {
+        const text = getStreamedAssistantText(envelope.data);
+        if (text) {
+          setStreamedAssistantEvents((events) => [
+            ...events,
+            {
+              id: `stream-${Date.now()}-${events.length}`,
+              role: "assistant",
+              text,
+            },
+          ]);
+        }
+        return;
+      }
+
+      if (envelope.event === "error") {
+        throw new Error(getCodexStreamError(envelope.data) ?? "Codex stream failed");
+      }
+
+      if (envelope.event === "done") {
+        const session = getCodexStreamSession(envelope.data);
+        if (!session) {
+          throw new Error("Codex stream completed without session detail");
+        }
+
+        completed = true;
+        await onDone(session);
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      let boundaryIndex = buffer.indexOf("\n\n");
+      while (boundaryIndex !== -1) {
+        const rawChunk = buffer.slice(0, boundaryIndex);
+        buffer = buffer.slice(boundaryIndex + 2);
+        await handleChunk(rawChunk);
+        boundaryIndex = buffer.indexOf("\n\n");
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim().length > 0) {
+      await handleChunk(buffer);
+    }
+
+    if (!completed) {
+      throw new Error("Codex stream ended before the session finished");
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -208,15 +348,21 @@ export default function SessionsPage() {
   useEffect(() => {
     if (!selectedCodexSessionId) {
       setSelectedCodexSession(null);
+      setPendingCodexUserEvent(null);
+      setStreamedAssistantEvents([]);
       return;
     }
 
+    setPendingCodexUserEvent(null);
+    setStreamedAssistantEvents([]);
     void loadCodexSessionDetail(selectedCodexSessionId);
   }, [selectedCodexSessionId]);
 
   const openClawSummary = useMemo(() => summarizeOpenClawSessions(openClawSessions), [openClawSessions]);
   const codexSummary = useMemo(() => summarizeCodexSessions(codexSessions), [codexSessions]);
   const hasData = openClawSessions.length > 0 || codexSessions.length > 0;
+  const hasCodexTranscriptContent =
+    Boolean(selectedCodexSession) || Boolean(pendingCodexUserEvent) || streamedAssistantEvents.length > 0;
 
   async function handleCreateCodexSession() {
     const prompt = newCodexPrompt.trim();
@@ -224,23 +370,43 @@ export default function SessionsPage() {
 
     setCodexMutationPending("create");
     setCodexMutationError(null);
+    setSelectedCodexSessionId(null);
+    setSelectedCodexSession(null);
+    setPendingCodexUserEvent({
+      id: `pending-create-${Date.now()}`,
+      role: "user",
+      text: prompt,
+      timestamp: Date.now(),
+      phase: "submitted",
+      rawType: "user.pending",
+    });
+    setStreamedAssistantEvents([]);
     try {
       const response = await fetch("/api/codex/sessions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({ prompt }),
       });
-      const payload = (await response.json()) as CodexSessionDetailResponse;
 
-      if (!response.ok || !payload.session) {
+      if (!response.ok) {
+        const payload = (await response.json()) as CodexSessionDetailResponse;
         throw new Error(payload.error ?? "Failed to create Codex session");
       }
 
-      const { selectedSessionId } = await refreshCodexSessions(payload.session.sessionId);
-      setSelectedCodexSession(payload.session);
-      setSelectedCodexSessionId(selectedSessionId);
+      await consumeCodexStream(response, async (session) => {
+        const { selectedSessionId } = await refreshCodexSessions(session.sessionId);
+        setSelectedCodexSession(session);
+        setSelectedCodexSessionId(selectedSessionId);
+        setPendingCodexUserEvent(null);
+        setStreamedAssistantEvents([]);
+      });
       setNewCodexPrompt("");
     } catch (err) {
+      setPendingCodexUserEvent(null);
+      setStreamedAssistantEvents([]);
       setCodexMutationError(err instanceof Error ? err.message : "Failed to create Codex session");
     } finally {
       setCodexMutationPending(null);
@@ -254,22 +420,48 @@ export default function SessionsPage() {
 
     setCodexMutationPending("reply");
     setCodexMutationError(null);
+    setStreamedAssistantEvents([]);
+    setSelectedCodexSession((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        events: [
+          ...current.events,
+          {
+            id: `pending-reply-${Date.now()}`,
+            role: "user",
+            text: prompt,
+            timestamp: Date.now(),
+            phase: "submitted",
+            rawType: "user.pending",
+          },
+        ],
+      };
+    });
     try {
       const response = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({ prompt }),
       });
-      const payload = (await response.json()) as CodexSessionDetailResponse;
 
-      if (!response.ok || !payload.session) {
+      if (!response.ok) {
+        const payload = (await response.json()) as CodexSessionDetailResponse;
         throw new Error(payload.error ?? "Failed to send message to Codex session");
       }
 
-      await refreshCodexSessions(payload.session.sessionId);
-      setSelectedCodexSession(payload.session);
+      await consumeCodexStream(response, async (session) => {
+        await refreshCodexSessions(session.sessionId);
+        setSelectedCodexSession(session);
+        setStreamedAssistantEvents([]);
+      });
       setReplyPrompt("");
     } catch (err) {
+      void loadCodexSessionDetail(selectedCodexSessionId);
+      setStreamedAssistantEvents([]);
       setCodexMutationError(err instanceof Error ? err.message : "Failed to send message to Codex session");
     } finally {
       setCodexMutationPending(null);
@@ -428,16 +620,30 @@ export default function SessionsPage() {
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-base">
-                          {selectedCodexSession?.threadName ?? "Codex transcript"}
+                          {selectedCodexSession?.threadName ??
+                            (codexMutationPending === "create" ? "Starting Codex session" : "Codex transcript")}
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
                         {codexDetailLoading ? <p className="text-sm text-muted-foreground">Loading Codex transcript…</p> : null}
-                        {!codexDetailLoading && !selectedCodexSession ? (
+                        {!codexDetailLoading && !hasCodexTranscriptContent ? (
                           <p className="text-sm text-muted-foreground">Select a Codex session to inspect the transcript.</p>
                         ) : null}
-                        {!codexDetailLoading && selectedCodexSession && selectedCodexSession.events.length === 0 ? (
+                        {!codexDetailLoading &&
+                        selectedCodexSession &&
+                        selectedCodexSession.events.length === 0 &&
+                        !pendingCodexUserEvent &&
+                        streamedAssistantEvents.length === 0 ? (
                           <p className="text-sm text-muted-foreground">No transcript messages parsed yet.</p>
+                        ) : null}
+                        {pendingCodexUserEvent ? (
+                          <div className="rounded-md border bg-background p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">You</p>
+                              <p className="text-xs text-muted-foreground">Queued now</p>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap text-sm">{pendingCodexUserEvent.text}</p>
+                          </div>
                         ) : null}
                         {selectedCodexSession?.events.map((event) => (
                           <div
@@ -453,6 +659,17 @@ export default function SessionsPage() {
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {event.timestamp ? new Date(event.timestamp).toLocaleString() : "Unknown time"}
+                              </p>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap text-sm">{event.text}</p>
+                          </div>
+                        ))}
+                        {streamedAssistantEvents.map((event) => (
+                          <div key={event.id} className="rounded-md border bg-muted/40 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Codex</p>
+                              <p className="text-xs text-muted-foreground">
+                                {codexMutationPending ? "Streaming…" : "Pending refresh"}
                               </p>
                             </div>
                             <p className="mt-2 whitespace-pre-wrap text-sm">{event.text}</p>
