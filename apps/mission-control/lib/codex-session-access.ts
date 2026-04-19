@@ -287,9 +287,21 @@ export function buildVisibleCodexSessionGroups(
     ),
   ];
   const stateRowsById = new Map(threadRows.map((row) => [row.id, row]));
-  const activeRoots = new Set(sidebarState.activeWorkspaceRoots.map((value) => normalizePath(value)).filter((value): value is string => Boolean(value)));
-  const savedRoots = new Set(sidebarState.savedWorkspaceRoots.map((value) => normalizePath(value)).filter((value): value is string => Boolean(value)));
-  const collapsedGroups = new Set(sidebarState.collapsedGroups.map((value) => normalizePath(value)).filter((value): value is string => Boolean(value)));
+  const activeRoots = new Set(
+    sidebarState.activeWorkspaceRoots
+      .map((value) => normalizePath(value))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const savedRoots = new Set(
+    sidebarState.savedWorkspaceRoots
+      .map((value) => normalizePath(value))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const collapsedGroups = new Set(
+    sidebarState.collapsedGroups
+      .map((value) => normalizePath(value))
+      .filter((value): value is string => Boolean(value)),
+  );
 
   const grouped = new Map<string, SidebarGroupingInput[]>();
 

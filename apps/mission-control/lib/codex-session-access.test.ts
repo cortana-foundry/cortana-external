@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const codexMirrorMocks = vi.hoisted(() => ({
@@ -189,6 +191,7 @@ describe("listVisibleCodexSessions", () => {
   });
 
   it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
     codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
       {
         sessionId: "abc",
@@ -207,7 +210,7 @@ describe("listVisibleCodexSessions", () => {
         sessionId: "abc",
         threadName: "Visible title",
         updatedAt: 200,
-        cwd: "/Users/hd/Developer/cortana-external",
+        cwd: repoRoot,
         model: "gpt-5.4",
         source: "vscode",
         cliVersion: "0.121.0",
@@ -224,7 +227,7 @@ describe("listVisibleCodexSessions", () => {
         sessionId: "abc",
         threadName: "Visible title",
         updatedAt: 200,
-        cwd: "/Users/hd/Developer/cortana-external",
+        cwd: repoRoot,
         model: "gpt-5.4",
         source: "vscode",
         cliVersion: "0.121.0",
