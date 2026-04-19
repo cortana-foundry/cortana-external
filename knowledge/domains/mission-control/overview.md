@@ -13,3 +13,4 @@ Primary source docs:
 
 - [Mission Control architecture](../../../docs/source/architecture/mission-control.md)
 - [Council background jobs](../../../apps/mission-control/docs/source/architecture/council-background-jobs.md)
+- [Codex CLI chat surface planning package](../../../apps/mission-control/docs/source/planning/prd-codex-cli-chat-surface.md)

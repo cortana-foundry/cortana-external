@@ -84,8 +84,11 @@ Use `apps/mission-control/docs/` when the doc only belongs to Mission Control.
 
 Paths:
 - `apps/mission-control/docs/source/architecture/`
+- `apps/mission-control/docs/source/planning/`
 
-Use `architecture/` for durable technical docs.
+Use:
+- `architecture/` for durable technical docs
+- `planning/` for Mission Control-only PRDs, tech specs, and implementation plans when the work does not belong in the backtester planning tree
 
 ### Backtester source docs
 
@@ -209,6 +212,7 @@ Avoid these:
 
 - "This is a repo-wide docs/front-door note" -> `docs/source/architecture/`
 - "This is a Mission Control-specific design note" -> `apps/mission-control/docs/source/architecture/`
+- "This is a Mission Control-only PRD/Tech Spec/Implementation Plan" -> `apps/mission-control/docs/source/planning/`
 - "This is a backtester runbook" -> `backtester/docs/source/runbook/`
 - "This is a trading/backtester PRD" -> `backtester/docs/source/prd/`
 - "This is a backtester PRD/Tech Spec/Implementation Plan/QA Plan" -> `backtester/planning/...`
