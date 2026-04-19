@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { summarizeSessions } from "./page";
+import { summarizeCodexSessions, summarizeOpenClawSessions } from "./page";
 
-describe("summarizeSessions", () => {
+describe("summarizeOpenClawSessions", () => {
   it("aggregates totals and system stats correctly", () => {
-    const summary = summarizeSessions([
+    const summary = summarizeOpenClawSessions([
       {
         key: "a",
         sessionId: "s1",
@@ -40,6 +40,42 @@ describe("summarizeSessions", () => {
       systemSent: 1,
       aborted: 1,
       latestUpdatedAt: 250,
+    });
+  });
+});
+
+describe("summarizeCodexSessions", () => {
+  it("counts codex sessions and derived metadata", () => {
+    const summary = summarizeCodexSessions([
+      {
+        sessionId: "codex-1",
+        threadName: "Brainstorm",
+        updatedAt: 100,
+        cwd: "/Users/hd/Developer/cortana-external",
+        model: "gpt-5.4",
+        source: "exec",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "preview",
+        transcriptPath: "/tmp/one.jsonl",
+      },
+      {
+        sessionId: "codex-2",
+        threadName: "Verify repo purpose",
+        updatedAt: 250,
+        cwd: null,
+        model: "gpt-5.4",
+        source: "resume",
+        cliVersion: "0.121.0",
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+
+    expect(summary).toEqual({
+      total: 2,
+      latestUpdatedAt: 250,
+      withCwd: 1,
+      withPreview: 1,
     });
   });
 });

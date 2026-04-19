@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatInt, formatCost } from "@/lib/format-utils";
 
-type Session = {
+type OpenClawSession = {
   key: string | null;
   sessionId: string | null;
   updatedAt: number | null;
@@ -18,9 +19,22 @@ type Session = {
   estimatedCost: number;
 };
 
-type SessionsResponse = { sessions: Session[]; error?: string };
+type CodexSession = {
+  sessionId: string;
+  threadName: string | null;
+  updatedAt: number | null;
+  cwd: string | null;
+  model: string | null;
+  source: string | null;
+  cliVersion: string | null;
+  lastMessagePreview: string | null;
+  transcriptPath: string | null;
+};
 
-export function summarizeSessions(sessions: Session[]) {
+type OpenClawSessionsResponse = { sessions: OpenClawSession[]; error?: string };
+type CodexSessionsResponse = { sessions: CodexSession[]; error?: string };
+
+export function summarizeOpenClawSessions(sessions: OpenClawSession[]) {
   return sessions.reduce(
     (acc, session) => {
       acc.total += 1;
@@ -48,34 +62,74 @@ export function summarizeSessions(sessions: Session[]) {
   );
 }
 
+export function summarizeCodexSessions(sessions: CodexSession[]) {
+  return sessions.reduce(
+    (acc, session) => {
+      acc.total += 1;
+      if (session.updatedAt && (!acc.latestUpdatedAt || session.updatedAt > acc.latestUpdatedAt)) {
+        acc.latestUpdatedAt = session.updatedAt;
+      }
+      if (session.cwd) acc.withCwd += 1;
+      if (session.lastMessagePreview) acc.withPreview += 1;
+      return acc;
+    },
+    {
+      total: 0,
+      latestUpdatedAt: null as number | null,
+      withCwd: 0,
+      withPreview: 0,
+    }
+  );
+}
+
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [openClawSessions, setOpenClawSessions] = useState<OpenClawSession[]>([]);
+  const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
+  const [openClawError, setOpenClawError] = useState<string | null>(null);
+  const [codexError, setCodexError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      try {
-        const response = await fetch("/api/sessions", { cache: "no-store" });
-        const payload = (await response.json()) as SessionsResponse;
+      const [openClawResult, codexResult] = await Promise.allSettled([
+        fetch("/api/sessions", { cache: "no-store" }),
+        fetch("/api/codex/sessions", { cache: "no-store" }),
+      ]);
 
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Failed to load sessions");
-        }
+      if (cancelled) return;
 
-        if (!cancelled) {
-          setSessions(payload.sessions ?? []);
+      if (openClawResult.status === "fulfilled") {
+        try {
+          const payload = (await openClawResult.value.json()) as OpenClawSessionsResponse;
+          if (!openClawResult.value.ok) {
+            throw new Error(payload.error ?? "Failed to load OpenClaw sessions");
+          }
+          setOpenClawSessions(payload.sessions ?? []);
+        } catch (err) {
+          setOpenClawError(err instanceof Error ? err.message : "Failed to load OpenClaw sessions");
         }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load sessions");
+      } else {
+        setOpenClawError(openClawResult.reason instanceof Error ? openClawResult.reason.message : "Failed to load OpenClaw sessions");
+      }
+
+      if (codexResult.status === "fulfilled") {
+        try {
+          const payload = (await codexResult.value.json()) as CodexSessionsResponse;
+          if (!codexResult.value.ok) {
+            throw new Error(payload.error ?? "Failed to load Codex sessions");
+          }
+          setCodexSessions(payload.sessions ?? []);
+        } catch (err) {
+          setCodexError(err instanceof Error ? err.message : "Failed to load Codex sessions");
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      } else {
+        setCodexError(codexResult.reason instanceof Error ? codexResult.reason.message : "Failed to load Codex sessions");
+      }
+
+      if (!cancelled) {
+        setLoading(false);
       }
     }
 
@@ -85,89 +139,153 @@ export default function SessionsPage() {
     };
   }, []);
 
-  const summary = useMemo(() => summarizeSessions(sessions), [sessions]);
+  const openClawSummary = useMemo(() => summarizeOpenClawSessions(openClawSessions), [openClawSessions]);
+  const codexSummary = useMemo(() => summarizeCodexSessions(codexSessions), [codexSessions]);
+  const hasData = openClawSessions.length > 0 || codexSessions.length > 0;
 
   return (
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Sessions</h1>
         <p className="text-sm text-muted-foreground">
-          Active OpenClaw sessions across agents, including token usage and estimated cost.
+          Mission Control session hub for local Codex and OpenClaw activity.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Sessions</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatInt(summary.total)}</CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Codex sessions</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold">{formatInt(codexSummary.total)}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">OpenClaw sessions</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold">{formatInt(openClawSummary.total)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Input tokens</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatInt(summary.inputTokens)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatInt(openClawSummary.inputTokens)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Output tokens</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatInt(summary.outputTokens)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatInt(openClawSummary.outputTokens)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Estimated cost</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCost(summary.estimatedCost)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatCost(openClawSummary.estimatedCost)}</CardContent>
         </Card>
       </div>
 
-      {!loading && !error ? (
+      {!loading ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">System stats</CardTitle>
+            <CardTitle className="text-base">Session providers</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
+          <CardContent className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <div className="rounded-md border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">System-started</p>
-              <p className="text-xl font-semibold">{formatInt(summary.systemSent)}</p>
-            </div>
-            <div className="rounded-md border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Aborted last run</p>
-              <p className="text-xl font-semibold">{formatInt(summary.aborted)}</p>
-            </div>
-            <div className="rounded-md border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest session update</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Codex latest</p>
               <p className="text-sm font-medium">
-                {summary.latestUpdatedAt ? new Date(summary.latestUpdatedAt).toLocaleString() : "N/A"}
+                {codexSummary.latestUpdatedAt ? new Date(codexSummary.latestUpdatedAt).toLocaleString() : "N/A"}
+              </p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Codex with cwd</p>
+              <p className="text-xl font-semibold">{formatInt(codexSummary.withCwd)}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Codex with preview</p>
+              <p className="text-xl font-semibold">{formatInt(codexSummary.withPreview)}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">OpenClaw system-started</p>
+              <p className="text-xl font-semibold">{formatInt(openClawSummary.systemSent)}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">OpenClaw aborted</p>
+              <p className="text-xl font-semibold">{formatInt(openClawSummary.aborted)}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">OpenClaw latest</p>
+              <p className="text-sm font-medium">
+                {openClawSummary.latestUpdatedAt ? new Date(openClawSummary.latestUpdatedAt).toLocaleString() : "N/A"}
               </p>
             </div>
           </CardContent>
         </Card>
       ) : null}
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading sessions…</p> : null}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {loading ? <p className="text-sm text-muted-foreground">Loading session providers…</p> : null}
 
-      {!loading && !error ? (
+      {!loading ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Recent sessions</CardTitle>
           </CardHeader>
           <CardContent>
-            {sessions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No active sessions found.</p>
-            ) : (
-              <div className="space-y-3">
-                {sessions.map((session, index) => (
-                  <div key={session.key ?? session.sessionId ?? `session-${index}`} className="rounded-md border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium">{session.agentId ?? "unknown-agent"}</p>
-                      <p className="text-xs text-muted-foreground">{session.model ?? "unknown-model"}</p>
-                    </div>
-                    <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId ?? session.key ?? "no-session-id"}</p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {formatInt(session.totalTokens ?? 0)} tokens · {formatCost(session.estimatedCost ?? 0)}
-                    </p>
+            <Tabs defaultValue="codex" className="space-y-4">
+              <TabsList variant="line" className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
+                <TabsTrigger value="codex">Codex</TabsTrigger>
+                <TabsTrigger value="openclaw">OpenClaw</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="codex" className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Discovery reads the local Codex session index from <code>~/.codex</code>. Transcript and resume flows land next.
+                </p>
+                {codexError ? <p className="text-sm text-destructive">{codexError}</p> : null}
+                {!codexError && codexSessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No Codex sessions found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {codexSessions.map((session) => (
+                      <div key={session.sessionId} className="rounded-md border p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{session.threadName ?? "Untitled Codex session"}</p>
+                          <p className="text-xs text-muted-foreground">{session.model ?? "unknown-model"}</p>
+                        </div>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {session.cwd ?? "cwd unavailable"} · {session.updatedAt ? new Date(session.updatedAt).toLocaleString() : "unknown update"}
+                        </p>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {session.lastMessagePreview ?? "No transcript preview available yet."}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                )}
+              </TabsContent>
+
+              <TabsContent value="openclaw" className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Active OpenClaw sessions across agents, including token usage and estimated cost.
+                </p>
+                {openClawError ? <p className="text-sm text-destructive">{openClawError}</p> : null}
+                {!openClawError && openClawSessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No active OpenClaw sessions found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {openClawSessions.map((session, index) => (
+                      <div key={session.key ?? session.sessionId ?? `session-${index}`} className="rounded-md border p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{session.agentId ?? "unknown-agent"}</p>
+                          <p className="text-xs text-muted-foreground">{session.model ?? "unknown-model"}</p>
+                        </div>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId ?? session.key ?? "no-session-id"}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {formatInt(session.totalTokens ?? 0)} tokens · {formatCost(session.estimatedCost ?? 0)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
+      ) : null}
+
+      {!loading && !hasData && !openClawError && !codexError ? (
+        <p className="text-sm text-muted-foreground">No session activity found yet.</p>
       ) : null}
     </div>
   );
