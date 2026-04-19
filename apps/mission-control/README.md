@@ -42,6 +42,12 @@ pnpm dev
 # open http://localhost:3000
 ```
 
+Preferred local operator flow:
+```bash
+./scripts/restart-mission-control.sh
+```
+This runs Mission Control through the launchd-managed local app path instead of a transient dev server.
+
 ## Scripts
 - `pnpm dev` — start Next.js dev server
 - `pnpm build` / `pnpm start` — production build & manual foreground start
@@ -55,6 +61,24 @@ pnpm dev
 
 Use `scripts/restart-mission-control.sh` for the launchd-managed local app.
 That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears stale Mission Control `next-server` processes, waits for `/api/heartbeat-status`, and can run the Trading Ops smoke guard.
+
+## Codex Sessions workspace
+- Mission Control includes a Codex-only Sessions workspace at `/sessions`.
+- The Sessions surface is designed to mirror the local Codex desktop client’s project-oriented sidebar rather than acting as a generic transcript dump.
+- Session discovery is backed by the local Codex store under `~/.codex`, with Mission Control reading:
+  - `session_index.jsonl` for fast recent-session discovery
+  - transcript files under `~/.codex/sessions/...` and `~/.codex/archived_sessions/...` for detail hydration
+  - `state_5.sqlite` and `.codex-global-state.json` for local sidebar/workspace context
+- Mission Control filters out threads that do not resolve to a visible workspace context, along with spawned worker/subagent threads and utility CLI noise, so the visible project rail stays closer to Codex desktop parity.
+- New turns sent from Mission Control continue the same local Codex session id and write back through the Codex app/CLI boundary rather than a separate chat backend.
+- Transcript rendering is bounded inside the page shell with an internal scroll viewport so long conversations do not expand the entire page.
+
+### Codex mirror model
+- Mission Control maintains a lightweight DB-backed mirror for Codex thread metadata so the UI does not rely only on raw filesystem reads.
+- Mirror reconciliation is lifecycle-aware:
+  - active threads stay visible and can be resumed/replied to
+  - archived or deleted threads are removed from the Mission Control selection set on refresh
+- The mirror is still downstream of the local Codex store. Codex remains the source of truth for session existence and transcript history.
 
 ## Browser access model
 - Mission Control browser access is private-network based: `localhost` and Tailscale operator sessions are first-class supported paths.
@@ -83,6 +107,10 @@ That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears s
 - `PATCH /api/feedback/:id` — update workflow and remediation fields (`status`, `owner`, `remediationStatus`, `remediationNotes`, `resolvedBy`)
 - `GET /api/task-board` — task board slices (ready, blocked, due, pillar rollups, recent outcomes)
 - `GET /api/live` — SSE stream for near-live UI refresh ticks
+- `GET /api/codex/sessions` — list visible Codex sessions grouped by local workspace/project
+- `POST /api/codex/sessions` — create a new Codex thread and stream the first turn back into Mission Control
+- `GET /api/codex/sessions/:sessionId` — fetch a visible Codex thread transcript plus session metadata
+- `POST /api/codex/sessions/:sessionId/messages` — continue an existing Codex thread from Mission Control
 - `GET /api/trading-ops/live` — Trading Ops live summary payload
 - `GET /api/trading-ops/live/stream` — Trading Ops SSE stream
 - `GET /api/trading-ops/polymarket` — Polymarket Trading Ops summary payload
@@ -97,6 +125,7 @@ That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears s
 - `/trading-ops` — latest-run truth, live tape, streamer health, watchlists, system health, deep dive, and Polymarket boards
 - `/task-board` — Task board cards (Ready now, Blocked, Due soon/Overdue, By pillar, and Recent execution log)
 - `/agents` — Agent overview
+- `/sessions` — Codex session workspace with project-grouped thread rail, transcript view, inspector, and reply/start controls
 - `/approvals` — Approvals inbox with Mission Control review flow, Telegram deep links, and resume/execution controls
 - `/council` — Council deliberation sessions, member votes, and synthesis rationale
 - `/feedback` — Feedback inbox with remediation status, notes/actions, and resolution metrics
