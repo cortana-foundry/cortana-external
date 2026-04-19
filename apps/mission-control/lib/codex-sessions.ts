@@ -50,6 +50,7 @@ type TranscriptMetadata = {
 
 type ListCodexSessionsOptions = {
   limit?: number | null;
+  sessionIds?: string[] | null;
   sessionIndexPath?: string;
   sessionsRoot?: string;
   archivedRoot?: string;
@@ -120,6 +121,28 @@ export function parseCodexSessionIndex(raw: string): SessionIndexEntry[] {
       ];
     })
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+}
+
+export async function listCodexSessionIndexSummaries(
+  options: Pick<ListCodexSessionsOptions, "limit" | "sessionIndexPath"> = {},
+): Promise<CodexSessionSummary[]> {
+  const limit = clampLimit(options.limit);
+  const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
+  const raw = await fs.readFile(sessionIndexPath, "utf8");
+
+  return parseCodexSessionIndex(raw)
+    .slice(0, limit)
+    .map((entry) => ({
+      sessionId: entry.id,
+      threadName: entry.threadName,
+      updatedAt: entry.updatedAt,
+      cwd: null,
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: null,
+      transcriptPath: null,
+    }));
 }
 
 export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
@@ -379,12 +402,11 @@ async function enrichSessionEntry(
 
   const rawTranscript = await fs.readFile(transcriptPath, "utf8");
   const metadata = parseCodexTranscriptMetadata(rawTranscript);
-  const latestEventTimestamp = parseCodexTranscriptEvents(rawTranscript).at(-1)?.timestamp ?? null;
 
   return {
     sessionId: entry.id,
     threadName: entry.threadName,
-    updatedAt: Math.max(entry.updatedAt ?? 0, latestEventTimestamp ?? 0) || null,
+    updatedAt: entry.updatedAt ?? null,
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
@@ -399,9 +421,17 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
   const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
   const sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
   const archivedRoot = options.archivedRoot ?? DEFAULT_ARCHIVED_ROOT;
+  const requestedIds = new Set(
+    (options.sessionIds ?? [])
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
 
   const raw = await fs.readFile(sessionIndexPath, "utf8");
-  const entries = parseCodexSessionIndex(raw).slice(0, limit);
+  const parsedEntries = parseCodexSessionIndex(raw);
+  const entries = requestedIds.size > 0
+    ? parsedEntries.filter((entry) => requestedIds.has(entry.id)).slice(0, limit)
+    : parsedEntries.slice(0, limit);
 
   return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot)));
 }

@@ -202,6 +202,32 @@ async function findActiveTranscriptPath(
 }
 
 async function readCodexThreadStateRows(stateDbPath: string) {
+  return readCodexThreadStateRowsWithOptions(stateDbPath);
+}
+
+async function readCodexThreadStateRowsWithOptions(
+  stateDbPath: string,
+  options: {
+    sessionIds?: string[];
+    limit?: number;
+    activeOnly?: boolean;
+  } = {},
+) {
+  const filters: string[] = [];
+  const safeSessionIds = [...new Set((options.sessionIds ?? []).map((value) => value.trim()).filter(Boolean))];
+  if (safeSessionIds.length > 0) {
+    filters.push(`id IN (${safeSessionIds.map((sessionId) => `'${escapeLiteral(sessionId)}'`).join(", ")})`);
+  }
+
+  if (options.activeOnly) {
+    filters.push("archived = 0");
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+  const limitClause = options.limit && Number.isFinite(options.limit) && options.limit > 0
+    ? `LIMIT ${Math.max(1, Math.floor(options.limit))}`
+    : "";
+
   try {
     const { stdout } = await execFileAsync("sqlite3", [
       "-json",
@@ -219,7 +245,9 @@ async function readCodexThreadStateRows(stateDbPath: string) {
           archived_at,
           COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
         FROM threads
+        ${whereClause}
         ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC
+        ${limitClause}
       `,
     ], {
       maxBuffer: 8 * 1024 * 1024,
@@ -452,7 +480,9 @@ async function resolveCodexFilesystemLifecycle(
   options: Pick<ReconcileCodexMirrorOptions, "stateDbPath"> = {},
 ) {
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
-  const rows = await readCodexThreadStateRows(stateDbPath);
+  const rows = await readCodexThreadStateRowsWithOptions(stateDbPath, {
+    sessionIds: [sessionId],
+  });
   const row = rows.find((candidate) => candidate.id === sessionId) ?? null;
 
   if (!row) {
@@ -545,18 +575,28 @@ export async function reconcileCodexMirrorSessions(options: ReconcileCodexMirror
   const limit = clampLimit(options.limit);
   const reconciledAt = new Date();
 
-  const [stateRows, mirrorRows] = await Promise.all([
-    readCodexThreadStateRows(stateDbPath),
+  const [activeEntries, mirrorRows] = await Promise.all([
+    readCodexThreadStateRowsWithOptions(stateDbPath, {
+      activeOnly: true,
+      limit,
+    }),
     listCodexMirrorThreadRows(),
   ]);
 
-  const activeEntries = stateRows.filter((row) => !row.archived);
-  const stateRowsById = new Map(stateRows.map((row) => [row.id, row] as const));
   const mirroredIds = new Set(mirrorRows.map((row) => row.id));
   const activeIds = new Set(activeEntries.map((entry) => entry.id));
+  const mirrorLookupIds = mirrorRows
+    .map((row) => row.id)
+    .filter((id) => !activeIds.has(id));
+  const mirrorStateRows = mirrorLookupIds.length > 0
+    ? await readCodexThreadStateRowsWithOptions(stateDbPath, {
+        sessionIds: mirrorLookupIds,
+      })
+    : [];
+  const stateRowsById = new Map([...activeEntries, ...mirrorStateRows].map((row) => [row.id, row] as const));
 
   await Promise.allSettled(
-    activeEntries.slice(0, limit).map(async (entry) => {
+    activeEntries.map(async (entry) => {
       await upsertCodexMirrorThread({
         sessionId: entry.id,
         threadName: entry.title,

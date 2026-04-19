@@ -8,13 +8,12 @@ import {
   getCodexMirroredSessionDetail,
   listCodexMirroredSessions,
   reconcileCodexMirrorSession,
-  reconcileCodexMirrorSessions,
   syncCodexMirrorThreadFromSession,
 } from "@/lib/codex-mirror";
 import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from "@/lib/codex-sessions";
 import {
   getCodexSessionDetail,
-  listCodexSessions,
+  listCodexSessionIndexSummaries,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -64,6 +63,10 @@ type SidebarGroupingInput = {
   stateRow: CodexLocalThreadStateRow | null;
   rootPath: string;
 };
+
+function escapeSqlLiteral(value: string) {
+  return value.replaceAll("'", "''");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -216,8 +219,20 @@ async function readCodexDesktopSidebarState(
 }
 
 async function readCodexLocalThreadStateRows(
+  sessionIds: string[],
   stateDbPath = DEFAULT_CODEX_STATE_DB_PATH,
 ): Promise<CodexLocalThreadStateRow[]> {
+  if (sessionIds.length === 0) {
+    return [];
+  }
+
+  const safeSessionIds = [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
+  if (safeSessionIds.length === 0) {
+    return [];
+  }
+
+  const sessionIdList = safeSessionIds.map((sessionId) => `'${escapeSqlLiteral(sessionId)}'`).join(", ");
+
   try {
     const { stdout } = await execFileAsync(
       "sqlite3",
@@ -234,6 +249,7 @@ async function readCodexLocalThreadStateRows(
             has_user_event,
             COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
           FROM threads
+          WHERE id IN (${sessionIdList})
           ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC
         `,
       ],
@@ -442,33 +458,24 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
     safeLimit,
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
-
-  await reconcileCodexMirrorSessions({ limit: discoveryLimit });
-
-  const [mirrored, fileBacked, threadRows, sidebarState] = await Promise.all([
+  const [indexedSessions, mirroredSessions, sidebarState] = await Promise.all([
+    listCodexSessionIndexSummaries({ limit: discoveryLimit }),
     listCodexMirroredSessions(discoveryLimit),
-    listCodexSessions({ limit: discoveryLimit }),
-    readCodexLocalThreadStateRows(),
     readCodexDesktopSidebarState(),
   ]);
-  const visibleIds = new Set(mirrored.map((session) => session.sessionId));
+  const merged = new Map(indexedSessions.map((session) => [session.sessionId, session] as const));
 
-  const merged = new Map<string, CodexSessionSummary>();
-
-  for (const session of fileBacked) {
-    if (!visibleIds.has(session.sessionId)) {
-      continue;
-    }
-    merged.set(session.sessionId, session);
-  }
-
-  for (const session of mirrored) {
+  for (const session of mirroredSessions) {
     merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
   }
 
   const candidates = [...merged.values()]
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .slice(0, discoveryLimit);
+
+  const threadRows = await readCodexLocalThreadStateRows(
+    candidates.map((session) => session.sessionId),
+  );
 
   const visible = buildVisibleCodexSessionGroups(candidates, threadRows, sidebarState, {
     limit: safeLimit,

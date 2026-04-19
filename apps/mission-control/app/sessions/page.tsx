@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   Clock3,
@@ -12,24 +12,9 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { formatInt, formatCost } from "@/lib/format-utils";
+import { formatInt } from "@/lib/format-utils";
 import { cn } from "@/lib/utils";
-
-type OpenClawSession = {
-  key: string | null;
-  sessionId: string | null;
-  updatedAt: number | null;
-  totalTokens: number | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  model: string | null;
-  agentId: string | null;
-  systemSent: boolean | null;
-  abortedLastRun: boolean | null;
-  estimatedCost: number;
-};
 
 type CodexSession = {
   sessionId: string;
@@ -49,7 +34,6 @@ type CodexSessionGroup = {
   rootPath: string;
   isActive: boolean;
   isCollapsed: boolean;
-  hiddenSessionCount: number;
   sessions: CodexSession[];
 };
 
@@ -72,7 +56,6 @@ type StreamingCodexEvent = {
   text: string;
 };
 
-type OpenClawSessionsResponse = { sessions: OpenClawSession[]; error?: string };
 type CodexSessionsResponse = {
   sessions: CodexSession[];
   groups: CodexSessionGroup[];
@@ -240,34 +223,6 @@ export function mergeStreamedAssistantEvents(
   );
 }
 
-export function summarizeOpenClawSessions(sessions: OpenClawSession[]) {
-  return sessions.reduce(
-    (acc, session) => {
-      acc.total += 1;
-      acc.inputTokens += session.inputTokens ?? 0;
-      acc.outputTokens += session.outputTokens ?? 0;
-      acc.estimatedCost += session.estimatedCost ?? 0;
-      acc.systemSent += session.systemSent ? 1 : 0;
-      acc.aborted += session.abortedLastRun ? 1 : 0;
-
-      if (session.updatedAt && (!acc.latestUpdatedAt || session.updatedAt > acc.latestUpdatedAt)) {
-        acc.latestUpdatedAt = session.updatedAt;
-      }
-
-      return acc;
-    },
-    {
-      total: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      estimatedCost: 0,
-      systemSent: 0,
-      aborted: 0,
-      latestUpdatedAt: null as number | null,
-    }
-  );
-}
-
 export function summarizeCodexSessions(sessions: CodexSession[]) {
   return sessions.reduce(
     (acc, session) => {
@@ -289,7 +244,7 @@ export function summarizeCodexSessions(sessions: CodexSession[]) {
 }
 
 export default function SessionsPage() {
-  const [openClawSessions, setOpenClawSessions] = useState<OpenClawSession[]>([]);
+  const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
   const [codexSessionGroups, setCodexSessionGroups] = useState<CodexSessionGroup[]>([]);
   const [codexVisibleTotal, setCodexVisibleTotal] = useState(0);
@@ -300,7 +255,6 @@ export default function SessionsPage() {
   const [provisionalCodexSession, setProvisionalCodexSession] = useState<CodexSession | null>(null);
   const [streamedAssistantEvents, setStreamedAssistantEvents] = useState<StreamingCodexEvent[]>([]);
   const [pendingCodexUserEvent, setPendingCodexUserEvent] = useState<CodexSessionEvent | null>(null);
-  const [openClawError, setOpenClawError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [codexDetailLoading, setCodexDetailLoading] = useState(false);
   const [newCodexPrompt, setNewCodexPrompt] = useState("");
@@ -472,26 +426,11 @@ export default function SessionsPage() {
     let cancelled = false;
 
     async function load() {
-      const [openClawResult, codexResult] = await Promise.allSettled([
-        fetch("/api/sessions", { cache: "no-store" }),
-        fetchCodexSessions(),
-      ]);
+      const codexResult = await fetchCodexSessions()
+        .then((value) => ({ status: "fulfilled" as const, value }))
+        .catch((reason) => ({ status: "rejected" as const, reason }));
 
       if (cancelled) return;
-
-      if (openClawResult.status === "fulfilled") {
-        try {
-          const payload = (await openClawResult.value.json()) as OpenClawSessionsResponse;
-          if (!openClawResult.value.ok) {
-            throw new Error(payload.error ?? "Failed to load OpenClaw sessions");
-          }
-          setOpenClawSessions(payload.sessions ?? []);
-        } catch (err) {
-          setOpenClawError(err instanceof Error ? err.message : "Failed to load OpenClaw sessions");
-        }
-      } else {
-        setOpenClawError(openClawResult.reason instanceof Error ? openClawResult.reason.message : "Failed to load OpenClaw sessions");
-      }
 
       if (codexResult.status === "fulfilled") {
         try {
@@ -586,14 +525,27 @@ export default function SessionsPage() {
     };
   }, [loading, codexMutationPending, selectedCodexSessionId]);
 
-  const openClawSummary = useMemo(() => summarizeOpenClawSessions(openClawSessions), [openClawSessions]);
+  useEffect(() => {
+    const viewport = transcriptViewportRef.current;
+    if (!viewport) return;
+
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [
+    selectedCodexSessionId,
+    selectedCodexSession?.events.length,
+    streamedAssistantEvents.length,
+    pendingCodexUserEvent?.id,
+  ]);
+
   const visibleCodexSessions = useMemo(
     () => mergeCodexSessions(codexSessions, provisionalCodexSession),
     [codexSessions, provisionalCodexSession],
   );
   const codexSummary = useMemo(() => summarizeCodexSessions(visibleCodexSessions), [visibleCodexSessions]);
   const activeCodexThreadId = selectedCodexSessionId ?? provisionalCodexSession?.sessionId ?? null;
-  const hasData = openClawSessions.length > 0 || visibleCodexSessions.length > 0;
   const hasCodexTranscriptContent =
     Boolean(selectedCodexSession) ||
     Boolean(provisionalCodexSession) ||
@@ -743,12 +695,12 @@ export default function SessionsPage() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              Local operator threads
+              Shared local Codex workspace
             </p>
             <div className="space-y-1">
               <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Sessions</h1>
               <p className="max-w-2xl text-sm text-muted-foreground">
-                Work Codex and OpenClaw threads from one surface, with Codex positioned as a shared local chat workspace.
+                Review, continue, and launch Codex threads from one bounded workspace that mirrors the local desktop client.
               </p>
             </div>
           </div>
@@ -764,7 +716,7 @@ export default function SessionsPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">
           <div className="rounded-[24px] border border-border/60 bg-[linear-gradient(135deg,rgba(15,23,42,0.035),rgba(15,23,42,0.01)_55%,transparent)] p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
@@ -784,10 +736,9 @@ export default function SessionsPage() {
           </div>
 
           {[
-            { label: "OpenClaw sessions", value: formatInt(openClawSummary.total), detail: "active agents" },
-            { label: "Input tokens", value: formatInt(openClawSummary.inputTokens), detail: "tracked today" },
-            { label: "Output tokens", value: formatInt(openClawSummary.outputTokens), detail: "tracked today" },
-            { label: "Estimated cost", value: formatCost(openClawSummary.estimatedCost), detail: "OpenClaw usage" },
+            { label: "Project groups", value: formatInt(codexSessionGroups.length), detail: "workspace clusters" },
+            { label: "With context", value: formatInt(codexSummary.withCwd), detail: "threads with cwd" },
+            { label: "With preview", value: formatInt(codexSummary.withPreview), detail: "threads with transcript summary" },
           ].map((item) => (
             <div key={item.label} className="rounded-[24px] border border-border/60 bg-background px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
@@ -798,16 +749,10 @@ export default function SessionsPage() {
         </div>
       </div>
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading session providers…</p> : null}
+      {loading ? <p className="text-sm text-muted-foreground">Loading Codex sessions…</p> : null}
 
       {!loading ? (
-        <Tabs defaultValue="codex" className="space-y-4">
-          <TabsList variant="line" className="w-full justify-start overflow-x-auto rounded-2xl border border-border/60 bg-background p-1 font-mono text-xs uppercase tracking-wide">
-            <TabsTrigger value="codex" className="max-w-max px-4">Codex</TabsTrigger>
-            <TabsTrigger value="openclaw" className="max-w-max px-4">OpenClaw</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="codex" className="space-y-4">
+        <div className="space-y-4">
             {codexError ? (
               <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 {codexError}
@@ -815,8 +760,8 @@ export default function SessionsPage() {
             ) : null}
 
             <div className="overflow-hidden rounded-[28px] border border-border/60 bg-background shadow-sm">
-              <div className="grid min-h-[70svh] gap-0 lg:grid-cols-[22rem_minmax(0,1fr)_18rem]">
-                <aside className="border-b border-border/60 bg-muted/[0.16] lg:border-r lg:border-b-0">
+              <div className="grid h-[calc(100svh-14rem)] min-h-[44rem] max-h-[calc(100svh-9rem)] gap-0 lg:grid-cols-[22rem_minmax(0,1fr)_18rem]">
+                <aside className="overflow-y-auto border-b border-border/60 bg-muted/[0.16] lg:border-r lg:border-b-0">
                   <div className="space-y-4 p-4">
                     <div className="space-y-1">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -854,7 +799,7 @@ export default function SessionsPage() {
                         </p>
                         {codexMatchedTotal > (codexVisibleTotal || visibleCodexSessions.length) ? (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Condensed sidebar view showing the same project slice Codex desktop surfaces first.
+                            Filtered to the same project-oriented Codex surface, excluding threads without resolved workspace context.
                           </p>
                         ) : null}
                       </div>
@@ -913,11 +858,6 @@ export default function SessionsPage() {
                                     active
                                   </span>
                                 ) : null}
-                                {group.hiddenSessionCount > 0 ? (
-                                  <span className="rounded-full border border-border/60 px-2 py-0.5">
-                                    +{group.hiddenSessionCount} more
-                                  </span>
-                                ) : null}
                               </div>
                             </div>
 
@@ -964,7 +904,7 @@ export default function SessionsPage() {
                   </div>
                 </aside>
 
-                <section className="flex min-h-[70svh] flex-col border-b border-border/60 bg-muted/[0.1] lg:border-r lg:border-b-0">
+                <section className="flex min-h-0 flex-col border-b border-border/60 bg-muted/[0.1] lg:border-r lg:border-b-0">
                   <div className="border-b border-border/60 bg-background/95 px-5 py-4 backdrop-blur">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="space-y-1">
@@ -993,7 +933,11 @@ export default function SessionsPage() {
                     </div>
                   </div>
 
-                  <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-6">
+                  <div
+                    ref={transcriptViewportRef}
+                    className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(248,250,252,0.66)_0%,rgba(248,250,252,0.14)_100%)] px-4 py-5 md:px-6"
+                  >
+                    <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-4">
                     {codexDetailLoading ? (
                       <div className="rounded-[22px] border border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
                         Loading Codex transcript…
@@ -1066,6 +1010,7 @@ export default function SessionsPage() {
                         <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{event.text}</p>
                       </div>
                     ))}
+                    </div>
                   </div>
 
                   <div className="border-t border-border/60 bg-background/95 px-4 py-4 backdrop-blur md:px-6">
@@ -1108,7 +1053,7 @@ export default function SessionsPage() {
                   </div>
                 </section>
 
-                <aside className="bg-background/95">
+                <aside className="overflow-y-auto bg-background/95">
                   <div className="space-y-5 p-4">
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Inspector</p>
@@ -1181,12 +1126,12 @@ export default function SessionsPage() {
                           <span className="text-foreground">{formatInt(codexSummary.withPreview)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">OpenClaw system-started</span>
-                          <span className="text-foreground">{formatInt(openClawSummary.systemSent)}</span>
+                          <span className="text-muted-foreground">Visible threads</span>
+                          <span className="text-foreground">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">OpenClaw aborted</span>
-                          <span className="text-foreground">{formatInt(openClawSummary.aborted)}</span>
+                          <span className="text-muted-foreground">Project groups</span>
+                          <span className="text-foreground">{formatInt(codexSessionGroups.length)}</span>
                         </div>
                       </div>
                     </div>
@@ -1194,96 +1139,10 @@ export default function SessionsPage() {
                 </aside>
               </div>
             </div>
-          </TabsContent>
-
-          <TabsContent value="openclaw" className="space-y-4">
-            {openClawError ? (
-              <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {openClawError}
-              </div>
-            ) : null}
-
-            <div className="overflow-hidden rounded-[28px] border border-border/60 bg-background shadow-sm">
-              <div className="border-b border-border/60 px-5 py-4">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">OpenClaw sessions</p>
-                    <h2 className="mt-1 text-xl font-semibold tracking-tight">Active agent activity</h2>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Active OpenClaw sessions across agents, including token usage and estimated cost.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 border-b border-border/60 bg-muted/[0.14] px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  { label: "Sessions", value: formatInt(openClawSummary.total) },
-                  { label: "Input tokens", value: formatInt(openClawSummary.inputTokens) },
-                  { label: "Output tokens", value: formatInt(openClawSummary.outputTokens) },
-                  { label: "Estimated cost", value: formatCost(openClawSummary.estimatedCost) },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-2xl border border-border/60 bg-background px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
-                    <p className="mt-2 text-xl font-semibold">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {!openClawError && openClawSessions.length === 0 ? (
-                <div className="px-5 py-6 text-sm text-muted-foreground">No active OpenClaw sessions found.</div>
-              ) : (
-                <div className="divide-y divide-border/60">
-                  {openClawSessions.map((session, index) => (
-                    <div
-                      key={session.key ?? session.sessionId ?? `session-${index}`}
-                      className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.8fr)_auto]"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold">{session.agentId ?? "unknown-agent"}</p>
-                          <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                            {session.model ?? "unknown-model"}
-                          </span>
-                        </div>
-                        <p className="mt-1 break-all text-xs text-muted-foreground">
-                          {session.sessionId ?? session.key ?? "no-session-id"}
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-1">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Tokens</p>
-                          <p className="mt-1 font-medium">{formatInt(session.totalTokens ?? 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Cost</p>
-                          <p className="mt-1 font-medium">{formatCost(session.estimatedCost ?? 0)}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-start justify-start gap-2 md:justify-end">
-                        {session.systemSent ? (
-                          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-700 dark:text-emerald-300">
-                            system-started
-                          </span>
-                        ) : null}
-                        {session.abortedLastRun ? (
-                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-                            aborted
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+        </div>
       ) : null}
 
-      {!loading && !hasData && !openClawError && !codexError ? (
+      {!loading && visibleCodexSessions.length === 0 && !codexError ? (
         <p className="text-sm text-muted-foreground">No session activity found yet.</p>
       ) : null}
     </div>
