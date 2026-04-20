@@ -13,7 +13,7 @@ import {
 import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from "@/lib/codex-sessions";
 import {
   getCodexSessionDetail,
-  listCodexSessionIndexSummaries,
+  listCodexSessions,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -509,7 +509,7 @@ export async function listVisibleCodexSessions(
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
   const [indexedSessions, mirroredSessions, sidebarState] = await Promise.all([
-    listCodexSessionIndexSummaries({ limit: discoveryLimit }),
+    listCodexSessions({ limit: discoveryLimit }),
     listCodexMirroredSessions(discoveryLimit),
     readCodexDesktopSidebarState(),
   ]);
@@ -520,6 +520,7 @@ export async function listVisibleCodexSessions(
   }
 
   const candidates = [...merged.values()]
+    .filter((session) => Boolean(session.lastMessagePreview))
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .slice(0, discoveryLimit);
 

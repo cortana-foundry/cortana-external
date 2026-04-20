@@ -12,7 +12,6 @@ const codexMirrorMocks = vi.hoisted(() => ({
 
 const codexSessionMocks = vi.hoisted(() => ({
   getCodexSessionDetail: vi.fn(),
-  listCodexSessionIndexSummaries: vi.fn(),
   listCodexSessions: vi.fn(),
 }));
 
@@ -26,7 +25,6 @@ vi.mock("@/lib/codex-mirror", () => ({
 
 vi.mock("@/lib/codex-sessions", () => ({
   getCodexSessionDetail: codexSessionMocks.getCodexSessionDetail,
-  listCodexSessionIndexSummaries: codexSessionMocks.listCodexSessionIndexSummaries,
   listCodexSessions: codexSessionMocks.listCodexSessions,
 }));
 
@@ -326,17 +324,17 @@ describe("listVisibleCodexSessions", () => {
 
   it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
-    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
       {
         sessionId: "abc",
         threadName: "Visible title",
         updatedAt: 200,
-        cwd: null,
-        model: null,
-        source: null,
-        cliVersion: null,
-        lastMessagePreview: null,
-        transcriptPath: null,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "file preview",
+        transcriptPath: "/tmp/file.jsonl",
       },
     ]);
     codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([
@@ -355,7 +353,7 @@ describe("listVisibleCodexSessions", () => {
 
     const result = await listVisibleCodexSessions(10);
 
-    expect(codexSessionMocks.listCodexSessionIndexSummaries).toHaveBeenCalledWith({ limit: 50 });
+    expect(codexSessionMocks.listCodexSessions).toHaveBeenCalledWith({ limit: 50 });
     expect(result.sessions).toEqual([
       {
         sessionId: "abc",
@@ -375,7 +373,7 @@ describe("listVisibleCodexSessions", () => {
 
   it("keeps Codex index timing and preview metadata ahead of newer mirror timestamps", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
-    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
       {
         sessionId: "abc",
         threadName: "Visible title",
@@ -417,6 +415,39 @@ describe("listVisibleCodexSessions", () => {
         transcriptPath: "/tmp/file.jsonl",
       },
     ]);
+  });
+
+  it("hides empty threads that have no renderable transcript preview", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
+      {
+        sessionId: "empty",
+        threadName: "MC visibility test",
+        updatedAt: 300,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: null,
+        transcriptPath: "/tmp/empty.jsonl",
+      },
+      {
+        sessionId: "visible",
+        threadName: "Brainstorm Codex web interface",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "Visible preview",
+        transcriptPath: "/tmp/visible.jsonl",
+      },
+    ]);
+    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["visible"]);
   });
 });
 
