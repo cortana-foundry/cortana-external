@@ -181,6 +181,140 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.totalVisibleSessions).toBe(1);
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context"]);
   });
+
+  it("hides exec/cli-sourced threads to match the Codex desktop sidebar", () => {
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "vscode-one",
+          threadName: "Desktop thread",
+          updatedAt: 300,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.121.0",
+          lastMessagePreview: "visible",
+          transcriptPath: "/tmp/one.jsonl",
+        },
+        {
+          sessionId: "exec-one",
+          threadName: "testing from mission control",
+          updatedAt: 200,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: "gpt-5.4",
+          source: "exec",
+          cliVersion: "0.121.0",
+          lastMessagePreview: "ephemeral",
+          transcriptPath: "/tmp/two.jsonl",
+        },
+        {
+          sessionId: "cli-one",
+          threadName: "CLI repl",
+          updatedAt: 150,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: "gpt-5.4",
+          source: "cli",
+          cliVersion: "0.121.0",
+          lastMessagePreview: "terminal",
+          transcriptPath: "/tmp/three.jsonl",
+        },
+      ],
+      [
+        {
+          id: "vscode-one",
+          title: "Desktop thread",
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "vscode",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 300,
+        },
+        {
+          id: "exec-one",
+          title: "testing from mission control",
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "exec",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 200,
+        },
+        {
+          id: "cli-one",
+          title: "CLI repl",
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "cli",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 150,
+        },
+      ],
+      {
+        activeWorkspaceRoots: ["/Users/hd/Developer/cortana-external"],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["vscode-one"]);
+  });
+
+  it("includes exec-sourced threads when includeSessionIds contains their id", () => {
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "vscode-one",
+          threadName: "Desktop thread",
+          updatedAt: 300,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.121.0",
+          lastMessagePreview: "visible",
+          transcriptPath: "/tmp/one.jsonl",
+        },
+        {
+          sessionId: "exec-one",
+          threadName: "MC-created thread",
+          updatedAt: 200,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: "gpt-5.4",
+          source: "exec",
+          cliVersion: "0.121.0",
+          lastMessagePreview: "should be included",
+          transcriptPath: "/tmp/two.jsonl",
+        },
+      ],
+      [
+        {
+          id: "vscode-one",
+          title: "Desktop thread",
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "vscode",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 300,
+        },
+        {
+          id: "exec-one",
+          title: "MC-created thread",
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "exec",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 200,
+        },
+      ],
+      {
+        activeWorkspaceRoots: ["/Users/hd/Developer/cortana-external"],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd", includeSessionIds: new Set(["exec-one"]) },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["vscode-one", "exec-one"]);
+  });
 });
 
 describe("listVisibleCodexSessions", () => {

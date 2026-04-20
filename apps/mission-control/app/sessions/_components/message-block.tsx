@@ -6,6 +6,7 @@ import { MessageContent } from "@/components/message-content";
 import { cn } from "@/lib/utils";
 import { getProjectColor } from "./project-color";
 import { StatusDot } from "./status-dot";
+import { formatRelativeTimestamp } from "./stream-helpers";
 
 type MessageBlockVariant = "default" | "streaming" | "pending";
 type MessageRole = "user" | "assistant";
@@ -145,8 +146,18 @@ export function MessageBlock({
           className={cn(
             "min-w-0 text-sm leading-6 text-foreground",
             isStreaming && "streaming-caret",
+            !showHeader && "relative",
           )}
         >
+          {!showHeader && timestamp != null && (
+            <time
+              dateTime={new Date(timestamp).toISOString()}
+              title={new Date(timestamp).toLocaleString()}
+              className="pointer-events-none absolute right-3 top-1 text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {formatRelativeTimestamp(timestamp)}
+            </time>
+          )}
           <MessageContent content={text} />
         </div>
       </div>

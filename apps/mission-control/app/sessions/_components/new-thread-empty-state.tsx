@@ -51,10 +51,9 @@ export function NewThreadEmptyState({
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="What should Codex work on?"
-            rows={5}
             autoFocus
             aria-label="New Codex thread prompt"
-            className="min-h-[140px] resize-none border-0 bg-transparent px-4 pt-4 text-sm shadow-none focus-visible:ring-0"
+            className="field-sizing-content min-h-[140px] max-h-[30vh] resize-none overflow-y-auto border-0 bg-transparent px-4 pt-4 text-sm shadow-none focus-visible:ring-0"
           />
           <div className="flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
             <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">

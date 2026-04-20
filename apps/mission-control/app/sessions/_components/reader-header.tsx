@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Menu, MessageSquareText } from "lucide-react";
+import { ChevronDown, HelpCircle, Menu, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LiveRelativeTime } from "./live-relative-time";
@@ -17,6 +17,7 @@ type ReaderHeaderProps = {
   onOpenChange: (open: boolean) => void;
   onOpenInbox?: () => void;
   showInboxToggle?: boolean;
+  onOpenKeyboardHelp?: () => void;
   className?: string;
 };
 
@@ -30,6 +31,7 @@ export function ReaderHeader({
   onOpenChange,
   onOpenInbox,
   showInboxToggle = false,
+  onOpenKeyboardHelp,
   className,
 }: ReaderHeaderProps) {
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -93,6 +95,19 @@ export function ReaderHeader({
           aria-hidden="true"
         />
       </button>
+
+      {onOpenKeyboardHelp ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onOpenKeyboardHelp}
+          className="shrink-0"
+          aria-label="Open keyboard shortcuts help"
+        >
+          <HelpCircle className="h-4 w-4" />
+        </Button>
+      ) : null}
     </header>
   );
 }

@@ -13,7 +13,6 @@ type ReplyComposerProps = {
   pending: boolean;
   disabled?: boolean;
   error?: string | null;
-  rows?: number;
   onKeyboardRegister?: (el: HTMLTextAreaElement | null) => void;
   className?: string;
 };
@@ -25,7 +24,6 @@ export function ReplyComposer({
   pending,
   disabled = false,
   error,
-  rows = 3,
   onKeyboardRegister,
   className,
 }: ReplyComposerProps) {
@@ -71,8 +69,7 @@ export function ReplyComposer({
           onKeyDown={handleKeyDown}
           disabled={disabled || pending}
           placeholder={disabled ? "Pick a thread from the inbox before sending a reply" : "Continue the selected Codex session"}
-          rows={rows}
-          className="min-h-[72px] resize-none border-0 bg-transparent px-3 py-2 text-sm shadow-none focus-visible:ring-0"
+          className="field-sizing-content min-h-[72px] max-h-[30vh] resize-none overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm shadow-none focus-visible:ring-0"
           aria-label="Reply to Codex thread"
         />
         <div className="flex items-center justify-between gap-2 px-3 pb-2">

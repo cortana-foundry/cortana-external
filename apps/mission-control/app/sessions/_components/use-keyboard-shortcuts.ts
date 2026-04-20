@@ -8,6 +8,7 @@ type UseKeyboardShortcutsOptions = {
   onNextThread: () => void;
   onPrevThread: () => void;
   onOpenPalette?: () => void;
+  onOpenKeyboardHelp?: () => void;
 };
 
 function isEditable(target: EventTarget | null): boolean {
@@ -24,6 +25,7 @@ export function useKeyboardShortcuts({
   onNextThread,
   onPrevThread,
   onOpenPalette,
+  onOpenKeyboardHelp,
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
     if (!enabled) return;
@@ -59,10 +61,16 @@ export function useKeyboardShortcuts({
       if (event.key === "k") {
         event.preventDefault();
         onPrevThread();
+        return;
+      }
+
+      if (event.key === "?") {
+        event.preventDefault();
+        onOpenKeyboardHelp?.();
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [enabled, onFocusComposer, onNextThread, onPrevThread, onOpenPalette]);
+  }, [enabled, onFocusComposer, onNextThread, onPrevThread, onOpenPalette, onOpenKeyboardHelp]);
 }

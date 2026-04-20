@@ -119,4 +119,61 @@ describe("MessageBlock", () => {
     const buttons = screen.getAllByRole("button", { name: /copy message/i });
     expect(buttons.length).toBeGreaterThan(0);
   });
+
+  it("renders hover timestamp when showHeader=false and timestamp is non-null", () => {
+    const ts = Date.now();
+    const { container } = render(
+      <MessageBlock
+        role="assistant"
+        text="hello"
+        timestamp={ts}
+        rootPath={null}
+        showHeader={false}
+      />,
+    );
+    // Find the time element
+    const timeElement = container.querySelector("time");
+    expect(timeElement).toBeInTheDocument();
+    expect(timeElement).toHaveAttribute("dateTime");
+    // Check that it has the correct class for hover visibility
+    expect(timeElement).toHaveClass("opacity-0", "group-hover:opacity-100");
+  });
+
+  it("does not render hover timestamp when showHeader=false and timestamp is null", () => {
+    const { container } = render(
+      <MessageBlock
+        role="assistant"
+        text="hello"
+        timestamp={null}
+        rootPath={null}
+        showHeader={false}
+      />,
+    );
+    // Find the time element - should not exist
+    const timeElement = container.querySelector("time");
+    expect(timeElement).not.toBeInTheDocument();
+  });
+
+  it("does not render hover timestamp when showHeader=true (header already shows it)", () => {
+    const ts = Date.now();
+    const { container } = render(
+      <MessageBlock
+        role="assistant"
+        text="hello"
+        timestamp={ts}
+        rootPath={null}
+        showHeader={true}
+      />,
+    );
+    // With showHeader=true, we don't render the extra hover timestamp
+    // The main timestamp is in the header instead
+    const timeElements = container.querySelectorAll("time");
+    // Should not have the grouped-message hover time element
+    // (there might be other time elements from the header)
+    const hoverTimeElements = Array.from(timeElements).filter((el) =>
+      el.classList.contains("opacity-0"),
+    );
+    expect(hoverTimeElements.length).toBe(0);
+  });
 });
+

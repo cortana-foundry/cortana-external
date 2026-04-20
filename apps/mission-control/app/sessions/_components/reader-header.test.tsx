@@ -77,4 +77,35 @@ describe("ReaderHeader", () => {
     fireEvent.click(screen.getByRole("button", { name: /open thread inbox/i }));
     expect(onOpenInbox).toHaveBeenCalledTimes(1);
   });
+
+  it("shows keyboard help button when onOpenKeyboardHelp is provided", () => {
+    const onOpenKeyboardHelp = vi.fn();
+    render(
+      <ReaderHeader
+        title="t"
+        state="idle"
+        savedMessageCount={0}
+        updatedAt={null}
+        open={false}
+        onOpenChange={() => {}}
+        onOpenKeyboardHelp={onOpenKeyboardHelp}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open keyboard shortcuts help/i }));
+    expect(onOpenKeyboardHelp).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show keyboard help button when onOpenKeyboardHelp is not provided", () => {
+    render(
+      <ReaderHeader
+        title="t"
+        state="idle"
+        savedMessageCount={0}
+        updatedAt={null}
+        open={false}
+        onOpenChange={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /open keyboard shortcuts help/i })).not.toBeInTheDocument();
+  });
 });

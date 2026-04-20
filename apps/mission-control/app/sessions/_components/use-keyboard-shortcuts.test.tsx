@@ -8,6 +8,7 @@ type Props = {
   onNextThread?: () => void;
   onPrevThread?: () => void;
   onOpenPalette?: () => void;
+  onOpenKeyboardHelp?: () => void;
 };
 
 function Harness({
@@ -16,6 +17,7 @@ function Harness({
   onNextThread = () => {},
   onPrevThread = () => {},
   onOpenPalette = () => {},
+  onOpenKeyboardHelp = () => {},
 }: Props) {
   useKeyboardShortcuts({
     enabled,
@@ -23,6 +25,7 @@ function Harness({
     onNextThread,
     onPrevThread,
     onOpenPalette,
+    onOpenKeyboardHelp,
   });
   return <textarea data-testid="ta" />;
 }
@@ -89,5 +92,20 @@ describe("useKeyboardShortcuts", () => {
     render(<Harness onOpenPalette={spy} />);
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onOpenKeyboardHelp on '?'", () => {
+    const spy = vi.fn();
+    render(<Harness onOpenKeyboardHelp={spy} />);
+    fireEvent.keyDown(window, { key: "?" });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not invoke onOpenKeyboardHelp when focus is in a textarea", () => {
+    const spy = vi.fn();
+    const { getByTestId } = render(<Harness onOpenKeyboardHelp={spy} />);
+    (getByTestId("ta") as HTMLTextAreaElement).focus();
+    fireEvent.keyDown(window, { key: "?" });
+    expect(spy).not.toHaveBeenCalled();
   });
 });

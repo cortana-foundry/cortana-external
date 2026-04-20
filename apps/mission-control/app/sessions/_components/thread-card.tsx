@@ -17,6 +17,7 @@ type ThreadCardProps = {
   onSelect: () => void;
   unread?: boolean;
   duplicateIndex?: number;
+  showModelPill?: boolean;
 };
 
 export function ThreadCard({
@@ -27,6 +28,7 @@ export function ThreadCard({
   onSelect,
   unread = false,
   duplicateIndex,
+  showModelPill = true,
 }: ThreadCardProps) {
   const color = getProjectColor(rootPath ?? session.cwd ?? null);
   const compact = density === "compact";
@@ -51,7 +53,7 @@ export function ThreadCard({
         "group project-stripe w-full rounded-r-lg border-l-[3px] px-3 py-2.5 text-left transition-colors",
         "bg-transparent hover:bg-background/70",
         isActive
-          ? "bg-background shadow-sm ring-1 ring-border"
+          ? "bg-background shadow-sm ring-1 ring-primary/40"
           : "border border-transparent",
       )}
       style={
@@ -76,9 +78,14 @@ export function ThreadCard({
             ) : null}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-          {session.model ?? "unknown"}
-        </span>
+        {showModelPill ? (
+          <span
+            className="shrink-0 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+            data-testid="model-pill"
+          >
+            {session.model ?? "unknown"}
+          </span>
+        ) : null}
       </div>
 
       {!compact && session.lastMessagePreview ? (
@@ -87,10 +94,7 @@ export function ThreadCard({
         </p>
       ) : null}
 
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate" title={session.cwd ?? undefined}>
-          {session.cwd ?? "cwd unavailable"}
-        </span>
+      <div className="mt-1.5 flex items-center justify-end gap-2 text-[11px] text-muted-foreground">
         <LiveRelativeTime ts={session.updatedAt} className="shrink-0" />
       </div>
     </button>

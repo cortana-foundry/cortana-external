@@ -20,7 +20,7 @@ function makeSession(overrides: Partial<CodexSession> = {}): CodexSession {
 }
 
 describe("ThreadCard", () => {
-  it("renders the title, model, cwd, and preview by default", () => {
+  it("renders the title, model, and preview by default", () => {
     render(
       <ThreadCard
         session={makeSession()}
@@ -31,7 +31,6 @@ describe("ThreadCard", () => {
     );
     expect(screen.getByText("A thread")).toBeInTheDocument();
     expect(screen.getByText("gpt-5.4")).toBeInTheDocument();
-    expect(screen.getByText("/tmp/alpha")).toBeInTheDocument();
     expect(screen.getByText("a preview line")).toBeInTheDocument();
   });
 
@@ -130,5 +129,43 @@ describe("ThreadCard", () => {
     const suffixSpan = container.querySelector(".text-muted-foreground");
     expect(suffixSpan).toBeInTheDocument();
     expect(suffixSpan?.textContent).toContain("2");
+  });
+
+  it("does not render the cwd path", () => {
+    render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+      />,
+    );
+    expect(screen.queryByText("/tmp/alpha")).not.toBeInTheDocument();
+  });
+
+  it("hides the model pill when showModelPill is false", () => {
+    render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+        showModelPill={false}
+      />,
+    );
+    expect(screen.queryByTestId("model-pill")).not.toBeInTheDocument();
+  });
+
+  it("shows the model pill when showModelPill is true", () => {
+    render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+        showModelPill={true}
+      />,
+    );
+    expect(screen.getByTestId("model-pill")).toBeInTheDocument();
   });
 });

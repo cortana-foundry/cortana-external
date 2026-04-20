@@ -442,4 +442,66 @@ describe("Transcript", () => {
     assistantBlocks = screen.getAllByTestId("block-assistant");
     expect(userBlocks.length + assistantBlocks.length).toBe(30);
   });
+
+  it("restores scroll position from localStorage when session changes", () => {
+    // Setup: save a scroll position for session s1
+    const storageKey = "mc-session-scroll-s1";
+    window.localStorage.setItem(storageKey, JSON.stringify(500));
+
+    const detail1 = makeDetail();
+    detail1.sessionId = "s1";
+
+    const { rerender } = render(
+      <Transcript
+        detail={detail1}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    const viewport = screen.getByTestId("transcript-viewport") as HTMLDivElement;
+    expect(viewport.scrollTop).toBe(500);
+
+    // Change to a different session without saved position
+    const detail2 = makeDetail();
+    detail2.sessionId = "s2";
+
+    rerender(
+      <Transcript
+        detail={detail2}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    // Should scroll to bottom since no saved position for s2
+    expect(viewport.scrollTo).toHaveBeenCalled();
+  });
+
+  it("does not persist scroll position while streaming", () => {
+    const detail = makeDetail();
+    const viewport = render(
+      <Transcript
+        detail={detail}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={true}
+        rootPath={null}
+      />,
+    ).getByTestId("transcript-viewport") as HTMLDivElement;
+
+    Object.defineProperty(viewport, "scrollTop", { value: 100, configurable: true });
+    fireEvent.scroll(viewport);
+
+    // Scroll position should not be saved while streaming
+    const storageKey = `mc-session-scroll-${detail.sessionId}`;
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
 });

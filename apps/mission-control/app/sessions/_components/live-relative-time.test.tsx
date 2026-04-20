@@ -46,4 +46,20 @@ describe("LiveRelativeTime", () => {
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
+
+  it("renders absolute date when timestamp is 3 days old", () => {
+    const threeDAysAgo = NOW - 3 * 24 * 60 * 60 * 1000;
+    render(<LiveRelativeTime ts={threeDAysAgo} />);
+    // Should render "Nov <N>" format (3 days before Nov 17, 2023 is Nov 14)
+    const text = screen.getByText(/nov|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|dec/i).textContent;
+    expect(text).toMatch(/^[A-Za-z]+\s+\d{1,2}$/);
+  });
+
+  it("renders absolute date when timestamp is 1 year old", () => {
+    const oneYearAgo = NOW - 365 * 24 * 60 * 60 * 1000;
+    render(<LiveRelativeTime ts={oneYearAgo} />);
+    // Should render absolute date format
+    const text = screen.getByText(/nov|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|dec/i).textContent;
+    expect(text).toMatch(/^[A-Za-z]+\s+\d{1,2}$/);
+  });
 });

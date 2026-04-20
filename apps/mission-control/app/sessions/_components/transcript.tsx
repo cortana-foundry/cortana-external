@@ -7,6 +7,10 @@ import { MessageBlock } from "./message-block";
 import { shouldShowHeader } from "./message-grouping";
 import type { CodexSessionDetail, CodexSessionEvent, StreamingCodexEvent } from "./types";
 
+const SCROLL_POSITION_STORAGE_PREFIX = "mc-session-scroll-";
+const SCROLL_POSITION_METADATA_KEY = "mc-session-scroll-keys";
+const MAX_RETAINED_SCROLL_POSITIONS = 100;
+
 const SCROLLED_UP_THRESHOLD_PX = 160;
 const INITIAL_WINDOW_SIZE = 30;
 const WINDOW_INCREMENT = 30;
@@ -58,6 +62,52 @@ export function Transcript({
   const lastStreamedText = streamedAssistantEvents[streamedAssistantEvents.length - 1]?.text ?? "";
   const sessionId = detail?.sessionId ?? null;
 
+  // Scroll position persistence callbacks
+  const saveScrollPosition = useCallback((scrollTop: number) => {
+    if (typeof window === "undefined" || !sessionId || streaming) return;
+
+    try {
+      const key = `${SCROLL_POSITION_STORAGE_PREFIX}${sessionId}`;
+      window.localStorage.setItem(key, JSON.stringify(scrollTop));
+
+      // Track keys for potential LRU eviction
+      try {
+        const stored = window.localStorage.getItem(SCROLL_POSITION_METADATA_KEY);
+        const keys = stored ? (JSON.parse(stored) as string[]) : [];
+        if (!keys.includes(key)) {
+          const updated = [key, ...keys].slice(0, MAX_RETAINED_SCROLL_POSITIONS);
+          window.localStorage.setItem(SCROLL_POSITION_METADATA_KEY, JSON.stringify(updated));
+        }
+      } catch {
+        // Ignore metadata tracking errors
+      }
+    } catch {
+      // Silently fail on quota exceeded or other storage errors
+    }
+  }, [sessionId, streaming]);
+
+  const restoreScrollPosition = useCallback(() => {
+    if (typeof window === "undefined" || !sessionId) return;
+
+    try {
+      const key = `${SCROLL_POSITION_STORAGE_PREFIX}${sessionId}`;
+      const stored = window.localStorage.getItem(key);
+      if (stored) {
+        const scrollTop = JSON.parse(stored) as number;
+        if (typeof scrollTop === "number" && isFinite(scrollTop) && scrollTop >= 0) {
+          const viewport = viewportRef.current;
+          if (viewport) {
+            viewport.scrollTop = scrollTop;
+          }
+          return true;
+        }
+      }
+    } catch {
+      // Silently fail on invalid storage
+    }
+    return false;
+  }, [sessionId]);
+
   // Compute windowed events
   const totalEvents = detail?.events.length ?? 0;
   const windowedEvents = detail?.events.slice(Math.max(0, totalEvents - visibleCount)) ?? [];
@@ -73,6 +123,20 @@ export function Transcript({
       prevScrollHeightRef.current = null;
     }
   }, [sessionId]);
+
+  // Restore scroll position when session changes
+  useLayoutEffect(() => {
+    if (!sessionId) return;
+
+    // Try to restore saved scroll position
+    const restored = restoreScrollPosition();
+
+    // If no saved position or restore failed, scroll to bottom
+    if (!restored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- scroll-to-bottom during layout phase after session change
+      scrollToBottom("auto");
+    }
+  }, [sessionId, restoreScrollPosition, scrollToBottom]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -101,6 +165,9 @@ export function Transcript({
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    // Save scroll position (debounced via callback - will be called frequently but storage is fast)
+    saveScrollPosition(viewport.scrollTop);
+
     // Check if user has scrolled away from bottom
     const distance = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight);
     const scrolledUp = distance > SCROLLED_UP_THRESHOLD_PX;
@@ -119,7 +186,7 @@ export function Transcript({
       prevScrollHeightRef.current = viewport.scrollHeight;
       setVisibleCount((c) => Math.min(c + WINDOW_INCREMENT, totalEvents));
     }
-  }, [hasMoreAbove, loading, totalEvents]);
+  }, [hasMoreAbove, loading, totalEvents, saveScrollPosition]);
 
   return (
     <div

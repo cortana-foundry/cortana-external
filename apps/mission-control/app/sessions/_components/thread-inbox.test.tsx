@@ -208,4 +208,60 @@ describe("ThreadInbox", () => {
     fireEvent.click(clearButton);
     expect(onQueryChange).toHaveBeenCalledWith("");
   });
+
+  it("hides model pills when all threads have the same model", () => {
+    render(
+      <ThreadInbox
+        groups={[
+          makeGroup({
+            sessions: [
+              makeSession({
+                sessionId: "s1",
+                threadName: "Thread one",
+                model: "gpt-5.4",
+              }),
+              makeSession({
+                sessionId: "s2",
+                threadName: "Thread two",
+                model: "gpt-5.4",
+              }),
+            ],
+          }),
+        ]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+      />,
+    );
+    const pills = screen.queryAllByTestId("model-pill");
+    expect(pills.length).toBe(0);
+  });
+
+  it("shows model pills when threads have different models", () => {
+    render(
+      <ThreadInbox
+        groups={[
+          makeGroup({
+            sessions: [
+              makeSession({
+                sessionId: "s1",
+                threadName: "Thread one",
+                model: "gpt-5.4",
+              }),
+              makeSession({
+                sessionId: "s2",
+                threadName: "Thread two",
+                model: "claude-3-sonnet",
+              }),
+            ],
+          }),
+        ]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+      />,
+    );
+    const pills = screen.getAllByTestId("model-pill");
+    expect(pills.length).toBe(2);
+  });
 });

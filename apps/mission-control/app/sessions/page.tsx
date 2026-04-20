@@ -15,6 +15,7 @@ import { ThreadPalette } from "./_components/thread-palette";
 import { Transcript } from "./_components/transcript";
 import { useKeyboardShortcuts } from "./_components/use-keyboard-shortcuts";
 import { useMediaQuery } from "./_components/use-media-query";
+import { useMCCreatedSessions } from "./_components/use-mc-created-sessions";
 import { useThreadReadState } from "./_components/use-thread-read-state";
 import {
   getCodexSessionTitle,
@@ -76,9 +77,15 @@ export default function SessionsPage() {
   const prefersHover = useMediaQuery("(hover: hover)");
 
   const { isUnread, markSeen } = useThreadReadState();
+  const { ids: mcCreatedSessionIds, register: registerMCCreatedSession } = useMCCreatedSessions();
 
   async function fetchCodexSessions() {
-    const response = await fetch("/api/codex/sessions", { cache: "no-store" });
+    let url = "/api/codex/sessions";
+    if (mcCreatedSessionIds.length > 0) {
+      const includeIdsParam = mcCreatedSessionIds.join(",");
+      url += `?includeIds=${encodeURIComponent(includeIdsParam)}`;
+    }
+    const response = await fetch(url, { cache: "no-store" });
     const payload = (await response.json()) as CodexSessionsResponse;
 
     if (!response.ok) {
@@ -391,6 +398,7 @@ export default function SessionsPage() {
       await consumeCodexStream(
         response,
         async (session) => {
+          registerMCCreatedSession(session.sessionId);
           const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
           setProvisionalCodexSession(null);
           setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
@@ -676,7 +684,6 @@ export default function SessionsPage() {
                     pending={codexMutationPending === "reply"}
                     disabled={!selectedCodexSessionId}
                     error={codexMutationError}
-                    rows={isDesktop ? 3 : 2}
                     onKeyboardRegister={setReplyTextareaEl}
                   />
                 </div>

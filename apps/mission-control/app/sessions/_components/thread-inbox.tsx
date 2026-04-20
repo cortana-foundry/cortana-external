@@ -57,6 +57,13 @@ export function ThreadInbox({
     });
   });
 
+  // Compute whether models are uniform across visible sessions
+  const allModels = new Set<string>();
+  allVisibleSessions.forEach((s) => {
+    if (s.model) allModels.add(s.model);
+  });
+  const modelsAreUniform = allModels.size <= 1;
+
   // Compute duplicate indices: group by normalized name, sort by updatedAt desc, assign 1..N
   const duplicateIndex = new Map<string, number>();
   const titleGroups = new Map<string, typeof allVisibleSessions>();
@@ -144,6 +151,7 @@ export function ThreadInbox({
                 provisionalSession.sessionId && onSelectSession(provisionalSession.sessionId)
               }
               unread={isUnread?.(provisionalSession.sessionId, provisionalSession.updatedAt)}
+              showModelPill={!modelsAreUniform}
             />
           </section>
         ) : null}
@@ -175,6 +183,7 @@ export function ThreadInbox({
                   onSelect={() => onSelectSession(session.sessionId)}
                   duplicateIndex={duplicateIndex.get(session.sessionId)}
                   unread={isUnread?.(session.sessionId, session.updatedAt)}
+                  showModelPill={!modelsAreUniform}
                 />
               ))}
             </div>
