@@ -476,6 +476,27 @@ function mergeSessionEvents(
   });
 }
 
+function isSyntheticMirrorEventId(eventId: string) {
+  return /^\d+:(user|assistant)$/u.test(eventId);
+}
+
+function selectVisibleSessionEvents(
+  fileBackedEvents: FileCodexSessionEvent[],
+  mirroredEvents: CodexSessionEvent[],
+) {
+  const canonicalMirroredEvents = mirroredEvents.filter((event) => !isSyntheticMirrorEventId(event.id));
+
+  if (canonicalMirroredEvents.length > 0) {
+    return mergeSessionEvents(fileBackedEvents, canonicalMirroredEvents);
+  }
+
+  if (fileBackedEvents.length > 0) {
+    return fileBackedEvents;
+  }
+
+  return mirroredEvents;
+}
+
 export async function listVisibleCodexSessions(
   limit = 20,
   options: {
@@ -542,14 +563,14 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
   }
 
   const summary = mergeSessionSummary(fileBacked, mirrored) ?? mirrored;
-  const events = mergeSessionEvents(fileBacked.events, mirrored.events);
+  const events = selectVisibleSessionEvents(fileBacked.events, mirrored.events);
 
   const detail = {
     ...summary,
     events,
   };
 
-  await syncCodexMirrorThreadFromSession(detail);
+  await syncCodexMirrorThreadFromSession(summary);
   return detail;
 }
 

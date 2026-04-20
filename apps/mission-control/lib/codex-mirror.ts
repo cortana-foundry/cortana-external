@@ -971,42 +971,4 @@ export async function syncCodexMirrorThreadFromSession(
     lifecycleState: options.lifecycleState,
     lastReconciledAt: options.lastReconciledAt,
   });
-
-  if (!("events" in session)) {
-    return;
-  }
-
-  for (const event of session.events) {
-    const messageId = event.id || `${session.sessionId}:${event.role}:${event.timestamp ?? Date.now()}`;
-    const sql = `
-      INSERT INTO mc_codex_messages (
-        id,
-        thread_id,
-        role,
-        message_type,
-        phase,
-        content,
-        created_at,
-        updated_at,
-        completed_at
-      )
-      VALUES (
-        '${escapeLiteral(messageId)}',
-        '${escapeLiteral(session.sessionId)}',
-        '${escapeLiteral(event.role)}',
-        '${escapeLiteral(event.rawType)}',
-        ${toSqlString(event.phase)},
-        ${toSqlString(event.text)},
-        COALESCE(${toSqlTimestamp(event.timestamp ? new Date(event.timestamp) : null)}, CURRENT_TIMESTAMP),
-        COALESCE(${toSqlTimestamp(event.timestamp ? new Date(event.timestamp) : null)}, CURRENT_TIMESTAMP),
-        COALESCE(${toSqlTimestamp(event.timestamp ? new Date(event.timestamp) : null)}, CURRENT_TIMESTAMP)
-      )
-      ON CONFLICT (id) DO UPDATE SET
-        phase = COALESCE(EXCLUDED.phase, mc_codex_messages.phase),
-        content = EXCLUDED.content,
-        updated_at = EXCLUDED.updated_at,
-        completed_at = EXCLUDED.completed_at
-    `;
-    await safeQuery(() => prisma.$executeRawUnsafe(sql), 0);
-  }
 }

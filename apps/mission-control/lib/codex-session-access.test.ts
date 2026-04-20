@@ -465,6 +465,142 @@ describe("getVisibleCodexSessionDetail", () => {
         },
       ],
     });
-    expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(session);
+    expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith({
+      sessionId: "abc",
+      threadName: "Mirror title",
+      updatedAt: 200,
+      cwd: "/tmp/workspace",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "mirror preview",
+      transcriptPath: "/tmp/mirror.jsonl",
+    });
+  });
+
+  it("prefers file-backed events when mirrored rows only contain synthetic backfill ids", async () => {
+    codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("active");
+    codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "Mirror title",
+      updatedAt: 200,
+      cwd: "/tmp/workspace",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "mirror preview",
+      transcriptPath: "/tmp/mirror.jsonl",
+      events: [
+        {
+          id: "0:user",
+          role: "user",
+          text: "Hi",
+          timestamp: 100,
+          phase: null,
+          rawType: "user_message",
+        },
+      ],
+    });
+    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "File title",
+      updatedAt: 150,
+      cwd: "/tmp/workspace",
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: "file preview",
+      transcriptPath: "/tmp/file.jsonl",
+      events: [
+        {
+          id: "user-1",
+          role: "user",
+          text: "Hi from file",
+          timestamp: 100,
+          phase: null,
+          rawType: "user_message",
+        },
+      ],
+    });
+
+    const session = await getVisibleCodexSessionDetail("abc");
+
+    expect(session?.events).toEqual([
+      {
+        id: "user-1",
+        role: "user",
+        text: "Hi from file",
+        timestamp: 100,
+        phase: null,
+        rawType: "user_message",
+      },
+    ]);
+  });
+
+  it("merges canonical mirrored events with file-backed history", async () => {
+    codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("active");
+    codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "Mirror title",
+      updatedAt: 200,
+      cwd: "/tmp/workspace",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "mirror preview",
+      transcriptPath: "/tmp/mirror.jsonl",
+      events: [
+        {
+          id: "assistant-item-1",
+          role: "assistant",
+          text: "Canonical hello",
+          timestamp: 200,
+          phase: "final_answer",
+          rawType: "agent_message",
+        },
+      ],
+    });
+    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "File title",
+      updatedAt: 150,
+      cwd: "/tmp/workspace",
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: "file preview",
+      transcriptPath: "/tmp/file.jsonl",
+      events: [
+        {
+          id: "0:user",
+          role: "user",
+          text: "Historical prompt",
+          timestamp: 100,
+          phase: null,
+          rawType: "user_message",
+        },
+      ],
+    });
+
+    const session = await getVisibleCodexSessionDetail("abc");
+
+    expect(session?.events).toEqual([
+      {
+        id: "0:user",
+        role: "user",
+        text: "Historical prompt",
+        timestamp: 100,
+        phase: null,
+        rawType: "user_message",
+      },
+      {
+        id: "assistant-item-1",
+        role: "assistant",
+        text: "Canonical hello",
+        timestamp: 200,
+        phase: "final_answer",
+        rawType: "agent_message",
+      },
+    ]);
   });
 });
