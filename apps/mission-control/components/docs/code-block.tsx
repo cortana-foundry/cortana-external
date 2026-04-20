@@ -66,9 +66,16 @@ function HighlightedBlock({ code, language }: CodeBlockProps) {
     return () => { cancelled = true; };
   }, [code, language]);
 
+  const displayLang = language ? language.toLowerCase() : "text";
+
   return (
     <div className="not-prose docs-code-block">
-      <CopyButton text={code} />
+      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {displayLang}
+        </span>
+        <CopyButton text={code} />
+      </div>
       {html ? (
         <div dangerouslySetInnerHTML={{ __html: html }} />
       ) : (

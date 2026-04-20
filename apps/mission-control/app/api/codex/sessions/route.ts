@@ -31,6 +31,15 @@ function parseLimit(value: string | null): number {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const limit = parseLimit(searchParams.get("limit"));
+  const includeIdsParam = searchParams.get("includeIds");
+  const includeIds = includeIdsParam
+    ? new Set(
+        includeIdsParam
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      )
+    : undefined;
 
   try {
     const unindexedSessions = await listUnindexedCodexSessions({ limit });
@@ -38,7 +47,7 @@ export async function GET(request: Request) {
       unindexedSessions.map((session) => backfillCodexThreadName(session.sessionId, session.threadName)),
     );
 
-    const result = await listVisibleCodexSessions(limit);
+    const result = await listVisibleCodexSessions(limit, { includeSessionIds: includeIds });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load Codex sessions";

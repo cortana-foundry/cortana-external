@@ -95,7 +95,7 @@ describe("GET /api/codex/sessions", () => {
     const payload = await response.json();
 
     expect(codexMocks.listUnindexedCodexSessions).toHaveBeenCalledWith({ limit: 20 });
-    expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(20);
+    expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(20, {});
     expect(response.status).toBe(200);
     expect(payload.sessions).toHaveLength(1);
     expect(payload.sessions[0]).toMatchObject({
@@ -120,7 +120,7 @@ describe("GET /api/codex/sessions", () => {
     const response = await GET(makeRequest("?limit=5"));
 
     expect(response.status).toBe(200);
-    expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(5);
+    expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(5, {});
   });
 
   it("returns an error payload when discovery fails", async () => {
