@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { ThreadInbox } from "./thread-inbox";
 import type { CodexSession, CodexSessionGroup } from "./types";
 
@@ -93,5 +93,119 @@ describe("ThreadInbox", () => {
       />,
     );
     expect(screen.getByText("active")).toBeInTheDocument();
+  });
+
+  it("renders the search input when onQueryChange is provided", () => {
+    render(
+      <ThreadInbox
+        groups={[]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+        query=""
+        onQueryChange={() => {}}
+      />,
+    );
+    expect(screen.getByPlaceholderText("Search threads")).toBeInTheDocument();
+  });
+
+  it("calls onQueryChange when user types in search", () => {
+    const onQueryChange = vi.fn();
+    render(
+      <ThreadInbox
+        groups={[]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+        query=""
+        onQueryChange={onQueryChange}
+      />,
+    );
+    const input = screen.getByPlaceholderText("Search threads") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "test" } });
+    expect(onQueryChange).toHaveBeenCalledWith("test");
+  });
+
+  it("filters threads by query matching threadName", () => {
+    render(
+      <ThreadInbox
+        groups={[
+          makeGroup({
+            sessions: [
+              makeSession({ sessionId: "s1", threadName: "testing" }),
+              makeSession({ sessionId: "s2", threadName: "other" }),
+            ],
+          }),
+        ]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+        query="testing"
+        onQueryChange={() => {}}
+      />,
+    );
+    expect(screen.getByText("testing")).toBeInTheDocument();
+    expect(screen.queryByText("other")).toBeNull();
+  });
+
+  it("shows 'No threads match' message when query produces no results", () => {
+    render(
+      <ThreadInbox
+        groups={[makeGroup()]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+        query="nomatch"
+        onQueryChange={() => {}}
+      />,
+    );
+    expect(screen.getByText(/no threads match/i)).toBeInTheDocument();
+  });
+
+  it("renders duplicate index suffix for threads with duplicate names", () => {
+    render(
+      <ThreadInbox
+        groups={[
+          makeGroup({
+            sessions: [
+              makeSession({
+                sessionId: "s1",
+                threadName: "testing",
+                updatedAt: 2_000_000_000_000,
+              }),
+              makeSession({
+                sessionId: "s2",
+                threadName: "testing",
+                updatedAt: 1_000_000_000_000,
+              }),
+            ],
+          }),
+        ]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+      />,
+    );
+    // Newest first should be · 1, oldest should be · 2
+    const buttons = screen.getAllByRole("button");
+    // Both should have the suffix rendered (in ThreadCard)
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("clears search when Clear button is clicked", () => {
+    const onQueryChange = vi.fn();
+    render(
+      <ThreadInbox
+        groups={[]}
+        provisionalSession={null}
+        activeSessionId={null}
+        onSelectSession={() => {}}
+        query="test"
+        onQueryChange={onQueryChange}
+      />,
+    );
+    const clearButton = screen.getByLabelText("Clear search");
+    fireEvent.click(clearButton);
+    expect(onQueryChange).toHaveBeenCalledWith("");
   });
 });

@@ -4,7 +4,9 @@ import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "@/components/docs/code-block";
+import { DirectiveChip } from "@/components/directive-chip";
 import { cn } from "@/lib/utils";
+import { parseCodexDirectives } from "@/lib/codex-directives";
 
 type MessageContentProps = {
   content: string;
@@ -40,6 +42,8 @@ const markdownComponents = {
 };
 
 export function MessageContent({ content, className }: MessageContentProps) {
+  const segments = parseCodexDirectives(content);
+
   return (
     <div
       className={cn(
@@ -51,9 +55,19 @@ export function MessageContent({ content, className }: MessageContentProps) {
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {content}
-      </ReactMarkdown>
+      {segments.map((segment, idx) =>
+        segment.kind === "text" ? (
+          <React.Fragment key={idx}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {segment.text}
+            </ReactMarkdown>
+          </React.Fragment>
+        ) : (
+          <span key={idx} className="inline">
+            <DirectiveChip directive={segment.directive} />
+          </span>
+        )
+      )}
     </div>
   );
 }

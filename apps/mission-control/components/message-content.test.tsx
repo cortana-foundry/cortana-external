@@ -9,6 +9,12 @@ vi.mock("@/components/docs/code-block", () => ({
   ),
 }));
 
+vi.mock("@/components/directive-chip", () => ({
+  DirectiveChip: ({ directive }: { directive: { name: string; attrs: Record<string, string> } }) => (
+    <span data-testid={`directive-chip-${directive.name}`}>{directive.name}</span>
+  ),
+}));
+
 import { MessageContent } from "./message-content";
 
 describe("MessageContent", () => {
@@ -41,5 +47,19 @@ describe("MessageContent", () => {
     const link = screen.getByRole("link", { name: "link" });
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("renders a directive chip inline when text contains ::git-stage{...}", () => {
+    render(<MessageContent content={'Check this: ::git-stage{cwd="/a"} now'} />);
+    expect(screen.getByTestId("directive-chip-git-stage")).toBeInTheDocument();
+    expect(screen.getByText("Check this:")).toBeInTheDocument();
+    expect(screen.getByText("now")).toBeInTheDocument();
+  });
+
+  it("leaves non-directive markdown untouched", () => {
+    render(<MessageContent content={"# Title\n\nSome text with **bold** and `code`"} />);
+    expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument();
+    expect(screen.getByText("bold")).toBeInTheDocument();
+    expect(screen.getByText("code")).toBeInTheDocument();
   });
 });

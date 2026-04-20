@@ -87,4 +87,48 @@ describe("ThreadCard", () => {
     const expected = getProjectColor("/tmp/alpha").stripe;
     expect(button.getAttribute("style")).toContain(expected);
   });
+
+  it("renders an unread dot when unread=true", () => {
+    render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+        unread={true}
+      />,
+    );
+    expect(screen.getByTestId("unread-dot")).toBeInTheDocument();
+  });
+
+  it("does not render unread dot when unread=false", () => {
+    render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+        unread={false}
+      />,
+    );
+    expect(screen.queryByTestId("unread-dot")).toBeNull();
+  });
+
+  it("renders duplicate index suffix when provided", () => {
+    const { container } = render(
+      <ThreadCard
+        session={makeSession()}
+        rootPath="/tmp/alpha"
+        isActive={false}
+        onSelect={() => {}}
+        duplicateIndex={2}
+      />,
+    );
+    // Check that the title is rendered
+    expect(screen.getByText("A thread")).toBeInTheDocument();
+    // Check that the suffix span with the duplicate index is rendered
+    const suffixSpan = container.querySelector(".text-muted-foreground");
+    expect(suffixSpan).toBeInTheDocument();
+    expect(suffixSpan?.textContent).toContain("2");
+  });
 });

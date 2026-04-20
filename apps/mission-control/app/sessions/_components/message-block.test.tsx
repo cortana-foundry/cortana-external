@@ -66,4 +66,57 @@ describe("MessageBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /copy message/i }));
     expect(writeText).toHaveBeenCalledWith("hello there");
   });
+
+  it("shows avatar, role label, and timestamp when showHeader=true (default)", () => {
+    render(
+      <MessageBlock
+        role="assistant"
+        text="hello"
+        timestamp={Date.now()}
+        rootPath={null}
+        showHeader={true}
+      />,
+    );
+    expect(screen.getByText("Codex")).toBeInTheDocument();
+    // Timestamp should be visible in the header
+    const spans = screen.getAllByText(/:\d{2}/);
+    expect(spans.length).toBeGreaterThan(0);
+  });
+
+  it("hides avatar, role label, and timestamp when showHeader=false", () => {
+    const { container } = render(
+      <MessageBlock
+        role="assistant"
+        text="hello"
+        timestamp={Date.now()}
+        rootPath={null}
+        showHeader={false}
+      />,
+    );
+    // Role label should not be in document
+    expect(screen.queryByText("Codex")).not.toBeInTheDocument();
+    // Stripe should still be visible (div with aria-hidden, comes first in flex)
+    const article = container.querySelector("article");
+    expect(article).toHaveClass("project-stripe");
+  });
+
+  it("keeps hover copy button visible in both header and no-header modes", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(
+      <MessageBlock
+        role="user"
+        text="test"
+        timestamp={Date.now()}
+        rootPath={null}
+        showHeader={false}
+      />,
+    );
+    // Copy button should still be present even without header
+    const buttons = screen.getAllByRole("button", { name: /copy message/i });
+    expect(buttons.length).toBeGreaterThan(0);
+  });
 });

@@ -16,6 +16,7 @@ type MessageBlockProps = {
   timestamp: number | null;
   rootPath: string | null | undefined;
   variant?: MessageBlockVariant;
+  showHeader?: boolean;
   className?: string;
 };
 
@@ -43,6 +44,7 @@ export function MessageBlock({
   timestamp,
   rootPath,
   variant = "default",
+  showHeader = true,
   className,
 }: MessageBlockProps) {
   const color = getProjectColor(rootPath ?? null);
@@ -65,7 +67,8 @@ export function MessageBlock({
       data-role={role}
       data-variant={variant}
       className={cn(
-        "group project-stripe relative flex gap-3 rounded-r-lg border-l-[3px] px-3 py-3 transition-colors sm:gap-4 sm:px-5 sm:py-4",
+        "group project-stripe relative flex gap-3 rounded-r-lg border-l-[3px] px-3 transition-colors sm:gap-4 sm:px-5",
+        showHeader ? "py-3 sm:py-4" : "py-1 sm:py-2",
         isPending && "opacity-70",
         className,
       )}
@@ -76,47 +79,67 @@ export function MessageBlock({
         } as React.CSSProperties
       }
     >
-      <div
-        className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground sm:h-7 sm:w-7",
-        )}
-        aria-hidden="true"
-      >
-        {isAssistant ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
-      </div>
+      {showHeader ? (
+        <div
+          className={cn(
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground sm:h-7 sm:w-7",
+          )}
+          aria-hidden="true"
+        >
+          {isAssistant ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+        </div>
+      ) : (
+        <div className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" aria-hidden="true" />
+      )}
 
       <div className="min-w-0 flex-1 space-y-1">
-        <header className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">{isAssistant ? "Codex" : "You"}</span>
+        {showHeader ? (
+          <header className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{isAssistant ? "Codex" : "You"}</span>
 
-          {isStreaming ? (
-            <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.18em]">
-              <StatusDot state="streaming" aria-label="Streaming" />
-              streaming
+            {isStreaming ? (
+              <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.18em]">
+                <StatusDot state="streaming" aria-label="Streaming" />
+                streaming
+              </span>
+            ) : null}
+
+            {isPending ? (
+              <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                queued
+              </span>
+            ) : null}
+
+            <span
+              className="ml-auto flex items-center gap-2 text-[11px] opacity-60 transition-opacity group-hover:opacity-100 hover-none:opacity-60"
+              title={formatFullTimestamp(timestamp)}
+            >
+              <span>{formatExactTimestamp(timestamp)}</span>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="inline-flex h-5 w-5 items-center justify-center rounded border border-border/60 bg-background text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 hover-none:opacity-60"
+                aria-label={copied ? "Copied" : "Copy message"}
+              >
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
             </span>
-          ) : null}
-
-          {isPending ? (
-            <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              queued
-            </span>
-          ) : null}
-
-          <span
-            className="ml-auto flex items-center gap-2 text-[11px] opacity-60 transition-opacity group-hover:opacity-100 hover-none:opacity-60"
+          </header>
+        ) : (
+          <div
+            className="flex items-center gap-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-0"
             title={formatFullTimestamp(timestamp)}
           >
-            <span>{formatExactTimestamp(timestamp)}</span>
             <button
               type="button"
               onClick={handleCopy}
-              className="inline-flex h-5 w-5 items-center justify-center rounded border border-border/60 bg-background text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 hover-none:opacity-60"
+              className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
               aria-label={copied ? "Copied" : "Copy message"}
             >
               {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </button>
-          </span>
-        </header>
+          </div>
+        )}
 
         <div
           className={cn(

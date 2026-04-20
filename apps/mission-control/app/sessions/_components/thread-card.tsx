@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { LiveRelativeTime } from "./live-relative-time";
 import { getProjectColor } from "./project-color";
@@ -14,6 +15,8 @@ type ThreadCardProps = {
   isActive: boolean;
   density?: ThreadCardDensity;
   onSelect: () => void;
+  unread?: boolean;
+  duplicateIndex?: number;
 };
 
 export function ThreadCard({
@@ -22,12 +25,24 @@ export function ThreadCard({
   isActive,
   density = "comfortable",
   onSelect,
+  unread = false,
+  duplicateIndex,
 }: ThreadCardProps) {
   const color = getProjectColor(rootPath ?? session.cwd ?? null);
   const compact = density === "compact";
+  const cardRef = useRef<HTMLButtonElement | null>(null);
+  const wasActiveRef = useRef(isActive);
+
+  useEffect(() => {
+    if (isActive && !wasActiveRef.current) {
+      cardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    wasActiveRef.current = isActive;
+  }, [isActive]);
 
   return (
     <button
+      ref={cardRef}
       type="button"
       onClick={onSelect}
       data-active={isActive ? "true" : "false"}
@@ -47,9 +62,20 @@ export function ThreadCard({
       }
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {getCodexSessionTitle(session)}
-        </p>
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          {unread ? (
+            <span
+              className="shrink-0 inline-block h-1.5 w-1.5 rounded-full bg-primary"
+              data-testid="unread-dot"
+            />
+          ) : null}
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+            {getCodexSessionTitle(session)}
+            {duplicateIndex !== undefined ? (
+              <span className="text-muted-foreground"> · {duplicateIndex}</span>
+            ) : null}
+          </p>
+        </div>
         <span className="shrink-0 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
           {session.model ?? "unknown"}
         </span>

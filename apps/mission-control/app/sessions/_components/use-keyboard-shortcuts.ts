@@ -7,6 +7,7 @@ type UseKeyboardShortcutsOptions = {
   onFocusComposer: () => void;
   onNextThread: () => void;
   onPrevThread: () => void;
+  onOpenPalette?: () => void;
 };
 
 function isEditable(target: EventTarget | null): boolean {
@@ -22,12 +23,22 @@ export function useKeyboardShortcuts({
   onFocusComposer,
   onNextThread,
   onPrevThread,
+  onOpenPalette,
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
     if (!enabled) return;
 
     const handler = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+
+      // ⌘K / Ctrl+K should work globally (even in inputs)
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        onOpenPalette?.();
+        return;
+      }
+
+      // Other shortcuts don't work when in edit mode or with other modifiers
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       const active = document.activeElement;
@@ -53,5 +64,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [enabled, onFocusComposer, onNextThread, onPrevThread]);
+  }, [enabled, onFocusComposer, onNextThread, onPrevThread, onOpenPalette]);
 }

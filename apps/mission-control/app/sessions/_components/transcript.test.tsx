@@ -6,12 +6,18 @@ vi.mock("./message-block", () => ({
     role,
     text,
     variant,
+    showHeader,
   }: {
     role: string;
     text: string;
     variant?: string;
+    showHeader?: boolean;
   }) => (
-    <div data-testid={`block-${role}`} data-variant={variant ?? "default"}>
+    <div
+      data-testid={`block-${role}`}
+      data-variant={variant ?? "default"}
+      data-show-header={showHeader ?? true}
+    >
       {text}
     </div>
   ),
@@ -156,5 +162,284 @@ describe("Transcript", () => {
     Object.defineProperty(viewport, "scrollTop", { value: 0, configurable: true });
     fireEvent.scroll(viewport);
     expect(screen.getByRole("button", { name: /jump to latest/i })).toBeInTheDocument();
+  });
+
+  it("renders only the last 30 messages when events exceed the window", () => {
+    const events = Array.from({ length: 100 }, (_, i) => ({
+      id: `e${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    const userBlocks = screen.getAllByTestId("block-user");
+    const assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(30);
+  });
+
+  it("shows load older button when there are hidden messages", () => {
+    const events = Array.from({ length: 100 }, (_, i) => ({
+      id: `e${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    const button = screen.getByTestId("load-older-button");
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveTextContent("Load 30 older");
+  });
+
+  it("clicking load older renders additional 30 messages", () => {
+    const events = Array.from({ length: 100 }, (_, i) => ({
+      id: `e${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    let userBlocks = screen.getAllByTestId("block-user");
+    let assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(30);
+
+    const button = screen.getByTestId("load-older-button");
+    fireEvent.click(button);
+
+    userBlocks = screen.getAllByTestId("block-user");
+    assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(60);
+  });
+
+  it("hides the load older button when all messages fit in the window", () => {
+    const events = Array.from({ length: 10 }, (_, i) => ({
+      id: `e${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    const button = screen.queryByTestId("load-older-button");
+    expect(button).not.toBeInTheDocument();
+  });
+
+  it("renders consecutive same-role events within 2 min with showHeader=false on second", () => {
+    const now = Date.now();
+    const twoMinInMs = 2 * 60 * 1000;
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events: [
+            {
+              id: "e1",
+              role: "assistant",
+              text: "first",
+              timestamp: now,
+              phase: null,
+              rawType: "agent_message",
+            },
+            {
+              id: "e2",
+              role: "assistant",
+              text: "second",
+              timestamp: now + twoMinInMs - 10000, // within 2 min
+              phase: null,
+              rawType: "agent_message",
+            },
+          ],
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+    const blocks = screen.getAllByTestId("block-assistant");
+    expect(blocks[0]).toHaveAttribute("data-show-header", "true");
+    expect(blocks[1]).toHaveAttribute("data-show-header", "false");
+  });
+
+  it("resets window size when selected session changes", () => {
+    const events1 = Array.from({ length: 100 }, (_, i) => ({
+      id: `e1_${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    const events2 = Array.from({ length: 100 }, (_, i) => ({
+      id: `e2_${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message ${i}`,
+      timestamp: i,
+      phase: null,
+      rawType: "message" as const,
+    }));
+
+    const { rerender } = render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events: events1,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    let userBlocks = screen.getAllByTestId("block-user");
+    let assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(30);
+
+    const button = screen.getByTestId("load-older-button");
+    fireEvent.click(button);
+
+    userBlocks = screen.getAllByTestId("block-user");
+    assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(60);
+
+    rerender(
+      <Transcript
+        detail={{
+          sessionId: "s2",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events: events2,
+        }}
+        pendingUserEvent={null}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    userBlocks = screen.getAllByTestId("block-user");
+    assistantBlocks = screen.getAllByTestId("block-assistant");
+    expect(userBlocks.length + assistantBlocks.length).toBe(30);
   });
 });

@@ -7,6 +7,7 @@ type Props = {
   onFocusComposer?: () => void;
   onNextThread?: () => void;
   onPrevThread?: () => void;
+  onOpenPalette?: () => void;
 };
 
 function Harness({
@@ -14,12 +15,14 @@ function Harness({
   onFocusComposer = () => {},
   onNextThread = () => {},
   onPrevThread = () => {},
+  onOpenPalette = () => {},
 }: Props) {
   useKeyboardShortcuts({
     enabled,
     onFocusComposer,
     onNextThread,
     onPrevThread,
+    onOpenPalette,
   });
   return <textarea data-testid="ta" />;
 }
@@ -57,7 +60,7 @@ describe("useKeyboardShortcuts", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("ignores modifier-prefixed shortcuts", () => {
+  it("ignores modifier-prefixed shortcuts (except ⌘K)", () => {
     const spy = vi.fn();
     render(<Harness onFocusComposer={spy} />);
     fireEvent.keyDown(window, { key: "/", metaKey: true });
@@ -70,5 +73,21 @@ describe("useKeyboardShortcuts", () => {
     unmount();
     fireEvent.keyDown(window, { key: "/" });
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("invokes onOpenPalette on ⌘K even when focus is in textarea", () => {
+    const spy = vi.fn();
+    const { getByTestId } = render(<Harness onOpenPalette={spy} />);
+    const textarea = getByTestId("ta") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onOpenPalette on Ctrl+K", () => {
+    const spy = vi.fn();
+    render(<Harness onOpenPalette={spy} />);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

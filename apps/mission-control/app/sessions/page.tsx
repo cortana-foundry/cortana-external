@@ -11,9 +11,11 @@ import { ReplyComposer } from "./_components/reply-composer";
 import { SessionHeader } from "./_components/session-header";
 import { StatusStrip } from "./_components/status-strip";
 import { ThreadInbox } from "./_components/thread-inbox";
+import { ThreadPalette } from "./_components/thread-palette";
 import { Transcript } from "./_components/transcript";
 import { useKeyboardShortcuts } from "./_components/use-keyboard-shortcuts";
 import { useMediaQuery } from "./_components/use-media-query";
+import { useThreadReadState } from "./_components/use-thread-read-state";
 import {
   getCodexSessionTitle,
   getCodexStreamError,
@@ -67,9 +69,13 @@ export default function SessionsPage() {
   const [replyTextareaEl, setReplyTextareaEl] = useState<HTMLTextAreaElement | null>(null);
   const [mobileInboxOpen, setMobileInboxOpen] = useState(false);
   const [composingNew, setComposingNew] = useState(false);
+  const [threadQuery, setThreadQuery] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const isDesktop = useMediaQuery("(min-width: 988px)");
   const prefersHover = useMediaQuery("(hover: hover)");
+
+  const { isUnread, markSeen } = useThreadReadState();
 
   async function fetchCodexSessions() {
     const response = await fetch("/api/codex/sessions", { cache: "no-store" });
@@ -505,6 +511,7 @@ export default function SessionsPage() {
     onFocusComposer: focusComposer,
     onNextThread: () => advanceThread(1),
     onPrevThread: () => advanceThread(-1),
+    onOpenPalette: () => setPaletteOpen(true),
   });
 
   const workspacePath = codexSessionGroups[0]?.rootPath ?? "Local Codex workspace";
@@ -538,8 +545,9 @@ export default function SessionsPage() {
       if (!isDesktop) {
         setMobileInboxOpen(false);
       }
+      markSeen(sessionId);
     },
-    [isDesktop],
+    [isDesktop, markSeen],
   );
 
   const handleStartNewThread = useCallback(() => {
@@ -614,6 +622,9 @@ export default function SessionsPage() {
                 onSelectSession={handleSelectSession}
                 density="comfortable"
                 error={null}
+                query={threadQuery}
+                onQueryChange={setThreadQuery}
+                isUnread={isUnread}
               />
             </aside>
           ) : null}
@@ -710,12 +721,20 @@ export default function SessionsPage() {
                   onSelectSession={handleSelectSession}
                   density="compact"
                   error={null}
+                  isUnread={isUnread}
                 />
               </div>
             </div>
           ) : null}
         </div>
       )}
+
+      <ThreadPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        groups={codexSessionGroups}
+        onSelectSession={handleSelectSession}
+      />
     </div>
   );
 }
