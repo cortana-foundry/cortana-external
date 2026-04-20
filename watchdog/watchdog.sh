@@ -35,6 +35,7 @@ GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_LABEL="${OPENCLAW_LAUNCHD_LABEL:-ai.openclaw.gateway}"
 CORTANA_SOURCE_REPO="${CORTANA_SOURCE_REPO:-/Users/hd/Developer/cortana}"
 TELEGRAM_USAGE_HANDLER_PATH="${TELEGRAM_USAGE_HANDLER_PATH:-$CORTANA_SOURCE_REPO/skills/telegram-usage/handler.ts}"
+HEARTBEAT_HEALTH_CHECK_PATH="${HEARTBEAT_HEALTH_CHECK_PATH:-$CORTANA_SOURCE_REPO/tools/heartbeat/check-heartbeat-health.ts}"
 DEFAULT_REPO_HEARTBEAT_STATE_FILE="$CORTANA_SOURCE_REPO/memory/heartbeat-state.json"
 LEGACY_HEARTBEAT_STATE_FILE="$HOME/.openclaw/memory/heartbeat-state.json"
 HEARTBEAT_STATE_FILE="${HEARTBEAT_STATE_FILE:-$DEFAULT_REPO_HEARTBEAT_STATE_FILE}"
@@ -341,6 +342,27 @@ get_heartbeat_state_age_seconds() {
     [ts(.lastHeartbeat), max_check] | max as $last |
     if $last > 0 and $now >= $last then (($now - $last) / 1000 | floor) else empty end
   ' "$HEARTBEAT_STATE_FILE" 2>/dev/null || echo ""
+}
+
+probe_heartbeat_state_health() {
+  [[ -f "$HEARTBEAT_HEALTH_CHECK_PATH" ]] || {
+    echo ""
+    return
+  }
+
+  local output=""
+  output="$(npx tsx "$HEARTBEAT_HEALTH_CHECK_PATH" --json --state-file "$HEARTBEAT_STATE_FILE" 2>/dev/null || true)"
+  [[ -n "$output" ]] || {
+    echo ""
+    return
+  }
+
+  if ! echo "$output" | jq -e '.status? != null' >/dev/null 2>&1; then
+    echo ""
+    return
+  fi
+
+  echo "$output"
 }
 
 send_alert_notifications() {
@@ -862,6 +884,8 @@ check_heartbeat_health() {
   local variance_seconds=0
   local restarts_6h=0
   local backend="process"
+  local state_probe=""
+  local state_age_ms=""
 
   if [[ "$count" -eq 1 ]]; then
     pid=$(pgrep -f "openclaw.*heartbeat" 2>/dev/null | head -n 1 | tr -d ' ')
@@ -895,16 +919,31 @@ check_heartbeat_health() {
     record_heartbeat_observation "$current_time" "$pid" "$age_seconds"
     restarts_6h=$(get_heartbeat_restarts_6h "$current_time")
   elif [[ "$count" -eq 0 ]]; then
-    local state_age_seconds
-    state_age_seconds=$(get_heartbeat_state_age_seconds "$current_time")
-    if [[ -n "$state_age_seconds" ]]; then
+    state_probe="$(probe_heartbeat_state_health)"
+    if [[ -n "$state_probe" ]]; then
+      state_age_ms=$(echo "$state_probe" | jq -r '.lastHeartbeatAgeMs // empty' 2>/dev/null || true)
+    fi
+
+    if [[ -n "$state_age_ms" && "$state_age_ms" =~ ^[0-9]+$ ]]; then
       backend="state"
-      age_seconds="$state_age_seconds"
+      age_seconds=$((state_age_ms / 1000))
       count=1
       pid="heartbeat-state"
       variance_seconds=0
       restarts_6h=0
       record_heartbeat_observation "$current_time" "$pid" "$age_seconds"
+    else
+      local state_age_seconds
+      state_age_seconds=$(get_heartbeat_state_age_seconds "$current_time")
+      if [[ -n "$state_age_seconds" ]]; then
+        backend="state"
+        age_seconds="$state_age_seconds"
+        count=1
+        pid="heartbeat-state"
+        variance_seconds=0
+        restarts_6h=0
+        record_heartbeat_observation "$current_time" "$pid" "$age_seconds"
+      fi
     fi
   fi
 

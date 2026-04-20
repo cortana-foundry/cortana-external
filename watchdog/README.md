@@ -102,6 +102,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist    # start
 
 ### Heartbeat thresholds (tunable)
 
-- `critical`: no heartbeat process, pileup (`>1`), age `>=3600s`, or restart churn `>=4` restarts in 6h
+- Primary signal: canonical heartbeat state from `memory/heartbeat-state.json` when available; named heartbeat process is a fallback/extra runtime signal
+- `critical`: no heartbeat signal, pileup (`>1`) on the dedicated heartbeat process when present, age `>=3600s`, or restart churn `>=4` restarts in 6h
 - `warning`: age `>=2400s`, restart churn `>=2` in 6h, or timing drift variance `>=300s`
 - `ok`: none of the above; recovery alert is emitted after previously degraded state clears
