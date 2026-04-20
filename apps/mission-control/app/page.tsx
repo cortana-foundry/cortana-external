@@ -88,6 +88,10 @@ export default async function Home() {
   const activeRuns = data.runs.filter(runIsActive).length;
   const runningRuns = data.runs.filter((r: (typeof data.runs)[number]) => (r.externalStatus || r.status).toString().toLowerCase() === "running").length;
   const queuedRuns = data.runs.filter((r: (typeof data.runs)[number]) => (r.externalStatus || r.status).toString().toLowerCase() === "queued").length;
+  const latestTrackedRun = data.runs[0] ?? null;
+  const latestTrackedRunLabel = latestTrackedRun
+    ? latestTrackedRun.startedAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : null;
   const openAlerts = (data.metrics.alerts.bySeverity.warning || 0) + (data.metrics.alerts.bySeverity.critical || 0);
 
   return (
@@ -173,8 +177,15 @@ export default async function Home() {
         {/* Runs */}
         <Card className="gap-3 py-4">
           <CardHeader className="gap-1 px-5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Recent Runs</CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide">Recent Subagent Runs</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {latestTrackedRunLabel
+                    ? `Tracked OpenClaw subagent jobs, latest ${latestTrackedRunLabel}`
+                    : "Tracked OpenClaw subagent jobs"}
+                </p>
+              </div>
               <Link href="/jobs" className="text-xs text-muted-foreground hover:text-foreground hover:underline">View all</Link>
             </div>
           </CardHeader>
