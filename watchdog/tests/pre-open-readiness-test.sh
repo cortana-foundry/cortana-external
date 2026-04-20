@@ -93,6 +93,7 @@ run_scenario() {
   mkdir -p "$scenario_dir"
   PATH="$BIN_DIR:$PATH" \
   WATCHDOG_PRE_OPEN_WEEKDAY="${WATCHDOG_PRE_OPEN_WEEKDAY:-1}" \
+  WATCHDOG_PRE_OPEN_HHMM="${WATCHDOG_PRE_OPEN_HHMM:-0830}" \
   STATE_FILE="$scenario_dir/state.json" \
   PRE_OPEN_CANARY_PATH="$scenario_dir/pre-open-canary-latest.json" \
   PRE_OPEN_CANARY_MAX_AGE_SECONDS=7200 \
@@ -130,6 +131,19 @@ write_canary_artifact \
 WATCHDOG_PRE_OPEN_WEEKDAY=6 run_scenario weekend_skip
 assert_file_empty "weekend pre-open readiness stays silent" "$TMP_DIR/weekend_skip/output.txt"
 unset WATCHDOG_PRE_OPEN_WEEKDAY
+
+mkdir -p "$TMP_DIR/midday_skip"
+write_canary_artifact \
+  "$TMP_DIR/midday_skip/pre-open-canary-latest.json" \
+  "warn" \
+  "readiness_warn" \
+  "degraded" \
+  "degraded_safe" \
+  "$strategy_warn_checks" \
+  "$CURRENT_TS"
+WATCHDOG_PRE_OPEN_HHMM=1224 run_scenario midday_skip
+assert_file_empty "midday pre-open readiness stays silent" "$TMP_DIR/midday_skip/output.txt"
+unset WATCHDOG_PRE_OPEN_HHMM
 
 provider_only_checks='[
   {"name":"service_ready","result":"warn","evidence":{"reason":"provider_cooldown","operator_action":"Wait until cooldown expires."}},
