@@ -4,6 +4,8 @@ import { getAgentModelDisplay } from "@/lib/agent-models";
 import { deriveEvidenceGrade, deriveLaunchPhase, extractProviderPath } from "@/lib/run-intelligence";
 import { refreshOpenClawState, deriveAssignmentLabel, latestRunOrder, type RunWithAgent, type AgentStatus, type RunStatus, type Severity } from "@/lib/data-helpers";
 import { getAgents } from "@/lib/agents";
+import { summarizeSessions } from "@/lib/system-stats";
+import { getUsageAnalytics } from "@/lib/usage-analytics";
 
 type GetRunsInput = {
   take?: number;
@@ -74,7 +76,7 @@ export const getDashboardSummary = async () => {
   noStore();
   await refreshOpenClawState();
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [agents, runs, runs24h, events, events24h] = await Promise.all([
+  const [agents, runs, runs24h, events, events24h, usageAnalytics] = await Promise.all([
     getAgents({ refreshRuns: false }),
     /* Recent runs for the table — no time filter */
     prisma.run.findMany({
@@ -102,6 +104,7 @@ export const getDashboardSummary = async () => {
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    getUsageAnalytics("1440").catch(() => null),
   ]);
 
   const agentCounts = agents.reduce<{ total: number; byStatus: Record<AgentStatus, number> }>(
@@ -135,6 +138,34 @@ export const getDashboardSummary = async () => {
     { total: 0, bySeverity: {} as Record<Severity, number> }
   );
 
+  const sessionActivity = usageAnalytics
+    ? (() => {
+        const summary = summarizeSessions(
+          usageAnalytics.sessions.map((session) => ({
+            updatedAt: session.updatedAt,
+            abortedLastRun: null,
+          }))
+        );
+        const sessions = [...usageAnalytics.sessions]
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+          .slice(0, 4)
+          .map((session) => ({
+            key: session.key,
+            agentId: session.agentId,
+            model: session.model,
+            updatedAt: session.updatedAt,
+          }));
+
+        return {
+          total: usageAnalytics.totals.sessions,
+          recent: summary.recent,
+          stale: summary.stale,
+          latestUpdatedAt: summary.lastUpdated,
+          sessions,
+        };
+      })()
+    : null;
+
   return {
     agents,
     runs: runs.map((run) => ({
@@ -147,5 +178,6 @@ export const getDashboardSummary = async () => {
       runs: runCounts,
       alerts: alertCounts,
     },
+    sessionActivity,
   };
 };
