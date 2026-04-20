@@ -25,6 +25,8 @@ MARKET_DATA_QUOTE_WINDOW_END_HHMM="${MARKET_DATA_QUOTE_WINDOW_END_HHMM:-2000}"
 PRE_OPEN_CANARY_PATH="${PRE_OPEN_CANARY_PATH:-/Users/hd/Developer/cortana-external/backtester/var/readiness/pre-open-canary-latest.json}"
 PRE_OPEN_CANARY_MAX_AGE_SECONDS="${PRE_OPEN_CANARY_MAX_AGE_SECONDS:-7200}"
 PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
+PRE_OPEN_CANARY_WINDOW_START_HHMM="${PRE_OPEN_CANARY_WINDOW_START_HHMM:-0400}"
+PRE_OPEN_CANARY_WINDOW_END_HHMM="${PRE_OPEN_CANARY_WINDOW_END_HHMM:-0930}"
 BACKTESTER_ROOT="${BACKTESTER_ROOT:-$SCRIPT_DIR/../backtester}"
 PRE_OPEN_CANARY_REFRESH_COMMAND="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
 MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
@@ -508,6 +510,7 @@ market_data_quote_smoke_should_run() {
 
 pre_open_canary_should_run() {
   local ny_weekday="${WATCHDOG_PRE_OPEN_WEEKDAY:-${WATCHDOG_MARKET_DATA_WEEKDAY:-}}"
+  local ny_hhmm="${WATCHDOG_PRE_OPEN_HHMM:-${WATCHDOG_MARKET_DATA_HHMM:-}}"
 
   if [[ -z "$ny_weekday" ]]; then
     ny_weekday=$(TZ=America/New_York date +%u 2>/dev/null || echo "1")
@@ -518,6 +521,19 @@ pre_open_canary_should_run() {
   fi
 
   if (( ny_weekday >= 6 )); then
+    return 1
+  fi
+
+  if [[ -z "$ny_hhmm" ]]; then
+    ny_hhmm=$(TZ=America/New_York date +%H%M 2>/dev/null || echo "0930")
+  fi
+
+  local window_start window_end current_minutes
+  window_start=$(parse_hhmm_to_minutes "$PRE_OPEN_CANARY_WINDOW_START_HHMM") || return 0
+  window_end=$(parse_hhmm_to_minutes "$PRE_OPEN_CANARY_WINDOW_END_HHMM") || return 0
+  current_minutes=$(parse_hhmm_to_minutes "$ny_hhmm") || return 0
+
+  if (( current_minutes < window_start || current_minutes >= window_end )); then
     return 1
   fi
 
@@ -681,7 +697,7 @@ check_pre_open_readiness() {
 
   if ! pre_open_canary_should_run; then
     clear_check_recovery_silent "$readiness_check_name"
-    log "info" "Skipping pre-open canary outside weekdays"
+    log "info" "Skipping pre-open canary outside configured weekday/window"
     return
   fi
 
