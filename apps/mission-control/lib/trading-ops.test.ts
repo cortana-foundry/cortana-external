@@ -105,7 +105,7 @@ const externalServiceFetch = vi.fn(async (input: RequestInfo | URL) => {
   }
 
   return new Response(JSON.stringify({ status: "ok" }));
-}) as typeof fetch;
+});
 
 describe("trading ops loader", () => {
   const tempDirs: string[] = [];
@@ -448,7 +448,7 @@ describe("trading ops loader", () => {
         );
       }
       return externalServiceFetch(input);
-    }) as typeof fetch;
+    });
 
     vi.stubGlobal("fetch", disconnectedFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-streamer-drop-"));

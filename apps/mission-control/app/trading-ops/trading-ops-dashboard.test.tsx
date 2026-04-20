@@ -165,6 +165,7 @@ const fixture: TradingOpsDashboardData = {
       preOpenGateDetail: null,
       preOpenGateFreshness: "Last pre-open readiness check ran 10m ago at Apr 3, 7:15 PM ET.",
       cooldownSummary: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.",
+      providerModeSummary: "Live quotes: schwab_primary.",
       incidents: [{ incidentType: "provider_cooldown", severity: "medium", operatorAction: "Wait." }],
     },
   },
@@ -469,6 +470,9 @@ describe("TradingOpsDashboard", () => {
         },
         tape: {
           freshnessMessage: "Quotes are fresh from the Schwab streamer.",
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Quotes stayed on the Schwab primary lane.",
           rows: [
             liveRow("SPY", "SPY", "SPY", 510.12, 1.25),
             liveRow("QQQ", "QQQ", "QQQ", 441.18, 2.1),
@@ -1603,6 +1607,9 @@ describe("TradingOpsDashboard", () => {
           },
           tape: {
             freshnessMessage: "Using last-known Schwab streamer quotes while the stream reconnects.",
+            providerMode: "schwab_streamer_retained",
+            fallbackEngaged: true,
+            providerModeReason: "Using retained streamer quotes while the live stream reconnects.",
             rows: [
               { ...liveRow("SPY", "SPY", "SPY", 510.12, 1.25), source: "schwab_streamer_shared", state: "degraded" },
             ],

@@ -21,6 +21,9 @@ describe("GET /api/trading-ops/live/stream", () => {
       tape: {
         rows: [],
         freshnessMessage: "Quotes are fresh from the Schwab streamer.",
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Quotes stayed on the Schwab primary lane.",
       },
       watchlists: {
         dipBuyer: { buy: [], watch: [] },
