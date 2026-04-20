@@ -20,6 +20,8 @@ MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
 MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
 MARKET_DATA_RESTART_WAIT_SECONDS="${MARKET_DATA_RESTART_WAIT_SECONDS:-8}"
 MARKET_DATA_QUOTE_SYMBOLS="${MARKET_DATA_QUOTE_SYMBOLS:-SPY,QQQ}"
+MARKET_DATA_QUOTE_WINDOW_START_HHMM="${MARKET_DATA_QUOTE_WINDOW_START_HHMM:-0400}"
+MARKET_DATA_QUOTE_WINDOW_END_HHMM="${MARKET_DATA_QUOTE_WINDOW_END_HHMM:-2000}"
 PRE_OPEN_CANARY_PATH="${PRE_OPEN_CANARY_PATH:-/Users/hd/Developer/cortana-external/backtester/var/readiness/pre-open-canary-latest.json}"
 PRE_OPEN_CANARY_MAX_AGE_SECONDS="${PRE_OPEN_CANARY_MAX_AGE_SECONDS:-7200}"
 PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
@@ -438,8 +440,21 @@ market_data_advisory_should_recover() {
   return 0
 }
 
+parse_hhmm_to_minutes() {
+  local hhmm="$1"
+
+  if [[ ! "$hhmm" =~ ^([01][0-9]|2[0-3])[0-5][0-9]$ ]]; then
+    return 1
+  fi
+
+  local hours=$((10#${hhmm:0:2}))
+  local minutes=$((10#${hhmm:2:2}))
+  printf '%s' $((hours * 60 + minutes))
+}
+
 market_data_quote_smoke_should_run() {
   local ny_weekday="${WATCHDOG_MARKET_DATA_WEEKDAY:-}"
+  local ny_hhmm="${WATCHDOG_MARKET_DATA_HHMM:-}"
 
   if [[ -z "$ny_weekday" ]]; then
     ny_weekday=$(TZ=America/New_York date +%u 2>/dev/null || echo "1")
@@ -450,6 +465,19 @@ market_data_quote_smoke_should_run() {
   fi
 
   if (( ny_weekday >= 6 )); then
+    return 1
+  fi
+
+  if [[ -z "$ny_hhmm" ]]; then
+    ny_hhmm=$(TZ=America/New_York date +%H%M 2>/dev/null || echo "0930")
+  fi
+
+  local window_start window_end current_minutes
+  window_start=$(parse_hhmm_to_minutes "$MARKET_DATA_QUOTE_WINDOW_START_HHMM") || return 0
+  window_end=$(parse_hhmm_to_minutes "$MARKET_DATA_QUOTE_WINDOW_END_HHMM") || return 0
+  current_minutes=$(parse_hhmm_to_minutes "$ny_hhmm") || return 0
+
+  if (( current_minutes < window_start || current_minutes >= window_end )); then
     return 1
   fi
 
@@ -1044,7 +1072,7 @@ check_market_data_health() {
   fi
   if ! market_data_quote_smoke_should_run; then
     clear_check_recovery_silent "$quote_check_name"
-    log "info" "Skipping market-data quote smoke outside weekdays"
+    log "info" "Skipping market-data quote smoke outside quote window"
     return
   fi
   if [[ "$quote_code" == "200" ]]; then

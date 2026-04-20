@@ -204,6 +204,7 @@ run_scenario() {
   local scenario_dir="$TMP_DIR/$scenario"
   mkdir -p "$scenario_dir"
   local weekday_override="${WATCHDOG_TEST_WEEKDAY_OVERRIDE:-3}"
+  local hhmm_override="${WATCHDOG_TEST_HHMM_OVERRIDE:-0930}"
   rm -f "$scenario_dir/launchctl.log" "$scenario_dir/output.txt"
   PATH="$BIN_DIR:$PATH" \
   STATE_FILE="$scenario_dir/state.json" \
@@ -213,6 +214,7 @@ run_scenario() {
   MARKET_DATA_RESTART_WAIT_SECONDS=0 \
   MARKET_DATA_ADVISORY_THRESHOLD_SECONDS=0 \
   WATCHDOG_MARKET_DATA_WEEKDAY="$weekday_override" \
+  WATCHDOG_MARKET_DATA_HHMM="$hhmm_override" \
   bash -c "source '$ROOT_DIR/watchdog.sh'; PATH='$BIN_DIR':\"\$PATH\"; ALERTS=''; LOGS=''; check_market_data_health; printf '%s' \"\$ALERTS\" >'$scenario_dir/output.txt'"
 }
 
@@ -248,5 +250,17 @@ run_scenario quote_flap
 assert_file_empty "weekend quote smoke stays silent" "$TMP_DIR/quote_flap/output.txt"
 assert_file_empty "weekend quote smoke does not restart service" "$TMP_DIR/quote_flap/launchctl.log"
 unset WATCHDOG_TEST_WEEKDAY_OVERRIDE
+
+WATCHDOG_TEST_HHMM_OVERRIDE=0355
+run_scenario quote_flap
+assert_file_empty "pre-market quote smoke stays silent before 4am ET" "$TMP_DIR/quote_flap/output.txt"
+assert_file_empty "pre-market quote smoke does not restart service before 4am ET" "$TMP_DIR/quote_flap/launchctl.log"
+unset WATCHDOG_TEST_HHMM_OVERRIDE
+
+WATCHDOG_TEST_HHMM_OVERRIDE=2000
+run_scenario quote_flap
+assert_file_empty "after-hours quote smoke stays silent at 8pm ET" "$TMP_DIR/quote_flap/output.txt"
+assert_file_empty "after-hours quote smoke does not restart service at 8pm ET" "$TMP_DIR/quote_flap/launchctl.log"
+unset WATCHDOG_TEST_HHMM_OVERRIDE
 
 echo "All market-data watchdog tests passed."
