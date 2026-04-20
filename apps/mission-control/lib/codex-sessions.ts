@@ -102,6 +102,53 @@ function parseJsonLine(rawLine: string): Record<string, unknown> | null {
   }
 }
 
+function parseResponseItemMessageText(payload: Record<string, unknown>) {
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const text = content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const typedPart = part as Record<string, unknown>;
+      const value = parseString(typedPart.text);
+      return value ? [value] : [];
+    })
+    .join("\n\n")
+    .trim();
+
+  return text.length > 0 ? text : null;
+}
+
+function parseResponseItemMessages(raw: string): CodexSessionEvent[] {
+  const events: CodexSessionEvent[] = [];
+
+  for (const [index, line] of raw.split(/\r?\n/).entries()) {
+    const record = parseJsonLine(line);
+    if (!record || record.type !== "response_item") continue;
+
+    const payload = record.payload;
+    if (!payload || typeof payload !== "object") continue;
+
+    const typed = payload as Record<string, unknown>;
+    if (typed.type !== "message") continue;
+
+    const role = parseString(typed.role);
+    if (role !== "user" && role !== "assistant") continue;
+
+    const text = parseResponseItemMessageText(typed);
+    if (!text) continue;
+
+    events.push({
+      id: `response:${index}:${role}`,
+      role,
+      text,
+      timestamp: parseTimestamp(record.timestamp),
+      phase: parseString(typed.phase),
+      rawType: "message",
+    });
+  }
+
+  return events;
+}
+
 export function parseCodexSessionIndex(raw: string): SessionIndexEntry[] {
   return raw
     .split(/\r?\n/)
@@ -154,6 +201,13 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
     lastMessagePreview: null,
   };
 
+  const responseItemMessages = parseResponseItemMessages(raw);
+  const latestResponseMessage = responseItemMessages.at(-1);
+  const hasResponsePreview = Boolean(latestResponseMessage);
+  if (latestResponseMessage) {
+    metadata.lastMessagePreview = truncatePreview(latestResponseMessage.text);
+  }
+
   for (const line of raw.split(/\r?\n/)) {
     const record = parseJsonLine(line);
     if (!record) continue;
@@ -183,6 +237,10 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
       continue;
     }
 
+    if (hasResponsePreview && record.type !== "session_meta" && record.type !== "turn_context") {
+      continue;
+    }
+
     if (record.type !== "event_msg") continue;
 
     const payload = record.payload;
@@ -207,6 +265,11 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
 }
 
 export function parseCodexTranscriptEvents(raw: string): CodexSessionEvent[] {
+  const responseItemMessages = parseResponseItemMessages(raw);
+  if (responseItemMessages.length > 0) {
+    return responseItemMessages;
+  }
+
   const events: CodexSessionEvent[] = [];
 
   for (const line of raw.split(/\r?\n/)) {
@@ -460,11 +523,12 @@ export async function getCodexSessionDetail(
   const metadata = parseCodexTranscriptMetadata(rawTranscript);
   const events = parseCodexTranscriptEvents(rawTranscript);
   const latestEvent = events.at(-1)?.timestamp ?? null;
+  const updatedAt = entry.updatedAt ?? latestEvent ?? null;
 
   return {
     sessionId: entry.id,
     threadName: entry.threadName,
-    updatedAt: Math.max(entry.updatedAt ?? 0, latestEvent ?? 0) || null,
+    updatedAt,
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,

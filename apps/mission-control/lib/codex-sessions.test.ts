@@ -74,6 +74,41 @@ describe("parseCodexTranscriptMetadata", () => {
       lastMessagePreview: "Latest answer from Codex",
     });
   });
+
+  it("prefers response_item messages for the latest preview", () => {
+    const raw = [
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Older fallback answer",
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        timestamp: "2026-04-18T22:26:56.764Z",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "final_answer",
+          content: [
+            {
+              type: "output_text",
+              text: "Codex-native latest answer",
+            },
+          ],
+        },
+      }),
+    ].join("\n");
+
+    expect(parseCodexTranscriptMetadata(raw)).toEqual({
+      cwd: null,
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: "Codex-native latest answer",
+    });
+  });
 });
 
 describe("parseCodexTranscriptEvents", () => {
@@ -114,6 +149,82 @@ describe("parseCodexTranscriptEvents", () => {
         timestamp: Date.parse("2026-04-18T22:26:56.764Z"),
         phase: "final_answer",
         rawType: "agent_message",
+      },
+    ]);
+  });
+
+  it("prefers response_item user and assistant messages over legacy event records", () => {
+    const raw = [
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:54.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "developer",
+          content: [
+            {
+              type: "output_text",
+              text: "Do not render developer instructions",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:55.266Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "Hello from response items",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:56.764Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "commentary",
+          content: [
+            {
+              type: "output_text",
+              text: "Commentary shown by Codex",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-18T22:26:57.764Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Legacy fallback that should be ignored here",
+          phase: "final_answer",
+        },
+      }),
+    ].join("\n");
+
+    expect(parseCodexTranscriptEvents(raw)).toEqual([
+      {
+        id: "response:1:user",
+        role: "user",
+        text: "Hello from response items",
+        timestamp: Date.parse("2026-04-18T22:26:55.266Z"),
+        phase: null,
+        rawType: "message",
+      },
+      {
+        id: "response:2:assistant",
+        role: "assistant",
+        text: "Commentary shown by Codex",
+        timestamp: Date.parse("2026-04-18T22:26:56.764Z"),
+        phase: "commentary",
+        rawType: "message",
       },
     ]);
   });

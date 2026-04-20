@@ -372,6 +372,52 @@ describe("listVisibleCodexSessions", () => {
     expect(result.totalVisibleSessions).toBe(1);
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
   });
+
+  it("keeps Codex index timing and preview metadata ahead of newer mirror timestamps", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "abc",
+        threadName: "Visible title",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "desktop preview",
+        transcriptPath: "/tmp/file.jsonl",
+      },
+    ]);
+    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([
+      {
+        sessionId: "abc",
+        threadName: "Mirror title",
+        updatedAt: 900,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "mirror preview",
+        transcriptPath: "/tmp/mirror.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions).toEqual([
+      {
+        sessionId: "abc",
+        threadName: "Visible title",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "desktop preview",
+        transcriptPath: "/tmp/file.jsonl",
+      },
+    ]);
+  });
 });
 
 describe("getVisibleCodexSessionDetail", () => {
@@ -438,14 +484,14 @@ describe("getVisibleCodexSessionDetail", () => {
 
     expect(session).toEqual({
       sessionId: "abc",
-      threadName: "Mirror title",
-      updatedAt: 200,
+      threadName: "File title",
+      updatedAt: 150,
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
       source: "vscode",
       cliVersion: "0.121.0",
-      lastMessagePreview: "mirror preview",
-      transcriptPath: "/tmp/mirror.jsonl",
+      lastMessagePreview: "file preview",
+      transcriptPath: "/tmp/file.jsonl",
       events: [
         {
           id: "user-1",
@@ -467,14 +513,14 @@ describe("getVisibleCodexSessionDetail", () => {
     });
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith({
       sessionId: "abc",
-      threadName: "Mirror title",
-      updatedAt: 200,
+      threadName: "File title",
+      updatedAt: 150,
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
       source: "vscode",
       cliVersion: "0.121.0",
-      lastMessagePreview: "mirror preview",
-      transcriptPath: "/tmp/mirror.jsonl",
+      lastMessagePreview: "file preview",
+      transcriptPath: "/tmp/file.jsonl",
     });
   });
 

@@ -414,15 +414,15 @@ function mergeSessionSummary(
   if (!overlay) return base;
 
   return {
-    sessionId: overlay.sessionId,
-    threadName: overlay.threadName ?? base.threadName,
-    updatedAt: Math.max(base.updatedAt ?? 0, overlay.updatedAt ?? 0) || null,
-    cwd: overlay.cwd ?? base.cwd,
-    model: overlay.model ?? base.model,
-    source: overlay.source ?? base.source,
-    cliVersion: overlay.cliVersion ?? base.cliVersion,
-    lastMessagePreview: overlay.lastMessagePreview ?? base.lastMessagePreview,
-    transcriptPath: overlay.transcriptPath ?? base.transcriptPath,
+    sessionId: base.sessionId,
+    threadName: base.threadName ?? overlay.threadName,
+    updatedAt: base.updatedAt ?? overlay.updatedAt ?? null,
+    cwd: base.cwd ?? overlay.cwd,
+    model: base.model ?? overlay.model,
+    source: base.source ?? overlay.source,
+    cliVersion: base.cliVersion ?? overlay.cliVersion,
+    lastMessagePreview: base.lastMessagePreview ?? overlay.lastMessagePreview,
+    transcriptPath: base.transcriptPath ?? overlay.transcriptPath,
   };
 }
 
