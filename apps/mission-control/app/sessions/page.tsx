@@ -209,6 +209,18 @@ function getProvisionalThreadName(prompt: string) {
   return normalized.length > 72 ? `${normalized.slice(0, 71)}…` : normalized;
 }
 
+function formatCompactPath(value: string | null | undefined, keepSegments = 3) {
+  if (!value) return "Unavailable";
+
+  const normalized = value.trim();
+  if (!normalized) return "Unavailable";
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= keepSegments) return normalized;
+
+  return `.../${parts.slice(-keepSegments).join("/")}`;
+}
+
 export function mergeCodexSessions(
   sessions: CodexSession[],
   fallbackSession: CodexSession | null | undefined,
@@ -693,6 +705,31 @@ export default function SessionsPage() {
     selectedCodexSession?.threadName ??
     activeCodexSummary?.threadName ??
     (codexMutationPending === "create" ? "Starting new Codex thread" : "Codex workspace");
+  const topStats = [
+    {
+      label: "Threads",
+      value: formatInt(codexVisibleTotal || visibleCodexSessions.length),
+      detail: `${formatInt(codexSessionGroups.length)} project groups`,
+    },
+    {
+      label: "With context",
+      value: formatInt(codexSummary.withCwd),
+      detail: "resolved cwd",
+    },
+    {
+      label: "With preview",
+      value: formatInt(codexSummary.withPreview),
+      detail: "preview ready",
+    },
+    {
+      label: "Last update",
+      value: formatRelativeTimestamp(codexLatestUpdatedAt ?? codexSummary.latestUpdatedAt),
+      detail: "desktop state",
+    },
+  ];
+  const activeCodexMessageCount = formatInt(
+    selectedCodexPagination?.totalEvents ?? selectedCodexSession?.events.length ?? 0,
+  );
 
   async function handleCreateCodexSession() {
     const prompt = newCodexPrompt.trim();
@@ -866,119 +903,153 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              Shared local Codex workspace
-            </p>
-            <div className="space-y-1">
-              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Sessions</h1>
-              <p className="max-w-2xl text-sm text-muted-foreground">
-                Review, continue, and launch Codex threads from one bounded workspace that mirrors the local desktop client.
-              </p>
+    <div className="space-y-5 pb-6">
+      <section className="relative overflow-hidden rounded-[32px] border border-border/60 bg-[linear-gradient(145deg,rgba(15,23,42,0.06),rgba(15,23,42,0.018)_42%,rgba(255,255,255,0.96)_100%)]">
+        <div className="absolute inset-y-0 right-0 hidden w-[34rem] bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.14),transparent_55%)] lg:block" />
+        <div className="relative space-y-8 px-5 py-6 md:px-7 md:py-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl space-y-4">
+              <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-3 py-1.5 backdrop-blur">
+                  <TerminalSquare className="h-3.5 w-3.5" />
+                  Mission Control
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-3 py-1.5 backdrop-blur">
+                  Shared via <code>~/.codex</code>
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-700 dark:text-emerald-300">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {codexMutationPending ? "Turn in progress" : "Idle and ready"}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+                  Shared Codex workspace
+                </p>
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-semibold tracking-[-0.04em] text-foreground md:text-5xl">
+                    Codex sessions
+                  </h1>
+                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground md:text-[15px]">
+                    Review live threads, continue the same local session state, and inspect the machine context without
+                    leaving Mission Control.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid w-full gap-3 sm:grid-cols-2 xl:max-w-3xl xl:grid-cols-4">
+              {topStats.map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-[24px] border border-border/60 bg-background/72 px-4 py-4 backdrop-blur transition-transform duration-200 motion-safe:hover:-translate-y-0.5"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {item.label}
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-foreground">{item.value}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-muted-foreground">
-              <TerminalSquare className="h-3.5 w-3.5" />
-              Shared via <code>~/.codex</code>
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-700 dark:text-emerald-300">
-              <Sparkles className="h-3.5 w-3.5" />
-              {codexMutationPending ? "Turn in progress" : "Idle and ready"}
-            </span>
-          </div>
-        </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">
-          <div className="rounded-[24px] border border-border/60 bg-[linear-gradient(135deg,rgba(15,23,42,0.035),rgba(15,23,42,0.01)_55%,transparent)] p-5">
-            <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-4 border-t border-border/60 pt-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.9fr)]">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Selected thread</p>
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Codex workspace</p>
-                <p className="text-lg font-semibold text-foreground">
+                <p className="text-xl font-semibold tracking-tight text-foreground">
                   {activeCodexSession ? getCodexSessionTitle(activeCodexSession) : "Choose a thread or start one"}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {activeCodexSession?.cwd ?? "Mission Control will attach to the local shared Codex session store."}
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {activeCodexSession?.cwd
+                    ? formatCompactPath(activeCodexSession.cwd, 4)
+                    : "Mission Control stays attached to the local Codex store and mirrors the desktop session list."}
                 </p>
               </div>
-              <div className="rounded-2xl border border-border/60 bg-background/80 px-3 py-2 text-right">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Visible threads</p>
-                <p className="text-2xl font-semibold">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</p>
+            </div>
+
+            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+              <div className="space-y-1 rounded-[22px] border border-border/60 bg-background/72 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Transcript</p>
+                <p className="text-base font-medium text-foreground">{activeCodexMessageCount} saved messages</p>
+              </div>
+              <div className="space-y-1 rounded-[22px] border border-border/60 bg-background/72 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Freshness</p>
+                <p className="text-base font-medium text-foreground">
+                  {formatRelativeTimestamp(activeCodexSession?.updatedAt ?? codexLatestUpdatedAt)}
+                </p>
               </div>
             </div>
           </div>
-
-          {[
-            { label: "Project groups", value: formatInt(codexSessionGroups.length), detail: "workspace clusters" },
-            { label: "With context", value: formatInt(codexSummary.withCwd), detail: "threads with cwd" },
-            { label: "With preview", value: formatInt(codexSummary.withPreview), detail: "threads with transcript summary" },
-          ].map((item) => (
-            <div key={item.label} className="rounded-[24px] border border-border/60 bg-background px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
-              <p className="mt-3 text-2xl font-semibold tracking-tight">{item.value}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
-            </div>
-          ))}
         </div>
-      </div>
+      </section>
 
       {loading ? <p className="text-sm text-muted-foreground">Loading Codex sessions…</p> : null}
 
       {!loading ? (
         <div className="space-y-4">
-            {codexError ? (
-              <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {codexError}
-              </div>
-            ) : null}
+          {codexError ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {codexError}
+            </div>
+          ) : null}
 
-            <div className="overflow-hidden rounded-[28px] border border-border/60 bg-background shadow-sm">
-              <div className="grid h-[calc(100svh-14rem)] min-h-[44rem] max-h-[calc(100svh-9rem)] gap-0 lg:grid-cols-[22rem_minmax(0,1fr)_18rem]">
-                <aside className="overflow-y-auto border-b border-border/60 bg-muted/[0.16] lg:border-r lg:border-b-0">
-                  <div className="space-y-4 p-4">
+          <div className="overflow-hidden rounded-[32px] border border-border/60 bg-background/96 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+            <div className="grid min-h-[calc(100svh-16rem)] gap-0 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)_19rem]">
+              <aside className="overflow-y-auto border-b border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(248,250,252,0.6))] xl:border-r xl:border-b-0">
+                <div className="space-y-6 p-4 md:p-5">
+                  <section className="space-y-3">
                     <div className="space-y-1">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                        Start new thread
+                        Start thread
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        Launch a fresh Codex session from Mission Control without leaving the shared local state store.
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        Launch a new Codex thread against this machine’s shared state.
                       </p>
                     </div>
 
-                    <div className="space-y-3 rounded-[22px] border border-border/60 bg-background/90 p-3">
+                    <div className="rounded-[28px] border border-border/60 bg-background/92 p-4 shadow-sm">
                       <Textarea
                         value={newCodexPrompt}
                         onChange={(event) => setNewCodexPrompt(event.target.value)}
-                        placeholder="Outline the task, repo, or question for a new Codex thread"
-                        className="min-h-[120px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                        placeholder="Outline the task, repo, or question"
+                        className="min-h-[140px] resize-none border-0 bg-transparent px-0 text-sm leading-6 shadow-none focus-visible:ring-0"
                       />
-                      <Button
-                        onClick={() => void handleCreateCodexSession()}
-                        disabled={codexMutationPending === "create" || !newCodexPrompt.trim()}
-                        className="w-full justify-between rounded-xl"
-                      >
-                        <span>{codexMutationPending === "create" ? "Starting thread…" : "Start Codex thread"}</span>
-                        {codexMutationPending === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                      </Button>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Project threads</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {formatInt(codexVisibleTotal || visibleCodexSessions.length)} visible in {formatInt(codexSessionGroups.length)} projects
-                          {" · "}
-                          latest {formatRelativeTimestamp(codexLatestUpdatedAt ?? codexSummary.latestUpdatedAt)}
+                      <div className="mt-4 flex flex-col gap-3">
+                        <p className="text-xs text-muted-foreground">
+                          Mission Control will create the thread and attach to the same local Codex session.
                         </p>
-                        {codexMatchedTotal > (codexVisibleTotal || visibleCodexSessions.length) ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Filtered to the same project-oriented Codex surface, excluding threads without resolved workspace context.
-                          </p>
-                        ) : null}
+                        <Button
+                          onClick={() => void handleCreateCodexSession()}
+                          disabled={codexMutationPending === "create" || !newCodexPrompt.trim()}
+                          className="h-11 w-full justify-between rounded-2xl bg-foreground px-4 text-background transition-transform duration-200 motion-safe:hover:-translate-y-0.5"
+                        >
+                          <span>{codexMutationPending === "create" ? "Starting thread…" : "Start Codex thread"}</span>
+                          {codexMutationPending === "create" ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Project threads</p>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {formatInt(codexVisibleTotal || visibleCodexSessions.length)} visible across {formatInt(codexSessionGroups.length)} projects.
+                        {" "}
+                        Latest sync {formatRelativeTimestamp(codexLatestUpdatedAt ?? codexSummary.latestUpdatedAt)}.
+                      </p>
+                      {codexMatchedTotal > (codexVisibleTotal || visibleCodexSessions.length) ? (
+                        <p className="text-xs text-muted-foreground">
+                          Showing the same project-oriented surface as the desktop Codex list.
+                        </p>
+                      ) : null}
                     </div>
 
                     {!codexError && visibleCodexSessions.length === 0 ? (
@@ -986,29 +1057,29 @@ export default function SessionsPage() {
                         No Codex sessions found.
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-5">
                         {provisionalCodexSession ? (
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-3 px-1">
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                                Starting now
-                              </p>
-                            </div>
+                            <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                              Starting now
+                            </p>
                             <button
                               type="button"
-                              onClick={() => provisionalCodexSession.sessionId && setSelectedCodexSessionId(provisionalCodexSession.sessionId)}
-                              className="w-full rounded-[22px] border border-foreground/20 bg-background px-4 py-3 text-left shadow-sm"
+                              onClick={() =>
+                                provisionalCodexSession.sessionId && setSelectedCodexSessionId(provisionalCodexSession.sessionId)
+                              }
+                              className="w-full rounded-[24px] border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-4 text-left transition-transform duration-200 motion-safe:hover:-translate-y-0.5"
                             >
                               <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
+                                <div className="min-w-0 space-y-2">
                                   <p className="truncate text-sm font-semibold text-foreground">
                                     {getCodexSessionTitle(provisionalCodexSession)}
                                   </p>
-                                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
                                     {provisionalCodexSession.lastMessagePreview ?? "Waiting for Codex to register the new thread."}
                                   </p>
                                 </div>
-                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/20 bg-background/80 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                   live
                                 </span>
@@ -1018,23 +1089,21 @@ export default function SessionsPage() {
                         ) : null}
 
                         {codexSessionGroups.map((group) => (
-                          <div key={group.id} className="space-y-2">
-                            <div className="flex items-center justify-between gap-3 px-1">
-                              <div className="min-w-0">
-                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                          <div key={group.id} className="space-y-3">
+                            <div className="flex items-start justify-between gap-3 px-1">
+                              <div className="min-w-0 space-y-1">
+                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                                   {group.label}
                                 </p>
-                                <p className="truncate text-[11px] text-muted-foreground">
+                                <p className="truncate text-xs text-muted-foreground" title={group.rootPath}>
                                   {group.rootPath}
                                 </p>
                               </div>
-                              <div className="flex shrink-0 items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                {group.isActive ? (
-                                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
-                                    active
-                                  </span>
-                                ) : null}
-                              </div>
+                              {group.isActive ? (
+                                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+                                  active
+                                </span>
+                              ) : null}
                             </div>
 
                             <div className="space-y-2">
@@ -1046,27 +1115,30 @@ export default function SessionsPage() {
                                     type="button"
                                     onClick={() => setSelectedCodexSessionId(session.sessionId)}
                                     className={cn(
-                                      "w-full rounded-[22px] border px-4 py-3 text-left transition-colors",
+                                      "w-full rounded-[24px] border px-4 py-4 text-left transition-all duration-200 motion-safe:hover:-translate-y-0.5",
                                       selected
-                                        ? "border-foreground/20 bg-background shadow-sm"
-                                        : "border-transparent bg-transparent hover:border-border/60 hover:bg-background/70",
+                                        ? "border-foreground/15 bg-background shadow-[0_18px_45px_rgba(15,23,42,0.08)]"
+                                        : "border-transparent bg-transparent hover:border-border/60 hover:bg-background/72",
                                     )}
                                   >
                                     <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
+                                      <div className="min-w-0 space-y-2">
                                         <p className="truncate text-sm font-semibold text-foreground">
                                           {getCodexSessionTitle(session)}
                                         </p>
-                                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                                        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
                                           {session.lastMessagePreview ?? "No transcript preview available yet."}
                                         </p>
                                       </div>
-                                      <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                      <span className="shrink-0 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                                         {session.model ?? "unknown"}
                                       </span>
                                     </div>
-                                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                                      <span className="truncate">{session.cwd ?? "cwd unavailable"}</span>
+
+                                    <div className="mt-4 flex flex-col gap-2 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                                      <span className="truncate" title={session.cwd ?? undefined}>
+                                        {session.cwd ? formatCompactPath(session.cwd, 3) : "cwd unavailable"}
+                                      </span>
                                       <span className="shrink-0">{formatRelativeTimestamp(session.updatedAt)}</span>
                                     </div>
                                   </button>
@@ -1077,66 +1149,90 @@ export default function SessionsPage() {
                         ))}
                       </div>
                     )}
-                  </div>
-                </aside>
+                  </section>
+                </div>
+              </aside>
 
-                <section className="flex min-h-0 flex-col border-b border-border/60 bg-muted/[0.1] lg:border-r lg:border-b-0">
-                  <div className="border-b border-border/60 bg-background/95 px-5 py-4 backdrop-blur">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-lg font-semibold tracking-tight">{activeCodexTitle}</h2>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                            {codexMutationPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
-                            {codexMutationPending ? "Streaming" : "Shared thread"}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {activeCodexSession?.cwd ?? "Select a thread to inspect the transcript and continue the same session."}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
-                          <MessageSquareText className="h-3.5 w-3.5" />
-                          {formatInt(selectedCodexPagination?.totalEvents ?? selectedCodexSession?.events.length ?? 0)} saved messages
+              <section className="flex min-h-0 flex-col bg-[linear-gradient(180deg,rgba(248,250,252,0.42),rgba(255,255,255,0.96))] xl:border-b-0 2xl:border-r 2xl:border-border/60">
+                <div className="border-b border-border/60 bg-background/90 px-5 py-5 backdrop-blur md:px-6">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          {codexMutationPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
+                          {codexMutationPending ? "Streaming" : "Shared thread"}
                         </span>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
-                          <Clock3 className="h-3.5 w-3.5" />
+                        <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          <Clock3 className="h-3 w-3" />
                           {formatRelativeTimestamp(activeCodexSession?.updatedAt ?? null)}
                         </span>
                       </div>
+                      <div className="space-y-2">
+                        <h2 className="text-2xl font-semibold tracking-[-0.03em] text-foreground md:text-[2rem]">
+                          {activeCodexTitle}
+                        </h2>
+                        <p className="max-w-3xl break-words text-sm leading-6 text-muted-foreground">
+                          {activeCodexSession?.cwd
+                            ? activeCodexSession.cwd
+                            : "Select a thread to inspect the transcript and continue the same session."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[18rem]">
+                      <div className="rounded-[22px] border border-border/60 bg-background/75 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Messages</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">{activeCodexMessageCount}</p>
+                      </div>
+                      <div className="rounded-[22px] border border-border/60 bg-background/75 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+                        <p className="mt-2 truncate text-lg font-semibold text-foreground">
+                          {activeCodexSession?.model ?? "Unknown"}
+                        </p>
+                      </div>
+                      <div className="rounded-[22px] border border-border/60 bg-background/75 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">State</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">
+                          {codexMutationPending ? "Live" : activeCodexSession ? "Attached" : "Waiting"}
+                        </p>
+                      </div>
                     </div>
                   </div>
+                </div>
 
-                  <div
-                    ref={transcriptViewportRef}
-                    className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(248,250,252,0.66)_0%,rgba(248,250,252,0.14)_100%)] px-4 py-5 md:px-6"
-                  >
-                    <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-4">
+                <div
+                  ref={transcriptViewportRef}
+                  className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6"
+                >
+                  <div className="mx-auto flex max-w-4xl flex-col gap-4 pb-6">
                     {selectedCodexSession && (codexOlderLoading || selectedCodexPagination?.hasMore) ? (
-                      <div className="sticky top-0 z-10 flex justify-center">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
-                          {codexOlderLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquareText className="h-3.5 w-3.5" />}
-                          {codexOlderLoading
-                            ? "Loading earlier messages…"
-                            : "Scroll up to load earlier messages"}
+                      <div className="sticky top-3 z-10 flex justify-center px-2">
+                        <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/60 bg-background/95 px-4 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur">
+                          {codexOlderLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <MessageSquareText className="h-3.5 w-3.5" />
+                          )}
+                          <span className="truncate">
+                            {codexOlderLoading ? "Loading earlier messages…" : "Scroll up to load earlier messages"}
+                          </span>
                         </div>
                       </div>
                     ) : null}
 
                     {codexDetailLoading ? (
-                      <div className="rounded-[22px] border border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
+                      <div className="rounded-[24px] border border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
                         Loading Codex transcript…
                       </div>
                     ) : null}
 
                     {!codexDetailLoading && !hasCodexTranscriptContent ? (
                       <div className="flex min-h-[42svh] items-center justify-center">
-                        <div className="max-w-md rounded-[28px] border border-dashed border-border/60 bg-background/80 px-6 py-8 text-center">
+                        <div className="max-w-lg rounded-[30px] border border-dashed border-border/60 bg-background/90 px-6 py-10 text-center">
                           <p className="text-sm font-semibold text-foreground">No active transcript selected</p>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            Choose a thread from the left rail or launch a new one. Mission Control will keep the session aligned with the local Codex client state.
+                          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                            Choose a thread from the left rail or start one above. The transcript will stay aligned with
+                            the same local Codex session on this machine.
                           </p>
                         </div>
                       </div>
@@ -1147,18 +1243,18 @@ export default function SessionsPage() {
                     selectedCodexSession.events.length === 0 &&
                     !pendingCodexUserEvent &&
                     streamedAssistantEvents.length === 0 ? (
-                      <div className="rounded-[22px] border border-dashed border-border/60 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
+                      <div className="rounded-[24px] border border-dashed border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
                         No transcript messages parsed yet.
                       </div>
                     ) : null}
 
                     {pendingCodexUserEvent ? (
-                      <div className="ml-auto max-w-3xl rounded-[24px] rounded-br-md bg-foreground px-5 py-4 text-sm text-background shadow-sm">
-                        <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-background/70">
+                      <div className="ml-auto w-full max-w-[44rem] rounded-[28px] rounded-br-md bg-foreground px-5 py-4 text-background shadow-[0_20px_45px_rgba(15,23,42,0.24)]">
+                        <div className="flex flex-col gap-2 border-b border-white/10 pb-3 text-[11px] uppercase tracking-[0.18em] text-background/70 sm:flex-row sm:items-center sm:justify-between">
                           <span>You</span>
                           <span>Queued now</span>
                         </div>
-                        <p className="mt-3 whitespace-pre-wrap leading-6">{pendingCodexUserEvent.text}</p>
+                        <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7">{pendingCodexUserEvent.text}</p>
                       </div>
                     ) : null}
 
@@ -1166,166 +1262,192 @@ export default function SessionsPage() {
                       <div
                         key={event.id}
                         className={cn(
-                          "max-w-3xl rounded-[24px] border px-5 py-4 shadow-sm",
+                          "w-full max-w-[44rem] rounded-[28px] px-5 py-4 transition-transform duration-200 motion-safe:hover:-translate-y-0.5",
                           event.role === "assistant"
-                            ? "rounded-bl-md border-border/60 bg-background"
-                            : "ml-auto rounded-br-md border-foreground/5 bg-foreground text-background",
+                            ? "rounded-bl-md border border-border/60 bg-background/96 shadow-[0_16px_36px_rgba(15,23,42,0.06)]"
+                            : "ml-auto rounded-br-md bg-foreground text-background shadow-[0_20px_45px_rgba(15,23,42,0.2)]",
                         )}
                       >
                         <div
                           className={cn(
-                            "flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em]",
-                            event.role === "assistant" ? "text-muted-foreground" : "text-background/70",
+                            "flex flex-col gap-2 border-b pb-3 text-[11px] uppercase tracking-[0.18em] sm:flex-row sm:items-center sm:justify-between",
+                            event.role === "assistant"
+                              ? "border-border/70 text-muted-foreground"
+                              : "border-white/10 text-background/70",
                           )}
                         >
                           <span>{event.role === "assistant" ? "Codex" : "You"}</span>
-                          <span>{formatTimestamp(event.timestamp)}</span>
+                          <span className="break-words sm:text-right">{formatTimestamp(event.timestamp)}</span>
                         </div>
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{event.text}</p>
+                        <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7">{event.text}</p>
                       </div>
                     ))}
 
                     {streamedAssistantEvents.map((event) => (
-                      <div key={event.id} className="max-w-3xl rounded-[24px] rounded-bl-md border border-emerald-500/20 bg-emerald-500/[0.07] px-5 py-4 shadow-sm">
-                        <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      <div
+                        key={event.id}
+                        className="w-full max-w-[44rem] rounded-[28px] rounded-bl-md border border-emerald-500/20 bg-emerald-500/[0.07] px-5 py-4 shadow-[0_16px_36px_rgba(16,185,129,0.12)]"
+                      >
+                        <div className="flex flex-col gap-2 border-b border-emerald-500/15 pb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                           <span className="inline-flex items-center gap-2">
                             <Loader2 className="h-3 w-3 animate-spin" />
                             Codex
                           </span>
                           <span>{codexMutationPending ? "Streaming…" : "Pending refresh"}</span>
                         </div>
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{event.text}</p>
+                        <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7">{event.text}</p>
                       </div>
                     ))}
-                    </div>
                   </div>
+                </div>
 
-                  <div className="border-t border-border/60 bg-background/95 px-4 py-4 backdrop-blur md:px-6">
-                    {codexMutationError ? (
-                      <div className="mb-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                        {codexMutationError}
-                      </div>
-                    ) : null}
-                    <div className="rounded-[24px] border border-border/60 bg-background shadow-sm">
-                      <div className="px-4 pt-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        {selectedCodexSessionId ? "Reply to selected thread" : "Select a thread to reply"}
-                      </div>
-                      <div className="p-4">
-                        <Textarea
-                          value={replyPrompt}
-                          onChange={(event) => setReplyPrompt(event.target.value)}
-                          placeholder={
-                            selectedCodexSessionId
-                              ? "Continue the selected Codex session"
-                              : "Pick a thread from the left rail before sending a reply"
-                          }
-                          disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
-                          className="min-h-[110px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                        />
-                        <div className="mt-4 flex items-center justify-between gap-3">
-                          <p className="text-xs text-muted-foreground">
-                            Messages sent here continue the same local Codex session id.
-                          </p>
-                          <Button
-                            onClick={() => void handleReplyToCodexSession()}
-                            disabled={!selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply"}
-                            className="rounded-xl"
-                          >
-                            {codexMutationPending === "reply" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                            {codexMutationPending === "reply" ? "Sending…" : "Send message"}
-                          </Button>
-                        </div>
-                      </div>
+                <div className="border-t border-border/60 bg-background/92 px-4 py-4 backdrop-blur md:px-6">
+                  {codexMutationError ? (
+                    <div className="mb-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                      {codexMutationError}
                     </div>
-                  </div>
-                </section>
+                  ) : null}
 
-                <aside className="overflow-y-auto bg-background/95">
-                  <div className="space-y-5 p-4">
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Inspector</p>
+                  <div className="rounded-[28px] border border-border/60 bg-background/96 p-4 shadow-sm">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {selectedCodexSessionId ? "Reply" : "Reply disabled"}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        Session metadata stays visible here so the conversation pane remains uncluttered.
+                        {selectedCodexSessionId
+                          ? "Continue the selected Codex session."
+                          : "Select a thread from the left rail before sending a reply."}
                       </p>
                     </div>
 
-                    <div className="space-y-3 rounded-[22px] border border-border/60 bg-muted/[0.14] p-4">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">State</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {codexMutationPending
-                            ? "Turn executing"
-                            : activeCodexSession
-                              ? "Attached to selected shared thread"
-                              : "Waiting for thread selection"}
+                    <div className="mt-4 space-y-4">
+                      <Textarea
+                        value={replyPrompt}
+                        onChange={(event) => setReplyPrompt(event.target.value)}
+                        placeholder={
+                          selectedCodexSessionId
+                            ? "Continue the selected Codex session"
+                            : "Pick a thread from the left rail before sending a reply"
+                        }
+                        disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
+                        className="min-h-[124px] resize-none border-0 bg-transparent px-0 text-sm leading-6 shadow-none focus-visible:ring-0"
+                      />
+
+                      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                          Messages sent here continue the same local Codex session id and stay visible in the shared
+                          `.codex` history.
                         </p>
-                      </div>
-                      <div className="grid gap-3">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
-                          <p className="mt-1 text-sm text-foreground">{activeCodexSession?.model ?? "Unknown"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Updated</p>
-                          <p className="mt-1 text-sm text-foreground">{formatTimestamp(activeCodexSession?.updatedAt ?? null)}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 rounded-[22px] border border-border/60 p-4">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        <FolderTree className="h-3.5 w-3.5" />
-                        Working context
-                      </div>
-                      <div className="space-y-3 text-sm">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Cwd</p>
-                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.cwd ?? "Unavailable"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session id</p>
-                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.sessionId ?? "No thread selected"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Transcript path</p>
-                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.transcriptPath ?? "Resolved from local Codex store on demand"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">CLI version</p>
-                          <p className="mt-1 text-foreground">{activeCodexSession?.cliVersion ?? "Unknown"}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 rounded-[22px] border border-border/60 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider snapshot</p>
-                      <div className="space-y-3 text-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Codex latest</span>
-                          <span className="text-right text-foreground">{formatTimestamp(codexSummary.latestUpdatedAt)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Codex with cwd</span>
-                          <span className="text-foreground">{formatInt(codexSummary.withCwd)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Codex with preview</span>
-                          <span className="text-foreground">{formatInt(codexSummary.withPreview)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Visible threads</span>
-                          <span className="text-foreground">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Project groups</span>
-                          <span className="text-foreground">{formatInt(codexSessionGroups.length)}</span>
-                        </div>
+                        <Button
+                          onClick={() => void handleReplyToCodexSession()}
+                          disabled={!selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply"}
+                          className="h-11 rounded-2xl px-5 transition-transform duration-200 motion-safe:hover:-translate-y-0.5"
+                        >
+                          {codexMutationPending === "reply" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {codexMutationPending === "reply" ? "Sending…" : "Send message"}
+                        </Button>
                       </div>
                     </div>
                   </div>
-                </aside>
-              </div>
+                </div>
+              </section>
+
+              <aside className="overflow-y-auto border-t border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98))] xl:col-span-2 2xl:col-span-1 2xl:border-t-0 2xl:border-l">
+                <div className="space-y-6 p-4 md:p-5">
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Inspector</p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      Session state, machine context, and metadata stay visible here while the transcript remains the
+                      primary surface.
+                    </p>
+                  </section>
+
+                  <section className="rounded-[28px] border border-border/60 bg-background/82 p-4">
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">State</p>
+                        <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                          {codexMutationPending
+                            ? "Turn executing"
+                            : activeCodexSession
+                              ? "Attached to selected thread"
+                              : "Waiting for thread selection"}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-1">
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+                          <p className="text-sm leading-6 text-foreground">{activeCodexSession?.model ?? "Unknown"}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Updated</p>
+                          <p className="text-sm leading-6 text-foreground">{formatTimestamp(activeCodexSession?.updatedAt ?? null)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[28px] border border-border/60 bg-background/82 p-4">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <FolderTree className="h-3.5 w-3.5" />
+                      Working context
+                    </div>
+                    <div className="mt-4 space-y-4">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Cwd</p>
+                        <p className="break-words text-sm leading-6 text-foreground">{activeCodexSession?.cwd ?? "Unavailable"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session id</p>
+                        <p className="break-words text-sm leading-6 text-foreground">
+                          {activeCodexSession?.sessionId ?? "No thread selected"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Transcript path</p>
+                        <p className="break-words text-sm leading-6 text-foreground">
+                          {activeCodexSession?.transcriptPath ?? "Resolved from the local Codex store on demand"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">CLI version</p>
+                        <p className="text-sm leading-6 text-foreground">{activeCodexSession?.cliVersion ?? "Unknown"}</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[28px] border border-border/60 bg-background/82 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider snapshot</p>
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-start justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">Codex latest</span>
+                        <span className="max-w-[11rem] text-right leading-6 text-foreground">
+                          {formatTimestamp(codexSummary.latestUpdatedAt)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">With cwd</span>
+                        <span className="text-foreground">{formatInt(codexSummary.withCwd)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">With preview</span>
+                        <span className="text-foreground">{formatInt(codexSummary.withPreview)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">Visible threads</span>
+                        <span className="text-foreground">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">Project groups</span>
+                        <span className="text-foreground">{formatInt(codexSessionGroups.length)}</span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </aside>
             </div>
+          </div>
         </div>
       ) : null}
 
