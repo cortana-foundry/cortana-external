@@ -592,27 +592,56 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
     return null;
   }
 
-  const [mirroredResult, fileResult] = await Promise.allSettled([
+  const [mirroredResult, fileResult, indexedResult] = await Promise.allSettled([
     getCodexMirroredSessionDetail(sessionId),
     getCodexSessionDetail(sessionId),
+    listCodexSessionIndexSummariesById([sessionId]),
   ]);
 
   const mirrored = mirroredResult.status === "fulfilled" ? mirroredResult.value : null;
   const fileBacked = fileResult.status === "fulfilled" ? fileResult.value : null;
+  const indexed = indexedResult.status === "fulfilled"
+    ? indexedResult.value.find((session) => session.sessionId === sessionId) ?? null
+    : null;
+
+  if (!mirrored && !fileBacked && !indexed) {
+    return null;
+  }
 
   if (!mirrored && !fileBacked) {
     return null;
   }
 
   if (!mirrored) {
-    return fileBacked;
+    const detail = fileBacked
+      ? {
+          ...mergeSessionSummary(fileBacked, indexed) ?? fileBacked,
+          events: fileBacked.events,
+        }
+      : null;
+    if (detail) {
+      await syncCodexMirrorThreadFromSession(detail);
+    }
+    return detail;
   }
 
   if (!fileBacked) {
-    return mirrored;
+    const detail = mirrored
+      ? {
+          ...mergeSessionSummary(mirrored, indexed) ?? mirrored,
+          events: mirrored.events,
+        }
+      : null;
+    if (detail) {
+      await syncCodexMirrorThreadFromSession(detail);
+    }
+    return detail;
   }
 
-  const summary = mergeSessionSummary(fileBacked, mirrored) ?? mirrored;
+  const summary = mergeSessionSummary(
+    mergeSessionSummary(fileBacked, mirrored),
+    indexed,
+  ) ?? mirrored;
   const events = mergeSessionEvents(fileBacked.events, mirrored.events);
 
   const detail = {

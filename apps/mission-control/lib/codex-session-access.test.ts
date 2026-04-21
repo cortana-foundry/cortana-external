@@ -569,4 +569,57 @@ describe("getVisibleCodexSessionDetail", () => {
     });
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(session);
   });
+
+  it("prefers the indexed session title when mirrored detail keeps a long raw prompt", async () => {
+    codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("active");
+    codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce({
+      sessionId: "poly",
+      threadName:
+        "Read this PRD first: /Users/hd/Developer/cortana/docs/prd-polymarket-market-intelligence.md\nI want you to implement this in TypeScript inside the `cortana-external` repository.",
+      updatedAt: 300,
+      cwd: "/Users/hd/Developer/cortana-external",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.122.0",
+      lastMessagePreview: "mirror preview",
+      transcriptPath: "/tmp/poly-mirror.jsonl",
+      events: [],
+    });
+    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "poly",
+      threadName:
+        "Read this PRD first: /Users/hd/Developer/cortana/docs/prd-polymarket-market-intelligence.md",
+      updatedAt: 200,
+      cwd: "/Users/hd/Developer/cortana-external",
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: null,
+      transcriptPath: "/tmp/poly-file.jsonl",
+      events: [],
+    });
+    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([
+      {
+        sessionId: "poly",
+        threadName: "Add Polymarket intelligence layer",
+        updatedAt: 100,
+        cwd: "/Users/hd/Developer/cortana-external",
+        model: null,
+        source: null,
+        cliVersion: null,
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+
+    const session = await getVisibleCodexSessionDetail("poly");
+
+    expect(session).toEqual(
+      expect.objectContaining({
+        sessionId: "poly",
+        threadName: "Add Polymarket intelligence layer",
+        updatedAt: 300,
+      }),
+    );
+  });
 });
