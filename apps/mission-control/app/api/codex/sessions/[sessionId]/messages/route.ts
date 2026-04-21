@@ -15,6 +15,10 @@ type RequestBody = {
 
 const DEFAULT_CWD = path.resolve(process.cwd(), "..", "..");
 const encoder = new TextEncoder();
+const REPLY_DETAIL_WAIT_OPTIONS = {
+  attempts: 60,
+  delayMs: 250,
+} as const;
 
 function wantsEventStream(request: Request) {
   return request.headers.get("accept")?.includes("text/event-stream") ?? false;
@@ -83,6 +87,25 @@ function buildEventStreamResponse(
   });
 }
 
+async function resolveReplySessionDetail(
+  sessionId: string,
+  priorAssistantCount: number,
+) {
+  try {
+    return await waitForVisibleCodexSessionDetail(sessionId, {
+      ...REPLY_DETAIL_WAIT_OPTIONS,
+      predicate: (candidate) =>
+        candidate.events.filter((event) => event.role === "assistant").length > priorAssistantCount,
+    });
+  } catch {
+    const fallback = await getVisibleCodexSessionDetail(sessionId);
+    if (fallback) {
+      return fallback;
+    }
+    throw new Error(`Codex session ${sessionId} not found`);
+  }
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ sessionId: string }> },
@@ -123,12 +146,7 @@ export async function POST(
         },
       });
 
-      const session = await waitForVisibleCodexSessionDetail(sessionId, {
-        attempts: 20,
-        delayMs: 250,
-        predicate: (candidate) =>
-          candidate.events.filter((event) => event.role === "assistant").length > priorAssistantCount,
-      });
+      const session = await resolveReplySessionDetail(sessionId, priorAssistantCount);
       await upsertCodexMirrorThread({
         sessionId,
         threadName: session.threadName,
@@ -169,12 +187,7 @@ export async function POST(
       },
     });
 
-    const session = await waitForVisibleCodexSessionDetail(sessionId, {
-      attempts: 20,
-      delayMs: 250,
-      predicate: (candidate) =>
-        candidate.events.filter((event) => event.role === "assistant").length > priorAssistantCount,
-    });
+    const session = await resolveReplySessionDetail(sessionId, priorAssistantCount);
     await upsertCodexMirrorThread({
       sessionId,
       threadName: session.threadName,

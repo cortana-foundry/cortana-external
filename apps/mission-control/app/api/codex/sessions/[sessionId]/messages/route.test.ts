@@ -73,7 +73,7 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
     expect(codexSessionAccessMocks.waitForVisibleCodexSessionDetail).toHaveBeenCalledWith(
       "abc",
       expect.objectContaining({
-        attempts: 20,
+        attempts: 60,
         delayMs: 250,
         predicate: expect.any(Function),
       }),
@@ -126,7 +126,7 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
     expect(codexSessionAccessMocks.waitForVisibleCodexSessionDetail).toHaveBeenCalledWith(
       "abc",
       expect.objectContaining({
-        attempts: 20,
+        attempts: 60,
         delayMs: 250,
         predicate: expect.any(Function),
       }),
@@ -178,6 +178,47 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
         ],
       }),
     ).toBe(true);
+  });
+
+  it("falls back to the latest visible detail if assistant hydration lags behind", async () => {
+    codexSessionAccessMocks.getVisibleCodexSessionDetail
+      .mockResolvedValueOnce({
+        sessionId: "abc",
+        threadName: "Brainstorm",
+        cwd: "/Users/hd/Developer/cortana-external",
+        events: [{ id: "assistant-0", role: "assistant", text: "earlier reply" }],
+      })
+      .mockResolvedValueOnce({
+        sessionId: "abc",
+        threadName: "Brainstorm",
+        cwd: "/Users/hd/Developer/cortana-external",
+        events: [
+          { id: "assistant-0", role: "assistant", text: "earlier reply" },
+          { id: "user-1", role: "user", text: "Wait for the reply" },
+        ],
+      });
+    codexAppServerMocks.replyToCodexThread.mockResolvedValueOnce(undefined);
+    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockRejectedValueOnce(
+      new Error("assistant hydration lagged"),
+    );
+    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
+
+    const response = await POST(
+      new Request("http://localhost/api/codex/sessions/abc/messages", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Wait for the reply" }),
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.session.events).toEqual([
+      { id: "assistant-0", role: "assistant", text: "earlier reply" },
+      { id: "user-1", role: "user", text: "Wait for the reply" },
+    ]);
   });
 
   it("rejects empty prompts", async () => {
