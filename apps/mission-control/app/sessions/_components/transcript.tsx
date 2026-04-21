@@ -55,6 +55,13 @@ export function Transcript({
     Boolean(detail) ||
     Boolean(pendingUserEvent) ||
     streamedAssistantEvents.length > 0;
+  const shouldRenderPendingUserEvent = Boolean(
+    pendingUserEvent
+    && !detail?.events.some((event) =>
+      event.role === "user"
+      && event.text.trim() === pendingUserEvent.text.trim(),
+    ),
+  );
 
   const eventCount = detail?.events.length ?? 0;
   const pendingId = pendingUserEvent?.id ?? null;
@@ -261,7 +268,7 @@ export function Transcript({
           );
         })}
 
-        {pendingUserEvent ? (
+        {shouldRenderPendingUserEvent && pendingUserEvent ? (
           <MessageBlock
             key={pendingUserEvent.id}
             role="user"
@@ -289,7 +296,7 @@ export function Transcript({
           if (idx === 0) {
             // First streamed event: check against last saved or pending event
             const lastSavedEvent = windowedEvents[windowedEvents.length - 1];
-            const lastEvent = pendingUserEvent || lastSavedEvent;
+            const lastEvent = shouldRenderPendingUserEvent ? (pendingUserEvent || lastSavedEvent) : lastSavedEvent;
 
             if (!lastEvent) {
               showHeader = true;

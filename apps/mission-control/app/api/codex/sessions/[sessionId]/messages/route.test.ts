@@ -40,6 +40,7 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
       sessionId: "abc",
       threadName: "Brainstorm",
       cwd: "/Users/hd/Developer/cortana-external",
+      events: [{ id: "assistant-0", role: "assistant", text: "earlier reply" }],
     });
     codexAppServerMocks.replyToCodexThread.mockResolvedValueOnce(undefined);
     codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
@@ -69,6 +70,14 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
         onNotification: expect.any(Function),
       }),
     );
+    expect(codexSessionAccessMocks.waitForVisibleCodexSessionDetail).toHaveBeenCalledWith(
+      "abc",
+      expect.objectContaining({
+        attempts: 20,
+        delayMs: 250,
+        predicate: expect.any(Function),
+      }),
+    );
     expect(payload.session.sessionId).toBe("abc");
   });
 
@@ -77,6 +86,7 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
       sessionId: "abc",
       threadName: "Brainstorm",
       cwd: "/Users/hd/Developer/cortana-external",
+      events: [{ id: "assistant-0", role: "assistant", text: "earlier reply" }],
     });
     codexAppServerMocks.replyToCodexThread.mockImplementationOnce(async (_threadId, _prompt, _cwd, options) => {
       options?.onEvent?.({
@@ -113,10 +123,61 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
         onNotification: expect.any(Function),
       }),
     );
+    expect(codexSessionAccessMocks.waitForVisibleCodexSessionDetail).toHaveBeenCalledWith(
+      "abc",
+      expect.objectContaining({
+        attempts: 20,
+        delayMs: 250,
+        predicate: expect.any(Function),
+      }),
+    );
     expect(body).toContain("event: ready");
     expect(body).toContain("event: codex_event");
     expect(body).toContain("streamed reply");
     expect(body).toContain("event: done");
+  });
+
+  it("waits for a new assistant event before returning detail", async () => {
+    codexSessionAccessMocks.getVisibleCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "Brainstorm",
+      cwd: "/Users/hd/Developer/cortana-external",
+      events: [{ id: "assistant-0", role: "assistant", text: "earlier reply" }],
+    });
+    codexAppServerMocks.replyToCodexThread.mockResolvedValueOnce(undefined);
+    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      events: [{ id: "assistant-1", role: "assistant", text: "new reply" }],
+    });
+    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
+
+    await POST(
+      new Request("http://localhost/api/codex/sessions/abc/messages", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Wait for the reply" }),
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+
+    const [, options] = codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mock.calls[0];
+    expect(options.predicate({ sessionId: "abc", events: [] })).toBe(false);
+    expect(
+      options.predicate({
+        sessionId: "abc",
+        events: [{ id: "assistant-0", role: "assistant", text: "earlier reply" }],
+      }),
+    ).toBe(false);
+    expect(
+      options.predicate({
+        sessionId: "abc",
+        events: [
+          { id: "assistant-0", role: "assistant", text: "earlier reply" },
+          { id: "assistant-1", role: "assistant", text: "new reply" },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("rejects empty prompts", async () => {

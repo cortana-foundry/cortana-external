@@ -101,6 +101,51 @@ describe("Transcript", () => {
     expect(blocks[0]).toHaveTextContent("queued msg");
   });
 
+  it("does not duplicate a pending user event once the durable message is already present", () => {
+    render(
+      <Transcript
+        detail={{
+          sessionId: "s1",
+          threadName: "Thread",
+          updatedAt: 1,
+          cwd: null,
+          model: null,
+          source: null,
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+          events: [
+            {
+              id: "e1",
+              role: "user",
+              text: "I am testing this chat from mission control",
+              timestamp: 1,
+              phase: null,
+              rawType: "user.message",
+            },
+          ],
+        }}
+        pendingUserEvent={{
+          id: "pending",
+          role: "user",
+          text: "I am testing this chat from mission control",
+          timestamp: null,
+          phase: null,
+          rawType: "user.pending",
+        }}
+        streamedAssistantEvents={[]}
+        loading={false}
+        streaming={false}
+        rootPath={null}
+      />,
+    );
+
+    const blocks = screen.getAllByTestId("block-user");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toHaveTextContent("I am testing this chat from mission control");
+    expect(blocks[0]).not.toHaveAttribute("data-variant", "pending");
+  });
+
   it("renders streamed assistant events in streaming variant", () => {
     render(
       <Transcript

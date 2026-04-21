@@ -451,23 +451,15 @@ export default function SessionsPage() {
 
     setCodexMutationPending("reply");
     setCodexMutationError(null);
+    setReplyPrompt("");
     setStreamedAssistantEvents([]);
-    setSelectedCodexSession((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        events: [
-          ...current.events,
-          {
-            id: `pending-reply-${Date.now()}`,
-            role: "user",
-            text: prompt,
-            timestamp: Date.now(),
-            phase: "submitted",
-            rawType: "user.pending",
-          },
-        ],
-      };
+    setPendingCodexUserEvent({
+      id: `pending-reply-${Date.now()}`,
+      role: "user",
+      text: prompt,
+      timestamp: Date.now(),
+      phase: "submitted",
+      rawType: "user.pending",
     });
     try {
       const response = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
@@ -487,10 +479,12 @@ export default function SessionsPage() {
       await consumeCodexStream(response, async (session) => {
         await refreshCodexSessions(session.sessionId, session);
         setSelectedCodexSession(session);
+        setPendingCodexUserEvent(null);
         setStreamedAssistantEvents([]);
       });
-      setReplyPrompt("");
     } catch (err) {
+      setReplyPrompt(prompt);
+      setPendingCodexUserEvent(null);
       void loadCodexSessionDetail(selectedCodexSessionId);
       setStreamedAssistantEvents([]);
       setCodexMutationError(err instanceof Error ? err.message : "Failed to send message to Codex session");

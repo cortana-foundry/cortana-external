@@ -652,16 +652,21 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
 
 export async function waitForVisibleCodexSessionDetail(
   sessionId: string,
-  options: { attempts?: number; delayMs?: number } = {},
+  options: {
+    attempts?: number;
+    delayMs?: number;
+    predicate?: (session: CodexSessionDetail) => boolean;
+  } = {},
 ): Promise<CodexSessionDetail> {
   const attempts = options.attempts ?? 5;
   const delayMs = options.delayMs ?? 150;
+  const predicate = options.predicate;
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const session = await getVisibleCodexSessionDetail(sessionId);
-      if (session) return session;
+      if (session && (!predicate || predicate(session))) return session;
       throw new Error(`Codex session ${sessionId} not found`);
     } catch (error) {
       lastError = error;

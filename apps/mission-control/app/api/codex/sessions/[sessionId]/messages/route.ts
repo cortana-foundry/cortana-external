@@ -101,6 +101,7 @@ export async function POST(
       if (!existing) {
         throw new Error(`Codex session ${sessionId} not found`);
       }
+      const priorAssistantCount = existing.events.filter((event) => event.role === "assistant").length;
 
       await upsertCodexMirrorThread({
         sessionId,
@@ -122,7 +123,12 @@ export async function POST(
         },
       });
 
-      const session = await waitForVisibleCodexSessionDetail(sessionId);
+      const session = await waitForVisibleCodexSessionDetail(sessionId, {
+        attempts: 20,
+        delayMs: 250,
+        predicate: (candidate) =>
+          candidate.events.filter((event) => event.role === "assistant").length > priorAssistantCount,
+      });
       await upsertCodexMirrorThread({
         sessionId,
         threadName: session.threadName,
@@ -143,6 +149,7 @@ export async function POST(
     if (!existing) {
       throw new Error(`Codex session ${sessionId} not found`);
     }
+    const priorAssistantCount = existing.events.filter((event) => event.role === "assistant").length;
 
     await upsertCodexMirrorThread({
       sessionId,
@@ -162,7 +169,12 @@ export async function POST(
       },
     });
 
-    const session = await waitForVisibleCodexSessionDetail(sessionId);
+    const session = await waitForVisibleCodexSessionDetail(sessionId, {
+      attempts: 20,
+      delayMs: 250,
+      predicate: (candidate) =>
+        candidate.events.filter((event) => event.role === "assistant").length > priorAssistantCount,
+    });
     await upsertCodexMirrorThread({
       sessionId,
       threadName: session.threadName,
