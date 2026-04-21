@@ -1,13 +1,17 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const DEFAULT_CODEX_ROOT = path.join(os.homedir(), ".codex");
 const DEFAULT_SESSION_INDEX_PATH = path.join(DEFAULT_CODEX_ROOT, "session_index.jsonl");
 const DEFAULT_SESSIONS_ROOT = path.join(DEFAULT_CODEX_ROOT, "sessions");
 const DEFAULT_ARCHIVED_ROOT = path.join(DEFAULT_CODEX_ROOT, "archived_sessions");
+const DEFAULT_CODEX_STATE_DB_PATH = path.join(DEFAULT_CODEX_ROOT, "state_5.sqlite");
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const execFileAsync = promisify(execFile);
 
 export type CodexSessionSummary = {
   sessionId: string;
@@ -64,6 +68,17 @@ type UnindexedCodexSession = {
   transcriptPath: string;
 };
 
+type CodexStateThreadRow = {
+  id: string;
+  title: string | null;
+  cwd: string | null;
+  source: string | null;
+  cli_version: string | null;
+  model: string | null;
+  rollout_path: string | null;
+  updated_at_ms: number | null;
+};
+
 function truncatePreview(value: string, maxLength = 160): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
@@ -88,6 +103,10 @@ function parseString(value: unknown): string | null {
 function clampLimit(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_LIMIT;
   return Math.min(Math.floor(value), MAX_LIMIT);
+}
+
+function escapeSqlLiteral(value: string) {
+  return value.replaceAll("'", "''");
 }
 
 function parseJsonLine(rawLine: string): Record<string, unknown> | null {
@@ -143,6 +162,58 @@ export async function listCodexSessionIndexSummaries(
       lastMessagePreview: null,
       transcriptPath: null,
     }));
+}
+
+export async function listCodexStateThreadSummaries(
+  options: { limit?: number | null; stateDbPath?: string } = {},
+): Promise<CodexSessionSummary[]> {
+  const limit = clampLimit(options.limit);
+  const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
+
+  try {
+    const { stdout } = await execFileAsync(
+      "sqlite3",
+      [
+        "-json",
+        stateDbPath,
+        `
+          SELECT
+            id,
+            title,
+            cwd,
+            source,
+            cli_version,
+            model,
+            rollout_path,
+            COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
+          FROM threads
+          WHERE archived = 0
+          ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC
+          LIMIT ${escapeSqlLiteral(String(limit))}
+        `,
+      ],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+
+    if (!stdout.trim()) {
+      return [];
+    }
+
+    const rows = JSON.parse(stdout) as CodexStateThreadRow[];
+    return rows.map((row) => ({
+      sessionId: parseString(row.id) ?? "",
+      threadName: parseString(row.title),
+      updatedAt: parseTimestamp(row.updated_at_ms),
+      cwd: parseString(row.cwd),
+      model: parseString(row.model),
+      source: parseString(row.source),
+      cliVersion: parseString(row.cli_version),
+      lastMessagePreview: null,
+      transcriptPath: parseString(row.rollout_path),
+    })).filter((row) => row.sessionId.length > 0);
+  } catch {
+    return [];
+  }
 }
 
 export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {

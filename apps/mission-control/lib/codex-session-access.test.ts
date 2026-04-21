@@ -13,6 +13,7 @@ const codexMirrorMocks = vi.hoisted(() => ({
 const codexSessionMocks = vi.hoisted(() => ({
   getCodexSessionDetail: vi.fn(),
   listCodexSessionIndexSummaries: vi.fn(),
+  listCodexStateThreadSummaries: vi.fn(),
   listCodexSessions: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ vi.mock("@/lib/codex-mirror", () => ({
 vi.mock("@/lib/codex-sessions", () => ({
   getCodexSessionDetail: codexSessionMocks.getCodexSessionDetail,
   listCodexSessionIndexSummaries: codexSessionMocks.listCodexSessionIndexSummaries,
+  listCodexStateThreadSummaries: codexSessionMocks.listCodexStateThreadSummaries,
   listCodexSessions: codexSessionMocks.listCodexSessions,
 }));
 
@@ -188,6 +190,7 @@ describe("listVisibleCodexSessions", () => {
     vi.clearAllMocks();
     codexMirrorMocks.listCodexMirroredSessions.mockResolvedValue([]);
     codexMirrorMocks.syncCodexMirrorThreadFromSession.mockResolvedValue(undefined);
+    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValue([]);
   });
 
   it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
@@ -222,6 +225,7 @@ describe("listVisibleCodexSessions", () => {
     const result = await listVisibleCodexSessions(10);
 
     expect(codexSessionMocks.listCodexSessionIndexSummaries).toHaveBeenCalledWith({ limit: 50 });
+    expect(codexSessionMocks.listCodexStateThreadSummaries).toHaveBeenCalledWith({ limit: 50 });
     expect(result.sessions).toEqual([
       {
         sessionId: "abc",
@@ -237,6 +241,47 @@ describe("listVisibleCodexSessions", () => {
     ]);
     expect(result.totalVisibleSessions).toBe(1);
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
+  });
+
+  it("includes active sessions that exist only in the Codex state database", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "stale",
+        threadName: "testing from mission control",
+        updatedAt: 100,
+        cwd: repoRoot,
+        model: null,
+        source: "exec",
+        cliVersion: null,
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "fresh",
+        threadName: "Locate backtester v8-v10 PRDs",
+        updatedAt: 500,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: null,
+        transcriptPath: "/tmp/fresh.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh", "stale"]);
+    expect(result.sessions[0]).toEqual(
+      expect.objectContaining({
+        sessionId: "fresh",
+        threadName: "Locate backtester v8-v10 PRDs",
+        updatedAt: 500,
+      }),
+    );
   });
 });
 

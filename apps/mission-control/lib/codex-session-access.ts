@@ -14,6 +14,7 @@ import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from 
 import {
   getCodexSessionDetail,
   listCodexSessionIndexSummaries,
+  listCodexStateThreadSummaries,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -470,14 +471,19 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
     safeLimit,
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
-  const [indexedSessions, mirroredSessions, sidebarState] = await Promise.all([
+  const [indexedSessions, mirroredSessions, stateSessions, sidebarState] = await Promise.all([
     listCodexSessionIndexSummaries({ limit: discoveryLimit }),
     listCodexMirroredSessions(discoveryLimit),
+    listCodexStateThreadSummaries({ limit: discoveryLimit }),
     readCodexDesktopSidebarState(),
   ]);
   const merged = new Map(indexedSessions.map((session) => [session.sessionId, session] as const));
 
   for (const session of mirroredSessions) {
+    merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
+  }
+
+  for (const session of stateSessions) {
     merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
   }
 
