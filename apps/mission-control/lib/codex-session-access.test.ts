@@ -886,4 +886,63 @@ describe("getVisibleCodexSessionDetail", () => {
       },
     ]);
   });
+
+  it("dedupes mirrored and file-backed user messages with the same text even if raw types differ", async () => {
+    codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("active");
+    codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "Mirror title",
+      updatedAt: 200,
+      cwd: "/tmp/workspace",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "mirror preview",
+      transcriptPath: "/tmp/mirror.jsonl",
+      events: [
+        {
+          id: "mirror-user-1",
+          role: "user",
+          text: "Again I am testing from mission control",
+          timestamp: 1_003,
+          phase: null,
+          rawType: "user_message",
+        },
+      ],
+    });
+    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "abc",
+      threadName: "File title",
+      updatedAt: 150,
+      cwd: "/tmp/workspace",
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: "file preview",
+      transcriptPath: "/tmp/file.jsonl",
+      events: [
+        {
+          id: "file-user-1",
+          role: "user",
+          text: "Again I am testing from mission control",
+          timestamp: 1_001,
+          phase: "submitted",
+          rawType: "message",
+        },
+      ],
+    });
+
+    const session = await getVisibleCodexSessionDetail("abc");
+
+    expect(session?.events).toEqual([
+      {
+        id: "file-user-1",
+        role: "user",
+        text: "Again I am testing from mission control",
+        timestamp: 1_001,
+        phase: "submitted",
+        rawType: "message",
+      },
+    ]);
+  });
 });

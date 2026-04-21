@@ -507,13 +507,23 @@ function mergeSessionEvents(
 ) {
   const DUPLICATE_WINDOW_MS = 5_000;
   const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
-  const signatureFor = (event: CodexSessionEvent) =>
-    [
+  const signatureFor = (event: CodexSessionEvent) => {
+    const normalizedText = normalizeText(event.text);
+
+    if (event.role === "user") {
+      return [
+        event.role,
+        normalizedText,
+      ].join("|");
+    }
+
+    return [
       event.role,
       event.rawType,
       event.phase ?? "",
-      normalizeText(event.text),
+      normalizedText,
     ].join("|");
+  };
 
   const dedupeKeyFor = (event: CodexSessionEvent) => {
     const timestampBucket = event.timestamp == null
