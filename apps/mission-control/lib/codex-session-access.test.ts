@@ -183,6 +183,67 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.totalVisibleSessions).toBe(1);
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context"]);
   });
+
+  it("prioritizes interactive vscode sessions ahead of exec sessions within a workspace", () => {
+    const repoRoot = "/Users/hd/Developer/cortana-external";
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "exec-session",
+          threadName: "testing from mission control",
+          updatedAt: 500,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "exec",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/tmp/exec.jsonl",
+        },
+        {
+          sessionId: "interactive-session",
+          threadName: "Locate backtester v8-v10 PRDs",
+          updatedAt: 400,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/tmp/interactive.jsonl",
+        },
+      ],
+      [
+        {
+          id: "exec-session",
+          title: "testing from mission control",
+          cwd: repoRoot,
+          source: "exec",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 500,
+        },
+        {
+          id: "interactive-session",
+          title: "Locate backtester v8-v10 PRDs",
+          cwd: repoRoot,
+          source: "vscode",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 400,
+        },
+      ],
+      {
+        activeWorkspaceRoots: [repoRoot],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual([
+      "interactive-session",
+      "exec-session",
+    ]);
+  });
 });
 
 describe("listVisibleCodexSessions", () => {

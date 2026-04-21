@@ -158,6 +158,14 @@ function isUtilityCliThread(row: CodexLocalThreadStateRow | null, session: Codex
   return /^[a-z0-9:_-]{1,48}$/i.test(title);
 }
 
+function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  const source = (row?.source ?? session.source ?? "").trim();
+  if (source === "vscode") return 0;
+  if (source === "exec") return 2;
+  if (source === "cli") return 3;
+  return 1;
+}
+
 function shouldExposeSessionInSidebar(
   session: CodexSessionSummary,
   stateRow: CodexLocalThreadStateRow | null,
@@ -325,7 +333,12 @@ export function buildVisibleCodexSessionGroups(
   const orderedGroups = [...grouped.entries()]
     .map(([rootPath, entries]) => {
       const sortedEntries = [...entries].sort(
-        (left, right) => (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0),
+        (left, right) => {
+          const sourceDelta = getSessionSourceRank(left.stateRow, left.session)
+            - getSessionSourceRank(right.stateRow, right.session);
+          if (sourceDelta !== 0) return sourceDelta;
+          return (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0);
+        },
       );
       return {
         rootPath,
