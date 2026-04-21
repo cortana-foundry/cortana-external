@@ -59,6 +59,7 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 - Codex CLI session ids and `session_index.jsonl` remain stable enough to use as a discovery source.
 - The first release can treat raw `.codex` session files as a bootstrap/recovery source while Mission Control DB-backed records become the preferred transcript source.
 - The first release does not need to support every Codex execution mode. It can require a dedicated backend-safe Codex profile/config that does not depend on invisible TTY approval prompts.
+- The first release can restrict browser-submitted execution context to approved workspaces and server-owned attachment handling rather than arbitrary host paths.
 
 ---
 
@@ -110,8 +111,8 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Proposed | As an operator I want to send a new prompt into an existing Codex session from Mission Control so that I can continue the same thread from the web UI. | Backed by `codex exec resume <session_id> --json <prompt>`. |
-| Proposed | As an operator I want to start a brand-new Codex session from Mission Control so that new work can stay in the same operational UI. | Backed by `codex exec --json <prompt>`. |
+| Proposed | As an operator I want to send a new prompt into an existing Codex session from Mission Control so that I can continue the same thread from the web UI. | Backed by `codex exec resume <session_id> --json <prompt>` with a server-selected execution profile. |
+| Proposed | As an operator I want to start a brand-new Codex session from Mission Control so that new work can stay in the same operational UI. | Backed by `codex exec --json <prompt>` with an approved workspace mapping rather than arbitrary browser-provided paths. |
 
 ---
 
@@ -121,6 +122,7 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 |--------|------------|-------|
 | Proposed | As an operator I want to see Codex response items stream into the browser as the turn executes so that Mission Control feels live rather than batch-only. | Stream SSE or WebSocket events sourced from subprocess JSONL. |
 | Proposed | As an operator I want Mission Control to preserve the transcript of Codex work so that session context survives app restarts and can be searched later. | Mirror session/event rows into Mission Control storage. |
+| Proposed | As an operator I want a new-thread run to expose a live browser stream immediately even before the durable Codex session id is known so that the create flow still feels like chat rather than a blocking job submit. | The browser can attach to a transient stream handle first and then pivot to the discovered session id. |
 
 ---
 
@@ -157,7 +159,10 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 5. How should approvals work in a browser-initiated run?
    Recommended answer: Keep approval-heavy flows out of the first release boundary. Require a backend-safe Codex execution profile and fail fast when the requested runtime mode would rely on an invisible TTY approval prompt.
 
-6. Should Mission Control replace the existing OpenClaw Sessions page?
+6. How much execution context should the browser control in v1?
+   Recommended answer: Keep it narrow. Let the browser choose prompt text and an approved workspace identifier, but keep `cwd`, profile selection, and attachment path resolution on the server side.
+
+7. Should Mission Control replace the existing OpenClaw Sessions page?
    Recommended answer: No. Reframe `/sessions` as a session hub with provider-aware tabs or filters so OpenClaw analytics and Codex chat can coexist.
 
 ### Technical Considerations
@@ -165,3 +170,5 @@ Mission Control will become a browser client for Codex CLI by reading recent ses
 - Session discovery should parse `~/.codex/session_index.jsonl` rather than trying to automate the Codex resume picker.
 - Transcript rendering should normalize the JSONL event stream into user/assistant/system/tool events that the UI can render consistently.
 - Long-running turns should use streaming transport from the server to the browser; request/response polling alone will feel broken for active agent work.
+- New-session streaming should be keyed by a transient run/stream identifier until the durable Codex session id is discovered.
+- Server-side execution should map browser requests onto approved workspaces and stable attachment handling rather than accepting raw host paths from the client.

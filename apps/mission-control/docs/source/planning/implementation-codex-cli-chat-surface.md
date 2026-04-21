@@ -46,14 +46,16 @@ Week 4: V5
 
 #### Jira
 
-- Sub-task 1: Add `apps/mission-control/lib/codex-cli.ts` with helpers for locating `codex`, checking auth, spawning `codex exec --json`, and spawning `codex exec resume --json`.
+- Sub-task 1: Add `apps/mission-control/lib/codex-cli.ts` with helpers for locating `codex`, checking auth, resolving approved workspace/profile inputs, spawning `codex exec --json`, and spawning `codex exec resume --json`.
 - Sub-task 2: Normalize JSONL parsing into typed events and map subprocess stderr/exit codes into operator-safe errors.
-- Sub-task 3: Add tests covering happy-path JSONL parsing, malformed lines, subprocess non-zero exit, and missing binary/auth failure handling.
+- Sub-task 3: Add single-active-run guards so browser callers cannot launch overlapping turns against the same Codex session.
+- Sub-task 4: Add tests covering happy-path JSONL parsing, malformed lines, subprocess non-zero exit, and missing binary/auth failure handling.
 
 #### Testing
 
 - JSONL event parsing returns ordered normalized events from real Codex output shapes.
 - Missing `codex` binary or missing auth produces an explicit prerequisite failure.
+- Unsupported browser-supplied execution context is rejected before any subprocess spawn.
 - Non-zero subprocess exits surface an actionable error payload instead of silently returning an empty stream.
 
 ---
@@ -69,13 +71,14 @@ Week 4: V5
 - Sub-task 1: Add a parser for `~/.codex/session_index.jsonl` in `apps/mission-control/lib/codex-session-index.ts`.
 - Sub-task 2: Add transcript backfill/recovery support for `~/.codex/sessions/.../*.jsonl` in `apps/mission-control/lib/codex-transcripts.ts`.
 - Sub-task 3: Add Prisma schema changes and storage helpers for `mc_codex_sessions` and `mc_codex_session_events`.
-- Sub-task 4: Add idempotent sync logic in `apps/mission-control/lib/codex-session-store.ts` so index refresh and transcript backfill can run repeatedly without duplicating events.
+- Sub-task 4: Add source-native record identity tracking so mirrored events dedupe by stable record key rather than ingest order alone.
+- Sub-task 5: Add idempotent sync logic in `apps/mission-control/lib/codex-session-store.ts` so index refresh and transcript backfill can run repeatedly without duplicating events.
 
 #### Testing
 
 - Session index parsing yields stable session ids, titles, and timestamps from real sample lines.
 - Transcript backfill can reconstruct a session from raw `.codex` files after DB rows are removed.
-- Re-running sync does not duplicate events for the same session and event index.
+- Re-running sync does not duplicate events for the same session when the same raw transcript records are replayed in a different ingest order.
 
 ---
 
@@ -91,19 +94,22 @@ Week 4: V5
 
 - Sub-task 1: Add `GET /api/codex/sessions` and `GET /api/codex/sessions/[sessionId]`.
 - Sub-task 2: Add `POST /api/codex/sessions` and `POST /api/codex/sessions/[sessionId]/messages`.
-- Sub-task 3: Add `GET /api/codex/sessions/[sessionId]/stream` using SSE for first-release streaming.
-- Sub-task 4: Ensure active turn events are persisted while they stream so reconnects and page refreshes can recover.
+- Sub-task 3: Add `GET /api/codex/streams/[streamId]` using SSE for first-release streaming and stream lifecycle recovery.
+- Sub-task 4: Emit a lifecycle event that reveals the durable Codex session id during new-session creation as soon as the CLI exposes it.
+- Sub-task 5: Ensure active turn events are persisted while they stream so reconnects and page refreshes can recover.
 
 #### Important Planning Notes
 
 - Prefer SSE before WebSocket to keep the first release simpler and easier to debug with route handlers.
 - Do not proxy raw subprocess stdout directly to the browser without validation; normalize and tag each event first.
+- New-session flows should be stream-first. The browser should connect by `streamId` before a durable session id exists.
 - Reject execution modes that rely on interactive approval prompts until a machine-readable approval path exists.
 
 #### Testing
 
 - List/detail APIs return DB-backed sessions and fall back cleanly when a backfill is required.
 - Create/resume endpoints trigger Codex subprocess execution and stream normalized events.
+- Browser reconnect by `streamId` can recover an active run before the durable `codexSessionId` is known or before the UI has switched routes.
 - Stream completion writes final transcript state and usage telemetry.
 
 ---
@@ -122,12 +128,14 @@ Week 4: V5
 - Sub-task 2: Add a Codex session list with thread name, updated time, cwd, branch, and status.
 - Sub-task 3: Add a transcript panel and composer for new/resumed Codex messages.
 - Sub-task 4: Add UI states for streaming, reconnect, prerequisite errors, and transcript recovery in progress.
+- Sub-task 5: Add client handling for the create-flow handoff from transient `streamId` to durable `codexSessionId`.
 
 #### Testing
 
 - Session list shows Codex rows from API data with stable ordering by update time.
 - Selecting a session loads transcript history and latest usage state.
 - Sending a new prompt shows pending state, streamed assistant messages, and final completion state without page reload.
+- Starting a new thread can render streamed output immediately and then transition cleanly onto the discovered Codex session id without losing in-flight UI state.
 - Resuming a pre-existing Codex session uses the same session id so the turn can be observed from another Codex client reading the same local store after refresh/reopen.
 
 ---
@@ -159,7 +167,7 @@ Week 4: V5
 
 ### V1 before V2
 
-Session persistence needs a stable normalized event model from the Codex subprocess before storage shape and dedupe rules can be finalized.
+Session persistence needs a stable normalized event model and stable source-record identity from the Codex subprocess before storage shape and dedupe rules can be finalized.
 
 ### V2 before V3
 
@@ -200,5 +208,5 @@ Operator validation depends on the full browser flow existing end to end.
 
 ## Realistic Delivery Notes
 
-- **Biggest risks:** approval-mode mismatch for browser-initiated runs, transcript duplication during recovery, and over-coupling the UI to unstable raw Codex event details.
+- **Biggest risks:** approval-mode mismatch for browser-initiated runs, unsafe browser control over execution context, stream bootstrap complexity before session id discovery, and transcript duplication during recovery.
 - **Assumptions:** Codex CLI JSONL output remains stable enough to normalize, local Mission Control deployment can access `~/.codex`, and the first release can exclude interactive approval-heavy flows without blocking the primary operator value.
