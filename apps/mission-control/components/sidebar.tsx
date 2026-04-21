@@ -15,7 +15,6 @@ import {
   Landmark,
   LayoutDashboard,
   MessageCircle,
-  MessagesSquare,
   Play,
   ShieldCheck,
 } from "lucide-react";
@@ -30,7 +29,6 @@ const links = [
   { href: "/services", label: "Services", icon: PlugZap },
   { href: "/trading-ops", label: "Trading Ops", icon: Landmark },
   { href: "/task-board", label: "Task Board", icon: ClipboardList },
-  { href: "/sessions", label: "Sessions", icon: MessagesSquare },
   { href: "/mjolnir", label: "Mjolnir", icon: Dumbbell },
   { href: "/memories", label: "Memories", icon: Brain },
   { href: "/docs", label: "Docs", icon: FileText },

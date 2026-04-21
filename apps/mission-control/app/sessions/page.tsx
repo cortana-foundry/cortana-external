@@ -1,53 +1,250 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { MetadataAccordion } from "./_components/metadata-accordion";
-import { NewThreadEmptyState } from "./_components/new-thread-empty-state";
-import { ReaderHeader } from "./_components/reader-header";
-import { ReplyComposer } from "./_components/reply-composer";
-import { SessionHeader } from "./_components/session-header";
-import { StatusStrip } from "./_components/status-strip";
-import { ThreadInbox } from "./_components/thread-inbox";
-import { ThreadPalette } from "./_components/thread-palette";
-import { Transcript } from "./_components/transcript";
-import { useKeyboardShortcuts } from "./_components/use-keyboard-shortcuts";
-import { useMediaQuery } from "./_components/use-media-query";
-import { useMCCreatedSessions } from "./_components/use-mc-created-sessions";
-import { useThreadReadState } from "./_components/use-thread-read-state";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  getCodexSessionTitle,
-  getCodexStreamError,
-  getCodexStreamSession,
-  getProvisionalThreadName,
-  getStreamedAssistantCompletion,
-  getStreamedAssistantDelta,
-  getStreamedThreadId,
-  mergeCodexSessions,
-  mergeStreamedAssistantEvents,
-  parseCodexSseChunk,
-  summarizeCodexSessions,
-  CODEX_RECONCILE_INTERVAL_MS,
-} from "./_components/stream-helpers";
-import type {
-  CodexSession,
-  CodexSessionDetail,
-  CodexSessionDetailResponse,
-  CodexSessionEvent,
-  CodexSessionGroup,
-  CodexSessionsResponse,
-  StreamingCodexEvent,
-} from "./_components/types";
+  Bot,
+  Clock3,
+  FolderTree,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Sparkles,
+  TerminalSquare,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { formatInt } from "@/lib/format-utils";
+import { cn } from "@/lib/utils";
 
-export {
-  mergeCodexSessions,
-  mergeStreamedAssistantEvents,
-  summarizeCodexSessions,
-} from "./_components/stream-helpers";
+type CodexSession = {
+  sessionId: string;
+  threadName: string | null;
+  updatedAt: number | null;
+  cwd: string | null;
+  model: string | null;
+  source: string | null;
+  cliVersion: string | null;
+  lastMessagePreview: string | null;
+  transcriptPath: string | null;
+};
+
+type CodexSessionGroup = {
+  id: string;
+  label: string;
+  rootPath: string;
+  isActive: boolean;
+  isCollapsed: boolean;
+  sessions: CodexSession[];
+};
+
+type CodexSessionEvent = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number | null;
+  phase: string | null;
+  rawType: string;
+};
+
+type CodexSessionDetail = CodexSession & {
+  events: CodexSessionEvent[];
+};
+
+type StreamingCodexEvent = {
+  id: string;
+  role: "assistant";
+  text: string;
+};
+
+type CodexSessionsResponse = {
+  sessions: CodexSession[];
+  groups: CodexSessionGroup[];
+  latestUpdatedAt: number | null;
+  totalMatchedSessions: number;
+  totalVisibleSessions: number;
+  error?: string;
+};
+type CodexSessionDetailResponse = { session?: CodexSessionDetail; error?: string };
+
+type CodexStreamEnvelope = {
+  event: string;
+  data: unknown;
+};
+
+const CODEX_RECONCILE_INTERVAL_MS = 4_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function parseCodexSseChunk(rawChunk: string): CodexStreamEnvelope | null {
+  const normalized = rawChunk.replace(/\r/g, "");
+  const lines = normalized.split("\n");
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  try {
+    return {
+      event,
+      data: JSON.parse(dataLines.join("\n")),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getCodexStreamError(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+  const error = data.error;
+  if (typeof error === "string" && error.trim().length > 0) return error;
+  const message = data.message;
+  if (typeof message === "string" && message.trim().length > 0) return message;
+  return null;
+}
+
+function getCodexStreamSession(data: unknown): CodexSessionDetail | null {
+  if (!isRecord(data)) return null;
+  const session = data.session;
+  return isRecord(session) ? (session as CodexSessionDetail) : null;
+}
+
+function getStreamedAssistantDelta(data: unknown): { id: string; text: string } | null {
+  if (!isRecord(data) || data.type !== "item.delta") return null;
+  const item = data.item;
+  if (!isRecord(item) || item.type !== "agent_message") return null;
+
+  const id = item.id;
+  const delta = item.delta;
+  if (typeof id !== "string" || id.trim().length === 0) return null;
+  if (typeof delta !== "string" || delta.length === 0) return null;
+
+  return { id, text: delta };
+}
+
+function getStreamedAssistantCompletion(data: unknown): { id: string; text: string } | null {
+  if (!isRecord(data) || data.type !== "item.completed") return null;
+  const item = data.item;
+  if (!isRecord(item) || item.type !== "agent_message") return null;
+
+  const id = item.id;
+  const text = item.text;
+  if (typeof id !== "string" || id.trim().length === 0) return null;
+  if (typeof text !== "string" || text.trim().length === 0) return null;
+
+  return { id, text };
+}
+
+function getStreamedThreadId(data: unknown): string | null {
+  if (!isRecord(data) || data.type !== "thread.started") return null;
+  const threadId = data.thread_id;
+  return typeof threadId === "string" && threadId.trim().length > 0 ? threadId : null;
+}
+
+function formatTimestamp(value: number | null | undefined) {
+  return value ? new Date(value).toLocaleString() : "Unknown";
+}
+
+function formatRelativeTimestamp(value: number | null | undefined) {
+  if (!value) return "Unknown";
+
+  const diffMs = value - Date.now();
+  const diffMinutes = Math.round(diffMs / 60_000);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+  if (Math.abs(diffMinutes) < 60) {
+    return formatter.format(diffMinutes, "minute");
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (Math.abs(diffHours) < 48) {
+    return formatter.format(diffHours, "hour");
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return formatter.format(diffDays, "day");
+}
+
+function getCodexSessionTitle(session: Pick<CodexSession, "threadName" | "sessionId"> | null | undefined) {
+  return session?.threadName?.trim() || "Untitled Codex session";
+}
+
+function getProvisionalThreadName(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Starting new Codex thread";
+  return normalized.length > 72 ? `${normalized.slice(0, 71)}…` : normalized;
+}
+
+export function mergeCodexSessions(
+  sessions: CodexSession[],
+  fallbackSession: CodexSession | null | undefined,
+) {
+  if (!fallbackSession) return sessions;
+
+  const existing = sessions.find((session) => session.sessionId === fallbackSession.sessionId);
+  const merged = existing
+    ? sessions.map((session) =>
+        session.sessionId === fallbackSession.sessionId ? { ...session, ...fallbackSession } : session,
+      )
+    : [fallbackSession, ...sessions];
+
+  return [...merged].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+export function mergeStreamedAssistantEvents(
+  events: StreamingCodexEvent[],
+  nextEvent: StreamingCodexEvent,
+  mode: "append" | "replace",
+) {
+  const existing = events.find((event) => event.id === nextEvent.id);
+  if (!existing) {
+    return [...events, nextEvent];
+  }
+
+  return events.map((event) =>
+    event.id === nextEvent.id
+      ? {
+          ...event,
+          text: mode === "append" ? `${event.text}${nextEvent.text}` : nextEvent.text,
+        }
+      : event,
+  );
+}
+
+export function summarizeCodexSessions(sessions: CodexSession[]) {
+  return sessions.reduce(
+    (acc, session) => {
+      acc.total += 1;
+      if (session.updatedAt && (!acc.latestUpdatedAt || session.updatedAt > acc.latestUpdatedAt)) {
+        acc.latestUpdatedAt = session.updatedAt;
+      }
+      if (session.cwd) acc.withCwd += 1;
+      if (session.lastMessagePreview) acc.withPreview += 1;
+      return acc;
+    },
+    {
+      total: 0,
+      latestUpdatedAt: null as number | null,
+      withCwd: 0,
+      withPreview: 0,
+    }
+  );
+}
 
 export default function SessionsPage() {
+  const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
   const [codexSessionGroups, setCodexSessionGroups] = useState<CodexSessionGroup[]>([]);
   const [codexVisibleTotal, setCodexVisibleTotal] = useState(0);
@@ -66,26 +263,8 @@ export default function SessionsPage() {
   const [codexMutationError, setCodexMutationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [replyTextareaEl, setReplyTextareaEl] = useState<HTMLTextAreaElement | null>(null);
-  const [mobileInboxOpen, setMobileInboxOpen] = useState(false);
-  const [composingNew, setComposingNew] = useState(false);
-  const [threadQuery, setThreadQuery] = useState("");
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  const isDesktop = useMediaQuery("(min-width: 988px)");
-  const prefersHover = useMediaQuery("(hover: hover)");
-
-  const { isUnread, markSeen } = useThreadReadState();
-  const { ids: mcCreatedSessionIds, register: registerMCCreatedSession } = useMCCreatedSessions();
-
   async function fetchCodexSessions() {
-    let url = "/api/codex/sessions";
-    if (mcCreatedSessionIds.length > 0) {
-      const includeIdsParam = mcCreatedSessionIds.join(",");
-      url += `?includeIds=${encodeURIComponent(includeIdsParam)}`;
-    }
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch("/api/codex/sessions", { cache: "no-store" });
     const payload = (await response.json()) as CodexSessionsResponse;
 
     if (!response.ok) {
@@ -346,12 +525,32 @@ export default function SessionsPage() {
     };
   }, [loading, codexMutationPending, selectedCodexSessionId]);
 
+  useEffect(() => {
+    const viewport = transcriptViewportRef.current;
+    if (!viewport) return;
+
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [
+    selectedCodexSessionId,
+    selectedCodexSession?.events.length,
+    streamedAssistantEvents.length,
+    pendingCodexUserEvent?.id,
+  ]);
+
   const visibleCodexSessions = useMemo(
     () => mergeCodexSessions(codexSessions, provisionalCodexSession),
     [codexSessions, provisionalCodexSession],
   );
   const codexSummary = useMemo(() => summarizeCodexSessions(visibleCodexSessions), [visibleCodexSessions]);
   const activeCodexThreadId = selectedCodexSessionId ?? provisionalCodexSession?.sessionId ?? null;
+  const hasCodexTranscriptContent =
+    Boolean(selectedCodexSession) ||
+    Boolean(provisionalCodexSession) ||
+    Boolean(pendingCodexUserEvent) ||
+    streamedAssistantEvents.length > 0;
   const activeCodexSummary =
     activeCodexThreadId
       ? visibleCodexSessions.find((session) => session.sessionId === activeCodexThreadId) ?? null
@@ -398,15 +597,12 @@ export default function SessionsPage() {
       await consumeCodexStream(
         response,
         async (session) => {
-          registerMCCreatedSession(session.sessionId);
           const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
           setProvisionalCodexSession(null);
           setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
           setSelectedCodexSession(session);
           setPendingCodexUserEvent(null);
           setStreamedAssistantEvents([]);
-          setComposingNew(false);
-          setNewCodexPrompt("");
         },
         {
           onThreadStarted: (threadId) => {
@@ -493,255 +689,462 @@ export default function SessionsPage() {
     }
   }
 
-  const focusComposer = useCallback(() => {
-    if (replyTextareaEl) {
-      replyTextareaEl.focus();
-    }
-  }, [replyTextareaEl]);
-
-  const advanceThread = useCallback(
-    (delta: number) => {
-      const list = visibleCodexSessions;
-      if (list.length === 0) return;
-      const currentIndex = list.findIndex((session) => session.sessionId === activeCodexThreadId);
-      const nextIndex =
-        currentIndex === -1
-          ? 0
-          : Math.min(Math.max(currentIndex + delta, 0), list.length - 1);
-      const next = list[nextIndex];
-      if (next) setSelectedCodexSessionId(next.sessionId);
-    },
-    [visibleCodexSessions, activeCodexThreadId],
-  );
-
-  useKeyboardShortcuts({
-    enabled: prefersHover,
-    onFocusComposer: focusComposer,
-    onNextThread: () => advanceThread(1),
-    onPrevThread: () => advanceThread(-1),
-    onOpenPalette: () => setPaletteOpen(true),
-  });
-
-  const workspacePath = codexSessionGroups[0]?.rootPath ?? "Local Codex workspace";
-
-  const statusState = codexMutationPending
-    ? "streaming"
-    : codexError
-      ? "error"
-      : loading
-        ? "offline"
-        : "idle";
-
-  const readerState = codexMutationPending ? "streaming" : codexError ? "error" : "idle";
-
-  const activeRootPath =
-    (activeCodexThreadId
-      ? codexSessionGroups.find((group) =>
-          group.sessions.some((session) => session.sessionId === activeCodexThreadId),
-        )?.rootPath
-      : undefined) ??
-    activeCodexSession?.cwd ??
-    null;
-
-  const previewCount = codexSummary.withPreview;
-  const latestTimestamp = codexLatestUpdatedAt ?? codexSummary.latestUpdatedAt;
-
-  const handleSelectSession = useCallback(
-    (sessionId: string) => {
-      setSelectedCodexSessionId(sessionId);
-      setComposingNew(false);
-      if (!isDesktop) {
-        setMobileInboxOpen(false);
-      }
-      markSeen(sessionId);
-    },
-    [isDesktop, markSeen],
-  );
-
-  const handleStartNewThread = useCallback(() => {
-    setComposingNew(true);
-    setSelectedCodexSessionId(null);
-    setSelectedCodexSession(null);
-    setCodexMutationError(null);
-    setMobileInboxOpen(false);
-  }, []);
-
-  const handleCancelNewThread = useCallback(() => {
-    setComposingNew(false);
-    setNewCodexPrompt("");
-  }, []);
-
-  const activeTitle = activeCodexSession
-    ? getCodexSessionTitle(activeCodexSession)
-    : activeCodexTitle;
-
-  const inboxActionButton = (
-    <Button
-      type="button"
-      onClick={handleStartNewThread}
-      className="w-full justify-center gap-2"
-      size="sm"
-      aria-label="Start a new Codex thread"
-    >
-      <Plus className="h-4 w-4" />
-      <span>New thread</span>
-    </Button>
-  );
-
   return (
-    <div className="flex h-[calc(100svh-8rem)] min-[988px]:h-[calc(100svh-4rem)] flex-col gap-3 sm:gap-4">
-      <SessionHeader mutationPending={codexMutationPending} />
-
-      <StatusStrip
-        workspacePath={workspacePath}
-        threadCount={codexVisibleTotal || visibleCodexSessions.length}
-        projectCount={codexSessionGroups.length}
-        previewCount={previewCount}
-        latestUpdatedAt={latestTimestamp}
-        state={statusState}
-      />
-
-      {codexError ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-        >
-          {codexError}
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Shared local Codex workspace
+            </p>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Sessions</h1>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Review, continue, and launch Codex threads from one bounded workspace that mirrors the local desktop client.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-muted-foreground">
+              <TerminalSquare className="h-3.5 w-3.5" />
+              Shared via <code>~/.codex</code>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-700 dark:text-emerald-300">
+              <Sparkles className="h-3.5 w-3.5" />
+              {codexMutationPending ? "Turn in progress" : "Idle and ready"}
+            </span>
+          </div>
         </div>
-      ) : null}
 
-      {codexMatchedTotal > (codexVisibleTotal || visibleCodexSessions.length) ? (
-        <p className="text-xs text-muted-foreground">
-          Filtered to the project-oriented Codex surface, excluding threads without resolved workspace context.
-        </p>
-      ) : null}
-
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading Codex sessions…</p>
-      ) : (
-        <div className="relative grid min-h-0 flex-1 gap-3 min-[988px]:grid-cols-[22rem_minmax(0,1fr)] 2xl:grid-cols-[26rem_minmax(0,1fr)]">
-          {isDesktop ? (
-            <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-muted/[0.14]">
-              <div className="border-b border-border/60 p-3">{inboxActionButton}</div>
-              <ThreadInbox
-                groups={codexSessionGroups}
-                provisionalSession={provisionalCodexSession}
-                activeSessionId={activeCodexThreadId}
-                onSelectSession={handleSelectSession}
-                density="comfortable"
-                error={null}
-                query={threadQuery}
-                onQueryChange={setThreadQuery}
-                isUnread={isUnread}
-              />
-            </aside>
-          ) : null}
-
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
-            {composingNew ? (
-              <NewThreadEmptyState
-                value={newCodexPrompt}
-                onChange={setNewCodexPrompt}
-                onSubmit={() => void handleCreateCodexSession()}
-                onCancel={handleCancelNewThread}
-                pending={codexMutationPending === "create"}
-              />
-            ) : (
-              <>
-                <ReaderHeader
-                  title={activeTitle}
-                  subtitle={activeCodexSession?.cwd ?? null}
-                  state={readerState}
-                  savedMessageCount={selectedCodexSession?.events.length ?? 0}
-                  updatedAt={activeCodexSession?.updatedAt ?? null}
-                  open={inspectorOpen}
-                  onOpenChange={setInspectorOpen}
-                  onOpenInbox={() => setMobileInboxOpen(true)}
-                  showInboxToggle={!isDesktop}
-                />
-                <MetadataAccordion
-                  open={inspectorOpen}
-                  cwd={activeCodexSession?.cwd ?? null}
-                  sessionId={activeCodexSession?.sessionId ?? null}
-                  transcriptPath={activeCodexSession?.transcriptPath ?? null}
-                  cliVersion={activeCodexSession?.cliVersion ?? null}
-                  model={activeCodexSession?.model ?? null}
-                  updatedAt={activeCodexSession?.updatedAt ?? null}
-                />
-                <div className="flex min-h-0 flex-1 flex-col 2xl:mx-auto 2xl:w-full 2xl:max-w-5xl">
-                  <Transcript
-                    detail={selectedCodexSession}
-                    pendingUserEvent={pendingCodexUserEvent}
-                    streamedAssistantEvents={streamedAssistantEvents}
-                    loading={codexDetailLoading}
-                    streaming={codexMutationPending !== null}
-                    rootPath={activeRootPath}
-                  />
-                  <ReplyComposer
-                    value={replyPrompt}
-                    onChange={setReplyPrompt}
-                    onSubmit={() => void handleReplyToCodexSession()}
-                    pending={codexMutationPending === "reply"}
-                    disabled={!selectedCodexSessionId}
-                    error={codexMutationError}
-                    onKeyboardRegister={setReplyTextareaEl}
-                  />
-                </div>
-              </>
-            )}
-          </section>
-
-          {!isDesktop && mobileInboxOpen ? (
-            <div
-              className="fixed inset-0 z-40 flex bg-foreground/30 backdrop-blur-sm min-[988px]:hidden"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Thread inbox"
-              onClick={() => setMobileInboxOpen(false)}
-            >
-              <div
-                className={cn(
-                  "flex h-full w-[min(20rem,85vw)] flex-col overflow-hidden border-r border-border/60 bg-background shadow-xl",
-                  "transition-transform",
-                )}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Threads
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setMobileInboxOpen(false)}
-                    aria-label="Close thread inbox"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="border-b border-border/60 p-3">{inboxActionButton}</div>
-                <ThreadInbox
-                  groups={codexSessionGroups}
-                  provisionalSession={provisionalCodexSession}
-                  activeSessionId={activeCodexThreadId}
-                  onSelectSession={handleSelectSession}
-                  density="compact"
-                  error={null}
-                  isUnread={isUnread}
-                />
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">
+          <div className="rounded-[24px] border border-border/60 bg-[linear-gradient(135deg,rgba(15,23,42,0.035),rgba(15,23,42,0.01)_55%,transparent)] p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Codex workspace</p>
+                <p className="text-lg font-semibold text-foreground">
+                  {activeCodexSession ? getCodexSessionTitle(activeCodexSession) : "Choose a thread or start one"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {activeCodexSession?.cwd ?? "Mission Control will attach to the local shared Codex session store."}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-background/80 px-3 py-2 text-right">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Visible threads</p>
+                <p className="text-2xl font-semibold">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</p>
               </div>
             </div>
-          ) : null}
-        </div>
-      )}
+          </div>
 
-      <ThreadPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        groups={codexSessionGroups}
-        onSelectSession={handleSelectSession}
-      />
+          {[
+            { label: "Project groups", value: formatInt(codexSessionGroups.length), detail: "workspace clusters" },
+            { label: "With context", value: formatInt(codexSummary.withCwd), detail: "threads with cwd" },
+            { label: "With preview", value: formatInt(codexSummary.withPreview), detail: "threads with transcript summary" },
+          ].map((item) => (
+            <div key={item.label} className="rounded-[24px] border border-border/60 bg-background px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
+              <p className="mt-3 text-2xl font-semibold tracking-tight">{item.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {loading ? <p className="text-sm text-muted-foreground">Loading Codex sessions…</p> : null}
+
+      {!loading ? (
+        <div className="space-y-4">
+            {codexError ? (
+              <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {codexError}
+              </div>
+            ) : null}
+
+            <div className="overflow-hidden rounded-[28px] border border-border/60 bg-background shadow-sm">
+              <div className="grid h-[calc(100svh-14rem)] min-h-[44rem] max-h-[calc(100svh-9rem)] gap-0 lg:grid-cols-[22rem_minmax(0,1fr)_18rem]">
+                <aside className="overflow-y-auto border-b border-border/60 bg-muted/[0.16] lg:border-r lg:border-b-0">
+                  <div className="space-y-4 p-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                        Start new thread
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Launch a fresh Codex session from Mission Control without leaving the shared local state store.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 rounded-[22px] border border-border/60 bg-background/90 p-3">
+                      <Textarea
+                        value={newCodexPrompt}
+                        onChange={(event) => setNewCodexPrompt(event.target.value)}
+                        placeholder="Outline the task, repo, or question for a new Codex thread"
+                        className="min-h-[120px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                      <Button
+                        onClick={() => void handleCreateCodexSession()}
+                        disabled={codexMutationPending === "create" || !newCodexPrompt.trim()}
+                        className="w-full justify-between rounded-xl"
+                      >
+                        <span>{codexMutationPending === "create" ? "Starting thread…" : "Start Codex thread"}</span>
+                        {codexMutationPending === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Project threads</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {formatInt(codexVisibleTotal || visibleCodexSessions.length)} visible in {formatInt(codexSessionGroups.length)} projects
+                          {" · "}
+                          latest {formatRelativeTimestamp(codexLatestUpdatedAt ?? codexSummary.latestUpdatedAt)}
+                        </p>
+                        {codexMatchedTotal > (codexVisibleTotal || visibleCodexSessions.length) ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Filtered to the same project-oriented Codex surface, excluding threads without resolved workspace context.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {!codexError && visibleCodexSessions.length === 0 ? (
+                      <div className="rounded-[22px] border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                        No Codex sessions found.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {provisionalCodexSession ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3 px-1">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                Starting now
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => provisionalCodexSession.sessionId && setSelectedCodexSessionId(provisionalCodexSession.sessionId)}
+                              className="w-full rounded-[22px] border border-foreground/20 bg-background px-4 py-3 text-left shadow-sm"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-foreground">
+                                    {getCodexSessionTitle(provisionalCodexSession)}
+                                  </p>
+                                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                                    {provisionalCodexSession.lastMessagePreview ?? "Waiting for Codex to register the new thread."}
+                                  </p>
+                                </div>
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  live
+                                </span>
+                              </div>
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {codexSessionGroups.map((group) => (
+                          <div key={group.id} className="space-y-2">
+                            <div className="flex items-center justify-between gap-3 px-1">
+                              <div className="min-w-0">
+                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                  {group.label}
+                                </p>
+                                <p className="truncate text-[11px] text-muted-foreground">
+                                  {group.rootPath}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                {group.isActive ? (
+                                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
+                                    active
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              {group.sessions.map((session) => {
+                                const selected = session.sessionId === activeCodexThreadId;
+                                return (
+                                  <button
+                                    key={session.sessionId}
+                                    type="button"
+                                    onClick={() => setSelectedCodexSessionId(session.sessionId)}
+                                    className={cn(
+                                      "w-full rounded-[22px] border px-4 py-3 text-left transition-colors",
+                                      selected
+                                        ? "border-foreground/20 bg-background shadow-sm"
+                                        : "border-transparent bg-transparent hover:border-border/60 hover:bg-background/70",
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-foreground">
+                                          {getCodexSessionTitle(session)}
+                                        </p>
+                                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                                          {session.lastMessagePreview ?? "No transcript preview available yet."}
+                                        </p>
+                                      </div>
+                                      <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                        {session.model ?? "unknown"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                                      <span className="truncate">{session.cwd ?? "cwd unavailable"}</span>
+                                      <span className="shrink-0">{formatRelativeTimestamp(session.updatedAt)}</span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </aside>
+
+                <section className="flex min-h-0 flex-col border-b border-border/60 bg-muted/[0.1] lg:border-r lg:border-b-0">
+                  <div className="border-b border-border/60 bg-background/95 px-5 py-4 backdrop-blur">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-lg font-semibold tracking-tight">{activeCodexTitle}</h2>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                            {codexMutationPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
+                            {codexMutationPending ? "Streaming" : "Shared thread"}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {activeCodexSession?.cwd ?? "Select a thread to inspect the transcript and continue the same session."}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
+                          <MessageSquareText className="h-3.5 w-3.5" />
+                          {formatInt(selectedCodexSession?.events.length ?? 0)} saved messages
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
+                          <Clock3 className="h-3.5 w-3.5" />
+                          {formatRelativeTimestamp(activeCodexSession?.updatedAt ?? null)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    ref={transcriptViewportRef}
+                    className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(248,250,252,0.66)_0%,rgba(248,250,252,0.14)_100%)] px-4 py-5 md:px-6"
+                  >
+                    <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-4">
+                    {codexDetailLoading ? (
+                      <div className="rounded-[22px] border border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
+                        Loading Codex transcript…
+                      </div>
+                    ) : null}
+
+                    {!codexDetailLoading && !hasCodexTranscriptContent ? (
+                      <div className="flex min-h-[42svh] items-center justify-center">
+                        <div className="max-w-md rounded-[28px] border border-dashed border-border/60 bg-background/80 px-6 py-8 text-center">
+                          <p className="text-sm font-semibold text-foreground">No active transcript selected</p>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Choose a thread from the left rail or launch a new one. Mission Control will keep the session aligned with the local Codex client state.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!codexDetailLoading &&
+                    selectedCodexSession &&
+                    selectedCodexSession.events.length === 0 &&
+                    !pendingCodexUserEvent &&
+                    streamedAssistantEvents.length === 0 ? (
+                      <div className="rounded-[22px] border border-dashed border-border/60 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
+                        No transcript messages parsed yet.
+                      </div>
+                    ) : null}
+
+                    {pendingCodexUserEvent ? (
+                      <div className="ml-auto max-w-3xl rounded-[24px] rounded-br-md bg-foreground px-5 py-4 text-sm text-background shadow-sm">
+                        <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-background/70">
+                          <span>You</span>
+                          <span>Queued now</span>
+                        </div>
+                        <p className="mt-3 whitespace-pre-wrap leading-6">{pendingCodexUserEvent.text}</p>
+                      </div>
+                    ) : null}
+
+                    {selectedCodexSession?.events.map((event) => (
+                      <div
+                        key={event.id}
+                        className={cn(
+                          "max-w-3xl rounded-[24px] border px-5 py-4 shadow-sm",
+                          event.role === "assistant"
+                            ? "rounded-bl-md border-border/60 bg-background"
+                            : "ml-auto rounded-br-md border-foreground/5 bg-foreground text-background",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em]",
+                            event.role === "assistant" ? "text-muted-foreground" : "text-background/70",
+                          )}
+                        >
+                          <span>{event.role === "assistant" ? "Codex" : "You"}</span>
+                          <span>{formatTimestamp(event.timestamp)}</span>
+                        </div>
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{event.text}</p>
+                      </div>
+                    ))}
+
+                    {streamedAssistantEvents.map((event) => (
+                      <div key={event.id} className="max-w-3xl rounded-[24px] rounded-bl-md border border-emerald-500/20 bg-emerald-500/[0.07] px-5 py-4 shadow-sm">
+                        <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Codex
+                          </span>
+                          <span>{codexMutationPending ? "Streaming…" : "Pending refresh"}</span>
+                        </div>
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{event.text}</p>
+                      </div>
+                    ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border/60 bg-background/95 px-4 py-4 backdrop-blur md:px-6">
+                    {codexMutationError ? (
+                      <div className="mb-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                        {codexMutationError}
+                      </div>
+                    ) : null}
+                    <div className="rounded-[24px] border border-border/60 bg-background shadow-sm">
+                      <div className="px-4 pt-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {selectedCodexSessionId ? "Reply to selected thread" : "Select a thread to reply"}
+                      </div>
+                      <div className="p-4">
+                        <Textarea
+                          value={replyPrompt}
+                          onChange={(event) => setReplyPrompt(event.target.value)}
+                          placeholder={
+                            selectedCodexSessionId
+                              ? "Continue the selected Codex session"
+                              : "Pick a thread from the left rail before sending a reply"
+                          }
+                          disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
+                          className="min-h-[110px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                        />
+                        <div className="mt-4 flex items-center justify-between gap-3">
+                          <p className="text-xs text-muted-foreground">
+                            Messages sent here continue the same local Codex session id.
+                          </p>
+                          <Button
+                            onClick={() => void handleReplyToCodexSession()}
+                            disabled={!selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply"}
+                            className="rounded-xl"
+                          >
+                            {codexMutationPending === "reply" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            {codexMutationPending === "reply" ? "Sending…" : "Send message"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <aside className="overflow-y-auto bg-background/95">
+                  <div className="space-y-5 p-4">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Inspector</p>
+                      <p className="text-sm text-muted-foreground">
+                        Session metadata stays visible here so the conversation pane remains uncluttered.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 rounded-[22px] border border-border/60 bg-muted/[0.14] p-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">State</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {codexMutationPending
+                            ? "Turn executing"
+                            : activeCodexSession
+                              ? "Attached to selected shared thread"
+                              : "Waiting for thread selection"}
+                        </p>
+                      </div>
+                      <div className="grid gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+                          <p className="mt-1 text-sm text-foreground">{activeCodexSession?.model ?? "Unknown"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Updated</p>
+                          <p className="mt-1 text-sm text-foreground">{formatTimestamp(activeCodexSession?.updatedAt ?? null)}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-[22px] border border-border/60 p-4">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        <FolderTree className="h-3.5 w-3.5" />
+                        Working context
+                      </div>
+                      <div className="space-y-3 text-sm">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Cwd</p>
+                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.cwd ?? "Unavailable"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session id</p>
+                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.sessionId ?? "No thread selected"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Transcript path</p>
+                          <p className="mt-1 break-all text-foreground">{activeCodexSession?.transcriptPath ?? "Resolved from local Codex store on demand"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">CLI version</p>
+                          <p className="mt-1 text-foreground">{activeCodexSession?.cliVersion ?? "Unknown"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-[22px] border border-border/60 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider snapshot</p>
+                      <div className="space-y-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Codex latest</span>
+                          <span className="text-right text-foreground">{formatTimestamp(codexSummary.latestUpdatedAt)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Codex with cwd</span>
+                          <span className="text-foreground">{formatInt(codexSummary.withCwd)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Codex with preview</span>
+                          <span className="text-foreground">{formatInt(codexSummary.withPreview)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Visible threads</span>
+                          <span className="text-foreground">{formatInt(codexVisibleTotal || visibleCodexSessions.length)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Project groups</span>
+                          <span className="text-foreground">{formatInt(codexSessionGroups.length)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+        </div>
+      ) : null}
+
+      {!loading && visibleCodexSessions.length === 0 && !codexError ? (
+        <p className="text-sm text-muted-foreground">No session activity found yet.</p>
+      ) : null}
     </div>
   );
 }

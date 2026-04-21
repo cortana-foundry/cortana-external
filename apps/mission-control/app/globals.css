@@ -628,61 +628,6 @@
 }
 
 @layer utilities {
-  /* ── Sessions route (inbox + reader redesign) ── */
-
-  .project-stripe {
-    border-left-color: var(--project-stripe, oklch(0.72 0 0));
-  }
-
-  .project-tint {
-    background-color: var(--project-tint, oklch(0.72 0 0 / 0.06));
-  }
-
-  @keyframes sessions-blink {
-    0%, 50% {
-      opacity: 1;
-    }
-    51%, 100% {
-      opacity: 0;
-    }
-  }
-
-  .streaming-caret::after {
-    content: "▍";
-    margin-left: 0.15rem;
-    animation: sessions-blink 1s steps(1, end) infinite;
-    color: oklch(0.68 0.2 251);
-    font-weight: 700;
-  }
-
-  .safe-area-pt {
-    padding-top: env(safe-area-inset-top);
-  }
-
-  .safe-area-pb {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .safe-area-pl {
-    padding-left: env(safe-area-inset-left);
-  }
-
-  .safe-area-pr {
-    padding-right: env(safe-area-inset-right);
-  }
-
-  @media (hover: none) {
-    .hover-none\:opacity-60 {
-      opacity: 0.6;
-    }
-
-    .hover-none\:opacity-100 {
-      opacity: 1;
-    }
-  }
-}
-
-@layer utilities {
   .run-card-default {
     @apply border-l-4 border-l-border bg-card;
   }
