@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "./useFocusTrap";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -30,8 +31,11 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const headingId = "confirm-dialog-heading";
   const descriptionId = "confirm-dialog-description";
+
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -74,10 +78,13 @@ export function ConfirmDialog({
         }}
         aria-hidden="true"
       />
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card p-6 shadow-xl">
+      <div
+        ref={dialogRef}
+        className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card p-6 shadow-xl"
+      >
         <h2
           id={headingId}
-          className="text-base font-semibold tracking-[-0.01em] text-foreground"
+          className="text-base font-semibold tracking-tight text-foreground"
         >
           {title}
         </h2>

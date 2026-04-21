@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent, ReactNode, RefObject } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Archive,
@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { MessageContent } from "./MessageContent";
 import type {
   CodexMutationKind,
   CodexSession,
@@ -330,8 +331,8 @@ export function ChatPane({
             </div>
           ) : null}
 
-          {codexDetailLoading ? (
-            <p className="text-center text-sm text-muted-foreground">Loading Codex transcript…</p>
+          {codexDetailLoading && !hasCodexTranscriptContent ? (
+            <TranscriptSkeleton />
           ) : null}
 
           {!codexDetailLoading && !hasCodexTranscriptContent && noSelection ? (
@@ -458,7 +459,7 @@ function MessageGroupView({
   const isUser = group.role === "user";
 
   return (
-    <div className="group">
+    <div className="motion-safe:animate-entrance">
       {group.events.map((event, index) => {
         const firstInGroup = index === 0;
         const lastInGroup = index === group.events.length - 1;
@@ -467,7 +468,7 @@ function MessageGroupView({
           <div
             key={event.id}
             className={cn(
-              "flex gap-3",
+              "group/bubble flex gap-3",
               isUser ? "flex-row-reverse" : "flex-row",
               firstInGroup ? "mt-3" : "mt-0.5",
             )}
@@ -495,9 +496,9 @@ function MessageGroupView({
                 role={group.role}
                 streaming={showStreamingCaret}
                 pending={event.pending}
-              >
-                {event.text}
-              </MessageBubble>
+                text={event.text}
+                isUser={isUser}
+              />
               {lastInGroup && (timestamp || (streamingGroup && streamingInProgress)) ? (
                 <span
                   className={cn(
@@ -520,30 +521,111 @@ function MessageBubble({
   role,
   streaming,
   pending,
-  children,
+  text,
+  isUser,
 }: {
   role: "user" | "assistant";
   streaming?: boolean;
   pending?: boolean;
-  children: ReactNode;
+  text: string;
+  isUser: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const handleCopyText = () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   return (
     <div
       className={cn(
-        "max-w-[85%] px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] shadow-sm md:max-w-full",
+        "relative max-w-[85%] break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm shadow-sm md:max-w-full",
         role === "user"
-          ? "rounded-2xl rounded-tr-sm bg-blue-600 text-white dark:bg-blue-500"
-          : "rounded-2xl rounded-tl-sm border border-border/60 bg-card text-foreground",
+          ? "rounded-2xl rounded-tr-sm bg-blue-600 text-white leading-relaxed whitespace-pre-wrap dark:bg-blue-500"
+          : "rounded-2xl rounded-tl-sm border border-border/60 bg-card text-foreground leading-7",
         pending ? "opacity-70" : null,
+        streaming
+          ? "ring-2 ring-amber-400/40 dark:ring-amber-400/40"
+          : null,
       )}
+      {...(streaming
+        ? { "aria-live": "polite" as const, "aria-atomic": "false" as const }
+        : null)}
     >
-      {children}
+      <button
+        type="button"
+        onClick={handleCopyText}
+        aria-label={copied ? "Copied" : "Copy text"}
+        title={copied ? "Copied" : "Copy text"}
+        className={cn(
+          "absolute top-1.5 inline-flex size-6 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 group-hover/bubble:opacity-100",
+          isUser ? "left-1.5" : "right-1.5",
+        )}
+      >
+        {copied ? (
+          <Check className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+        ) : (
+          <Copy className="h-3 w-3" />
+        )}
+      </button>
+      <MessageContent text={text} variant={role} />
       {streaming ? (
         <span
           aria-hidden="true"
-          className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-foreground/80 align-middle"
+          className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-amber-500 align-middle dark:bg-amber-400"
         />
       ) : null}
+    </div>
+  );
+}
+
+function TranscriptSkeleton() {
+  const rows: Array<{
+    side: "left" | "right";
+    widthClass: string;
+    heightClass: string;
+  }> = [
+    { side: "left", widthClass: "w-[60%]", heightClass: "h-12" },
+    { side: "right", widthClass: "w-[75%]", heightClass: "h-16" },
+    { side: "left", widthClass: "w-[50%]", heightClass: "h-10" },
+  ];
+  return (
+    <div
+      role="status"
+      aria-label="Loading Codex transcript"
+      className="space-y-3"
+    >
+      {rows.map((row, idx) => (
+        <div
+          key={idx}
+          className={cn(
+            "flex",
+            row.side === "right" ? "justify-end" : "justify-start",
+          )}
+        >
+          <div
+            className={cn(
+              "animate-pulse rounded-2xl bg-muted",
+              row.heightClass,
+              row.widthClass,
+              row.side === "right" ? "rounded-tr-sm" : "rounded-tl-sm",
+            )}
+          />
+        </div>
+      ))}
+      <span className="sr-only">Loading Codex transcript…</span>
     </div>
   );
 }

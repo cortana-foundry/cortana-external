@@ -1,12 +1,13 @@
 "use client";
 
-import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatInt } from "@/lib/format-utils";
 import { ChatPane } from "./_components/ChatPane";
 import { ConfirmDialog } from "./_components/ConfirmDialog";
 import { Inspector } from "./_components/Inspector";
 import { SessionList } from "./_components/SessionList";
+import { useFocusTrap } from "./_components/useFocusTrap";
 import type {
   CodexRunStartResponse,
   CodexSession,
@@ -24,6 +25,8 @@ import type {
 const CODEX_RECONCILE_INTERVAL_MS = 4_000;
 const DEFAULT_CODEX_EVENT_PAGE_SIZE = 60;
 const TRANSCRIPT_SCROLL_TOP_FETCH_THRESHOLD_PX = 72;
+const RAIL_COLLAPSED_STORAGE_KEY = "mc-rail-collapsed";
+const LAST_OPENED_STORAGE_KEY = "mc-session-last-opened";
 const START_WORKSPACE_OPTIONS: WorkspaceOption[] = [
   { key: "cortana-external", label: "cortana-external", cwd: "/Users/hd/Developer/cortana-external" },
   { key: "cortana", label: "cortana", cwd: "/Users/hd/Developer/cortana" },
@@ -324,6 +327,80 @@ export default function SessionsPage() {
     | { kind: "delete"; sessionId: string }
     | null
   >(null);
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [focusSearchSignal, setFocusSearchSignal] = useState(0);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [lastOpenedAt, setLastOpenedAt] = useState<Record<string, number>>({});
+  const helpDialogRef = useRef<HTMLDivElement | null>(null);
+
+  useFocusTrap(helpDialogRef, shortcutsHelpOpen);
+
+  // Hydrate rail collapsed + last-opened maps from localStorage once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedCollapsed = window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY);
+      if (storedCollapsed != null) {
+        setRailCollapsed(storedCollapsed === "true");
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const storedOpened = window.localStorage.getItem(LAST_OPENED_STORAGE_KEY);
+      if (storedOpened) {
+        const parsed = JSON.parse(storedOpened);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const filtered: Record<string, number> = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (typeof value === "number" && Number.isFinite(value)) {
+              filtered[key] = value;
+            }
+          }
+          setLastOpenedAt(filtered);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const persistRailCollapsed = (next: boolean) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(RAIL_COLLAPSED_STORAGE_KEY, next ? "true" : "false");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const persistLastOpened = (next: Record<string, number>) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(LAST_OPENED_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const toggleRailCollapsed = useCallback(() => {
+    setRailCollapsed((current) => {
+      const next = !current;
+      persistRailCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const handleSelectCodexSession = useCallback((sessionId: string | null) => {
+    setSelectedCodexSessionId(sessionId);
+    if (sessionId) {
+      setLastOpenedAt((current) => {
+        const next = { ...current, [sessionId]: Date.now() };
+        persistLastOpened(next);
+        return next;
+      });
+    }
+  }, []);
 
   async function fetchCodexSessions() {
     const response = await fetch("/api/codex/sessions", { cache: "no-store" });
@@ -721,6 +798,54 @@ export default function SessionsPage() {
     pendingCodexUserEvent?.id,
   ]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key;
+
+      if (mod && !event.shiftKey && !event.altKey && key.toLowerCase() === "k") {
+        event.preventDefault();
+        setFocusSearchSignal((current) => current + 1);
+        return;
+      }
+
+      if (mod && !event.shiftKey && !event.altKey && key === "\\") {
+        event.preventDefault();
+        toggleRailCollapsed();
+        return;
+      }
+
+      if (mod && !event.shiftKey && !event.altKey && key.toLowerCase() === "n") {
+        event.preventDefault();
+        setNewThreadOpen(true);
+        return;
+      }
+
+      if (!mod && !event.altKey && !event.shiftKey && key === "?" && !isEditable) {
+        event.preventDefault();
+        setShortcutsHelpOpen(true);
+        return;
+      }
+
+      if (key === "Escape" && shortcutsHelpOpen) {
+        event.preventDefault();
+        setShortcutsHelpOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [toggleRailCollapsed, shortcutsHelpOpen]);
+
   const visibleCodexSessions = useMemo(
     () => mergeCodexSessions(codexSessions, provisionalCodexSession),
     [codexSessions, provisionalCodexSession],
@@ -1084,7 +1209,12 @@ export default function SessionsPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="hidden h-full w-72 shrink-0 border-r border-border/60 md:block lg:w-80">
+        <div
+          className={cn(
+            "hidden h-full shrink-0 border-r border-border/60 motion-safe:transition-[width] motion-safe:duration-200 md:block",
+            railCollapsed ? "w-14" : "w-72 lg:w-80",
+          )}
+        >
           <SessionList
             workspaceOptions={START_WORKSPACE_OPTIONS}
             newCodexWorkspaceKey={newCodexWorkspaceKey}
@@ -1103,16 +1233,21 @@ export default function SessionsPage() {
             codexError={codexError}
             provisionalCodexSession={provisionalCodexSession}
             activeCodexThreadId={activeCodexThreadId}
-            setSelectedCodexSessionId={setSelectedCodexSessionId}
+            setSelectedCodexSessionId={handleSelectCodexSession}
             onArchiveSession={requestArchiveSession}
             onDeleteSession={requestDeleteSession}
             formatInt={formatInt}
             formatCompactPath={formatCompactPath}
             formatRelativeTimestamp={formatRelativeTimestamp}
+            formatTimestamp={formatTimestamp}
             getCodexSessionTitle={getCodexSessionTitle}
             newThreadOpen={newThreadOpen}
             onOpenNewThread={() => setNewThreadOpen(true)}
             onCloseNewThread={() => setNewThreadOpen(false)}
+            collapsed={railCollapsed}
+            onToggleCollapsed={toggleRailCollapsed}
+            focusSearchSignal={focusSearchSignal}
+            lastOpenedAt={lastOpenedAt}
           />
         </div>
 
@@ -1153,7 +1288,7 @@ export default function SessionsPage() {
 
       <div
         className={cn(
-          "fixed inset-0 z-40 md:hidden transition-opacity duration-200",
+          "fixed inset-0 z-40 md:hidden motion-safe:transition-opacity motion-safe:duration-200",
           mobileRailOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
         aria-hidden={!mobileRailOpen}
@@ -1170,7 +1305,7 @@ export default function SessionsPage() {
           aria-modal="true"
           aria-label="Threads"
           className={cn(
-            "absolute inset-y-0 left-0 flex h-full w-[82%] max-w-sm flex-col border-r border-border/60 bg-background shadow-xl transition-transform duration-200 ease-out",
+            "absolute inset-y-0 left-0 flex h-full w-[82%] max-w-sm flex-col border-r border-border/60 bg-background shadow-xl motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
             mobileRailOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >
@@ -1192,16 +1327,19 @@ export default function SessionsPage() {
             codexError={codexError}
             provisionalCodexSession={provisionalCodexSession}
             activeCodexThreadId={activeCodexThreadId}
-            setSelectedCodexSessionId={setSelectedCodexSessionId}
+            setSelectedCodexSessionId={handleSelectCodexSession}
             onArchiveSession={requestArchiveSession}
             onDeleteSession={requestDeleteSession}
             formatInt={formatInt}
             formatCompactPath={formatCompactPath}
             formatRelativeTimestamp={formatRelativeTimestamp}
+            formatTimestamp={formatTimestamp}
             getCodexSessionTitle={getCodexSessionTitle}
             newThreadOpen={newThreadOpen}
             onOpenNewThread={() => setNewThreadOpen(true)}
             onCloseNewThread={() => setNewThreadOpen(false)}
+            focusSearchSignal={focusSearchSignal}
+            lastOpenedAt={lastOpenedAt}
           />
         </div>
       </div>
@@ -1243,6 +1381,65 @@ export default function SessionsPage() {
         onConfirm={() => void handleConfirmAction()}
         onCancel={() => setConfirmAction(null)}
       />
+
+      {shortcutsHelpOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-help-heading"
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+        >
+          <button
+            type="button"
+            aria-label="Close keyboard shortcuts"
+            onClick={() => setShortcutsHelpOpen(false)}
+            className="absolute inset-0 cursor-default bg-foreground/30 backdrop-blur-sm"
+          />
+          <div
+            ref={helpDialogRef}
+            className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card p-6 shadow-xl"
+          >
+            <h2
+              id="shortcuts-help-heading"
+              className="text-base font-semibold tracking-tight text-foreground"
+            >
+              Keyboard shortcuts
+            </h2>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Available anywhere in Mission Control.
+            </p>
+            <dl className="mt-4 space-y-2 text-sm">
+              <ShortcutRow label="Focus search" combo="⌘/Ctrl + K" />
+              <ShortcutRow label="Toggle threads rail" combo="⌘/Ctrl + \\" />
+              <ShortcutRow label="New Codex thread" combo="⌘/Ctrl + N" />
+              <ShortcutRow label="Show this help" combo="?" />
+              <ShortcutRow label="Close any overlay" combo="Esc" />
+            </dl>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShortcutsHelpOpen(false)}
+                className="inline-flex h-9 items-center rounded-xl border border-border/60 bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-border/40"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ShortcutRow({ label, combo }: { label: string; combo: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <dt className="text-foreground">{label}</dt>
+      <dd>
+        <kbd className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground dark:border-border/40">
+          {combo}
+        </kbd>
+      </dd>
     </div>
   );
 }

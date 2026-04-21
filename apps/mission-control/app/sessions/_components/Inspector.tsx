@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { Archive, Check, Copy, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "./useFocusTrap";
 import type {
   CodexMutationKind,
   CodexSession,
@@ -62,7 +63,10 @@ export function Inspector({
 }: InspectorProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
   const headingId = variant === "workspace" ? "inspector-workspace-heading" : "inspector-session-heading";
+
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +108,7 @@ export function Inspector({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-50 transition-opacity duration-200",
+        "fixed inset-0 z-50 motion-safe:transition-opacity motion-safe:duration-200",
         open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
       )}
       aria-hidden={!open}
@@ -117,17 +121,18 @@ export function Inspector({
         className="absolute inset-0 h-full w-full cursor-default bg-foreground/30 backdrop-blur-sm"
       />
       <aside
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
         className={cn(
-          "absolute right-0 top-0 flex h-full w-full flex-col overflow-hidden border-l border-border/60 bg-card shadow-xl transition-transform duration-200 ease-out sm:w-[22rem]",
+          "absolute right-0 top-0 flex h-full w-full flex-col overflow-hidden border-l border-border/60 bg-card shadow-xl motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out sm:w-[22rem]",
           open ? "translate-x-0" : "translate-x-full",
         )}
       >
         <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-4">
           <div className="min-w-0">
-            <h2 id={headingId} className="line-clamp-1 text-sm font-semibold text-foreground">
+            <h2 id={headingId} className="line-clamp-1 text-sm font-semibold tracking-tight text-foreground">
               {variant === "workspace" ? "Workspace" : sessionTitle}
             </h2>
             {variant === "session" && activeCodexSession?.cwd ? (

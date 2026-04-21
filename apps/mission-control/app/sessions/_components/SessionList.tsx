@@ -1,11 +1,23 @@
 "use client";
 
 import type { KeyboardEvent, MouseEvent } from "react";
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { Archive, Loader2, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Archive,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Star,
+  StarOff,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "./useFocusTrap";
 
 import type {
   CodexMutationKind,
@@ -45,15 +57,21 @@ type SessionListProps = {
   formatInt: (value: number) => string;
   formatCompactPath: (value: string | null | undefined, keepSegments?: number) => string;
   formatRelativeTimestamp: (value: number | null | undefined) => string;
+  formatTimestamp?: (value: number | null | undefined) => string;
   getCodexSessionTitle: (session: Pick<CodexSession, "threadName" | "sessionId"> | null | undefined) => string;
   className?: string;
   newThreadOpen: boolean;
   onOpenNewThread: () => void;
   onCloseNewThread: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  focusSearchSignal?: number;
+  lastOpenedAt?: Record<string, number>;
 };
 
 const START_COMPOSER_MAX_HEIGHT_PX = 192;
 const START_COMPOSER_MIN_HEIGHT_PX = 40;
+const PINNED_STORAGE_KEY = "mc-pinned-sessions";
 
 const MONOGRAM_COLORS = [
   "bg-blue-500",
@@ -113,6 +131,30 @@ function useStartComposerAutosize(value: string) {
   return ref;
 }
 
+function loadPinnedFromStorage(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(PINNED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((value): value is string => typeof value === "string"));
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function persistPinned(ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(Array.from(ids)));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function SessionList({
   workspaceOptions,
   newCodexWorkspaceKey,
@@ -137,18 +179,30 @@ export function SessionList({
   formatInt,
   formatCompactPath,
   formatRelativeTimestamp,
+  formatTimestamp,
   getCodexSessionTitle,
   className,
   newThreadOpen,
   onOpenNewThread,
   onCloseNewThread,
+  collapsed = false,
+  onToggleCollapsed,
+  focusSearchSignal,
+  lastOpenedAt,
 }: SessionListProps) {
   const startTextareaRef = useStartComposerAutosize(newCodexPrompt);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const newThreadDialogRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const createPending = codexMutationPending === "create";
   const startDisabled = createPending || !newCodexPrompt.trim();
   const totalVisible = codexVisibleTotal || visibleCodexSessions.length;
   const hiddenDueToFilter = codexMatchedTotal > totalVisible;
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedFromStorage());
+
+  useFocusTrap(newThreadDialogRef, newThreadOpen);
 
   useEffect(() => {
     if (!newThreadOpen) return;
@@ -176,6 +230,96 @@ export function SessionList({
     return undefined;
   }, [newThreadOpen, startTextareaRef]);
 
+  useEffect(() => {
+    if (focusSearchSignal == null) return;
+    if (collapsed) return;
+    const el = searchInputRef.current;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }, [focusSearchSignal, collapsed]);
+
+  const togglePinned = (sessionId: string) => {
+    setPinnedIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      persistPinned(next);
+      return next;
+    });
+  };
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const matchesQuery = (session: CodexSession) => {
+    if (!normalizedQuery) return true;
+    const title = getCodexSessionTitle(session).toLowerCase();
+    const cwd = (session.cwd ?? "").toLowerCase();
+    return title.includes(normalizedQuery) || cwd.includes(normalizedQuery);
+  };
+
+  const isUnread = (session: CodexSession) => {
+    if (!session.sessionId) return false;
+    if (!lastOpenedAt) return false;
+    if (!session.updatedAt) return false;
+    const opened = lastOpenedAt[session.sessionId];
+    if (opened == null) return true;
+    return session.updatedAt > opened;
+  };
+
+  const filteredGroups = useMemo(() => {
+    if (!normalizedQuery) return codexSessionGroups;
+    return codexSessionGroups
+      .map((group) => ({
+        ...group,
+        sessions: group.sessions.filter(matchesQuery),
+      }))
+      .filter((group) => group.sessions.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codexSessionGroups, normalizedQuery]);
+
+  const pinnedSessions = useMemo(() => {
+    if (pinnedIds.size === 0) return [] as CodexSession[];
+    const byId = new Map<string, CodexSession>();
+    for (const group of codexSessionGroups) {
+      for (const session of group.sessions) {
+        if (session.sessionId && pinnedIds.has(session.sessionId)) {
+          byId.set(session.sessionId, session);
+        }
+      }
+    }
+    const result = Array.from(byId.values());
+    if (normalizedQuery) {
+      return result.filter(matchesQuery);
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codexSessionGroups, pinnedIds, normalizedQuery]);
+
+  const allCollapsedSessions = useMemo(() => {
+    const ids = new Set<string>();
+    const sessions: CodexSession[] = [];
+    for (const s of pinnedSessions) {
+      if (s.sessionId && !ids.has(s.sessionId)) {
+        ids.add(s.sessionId);
+        sessions.push(s);
+      }
+    }
+    for (const group of codexSessionGroups) {
+      for (const s of group.sessions) {
+        if (s.sessionId && !ids.has(s.sessionId)) {
+          ids.add(s.sessionId);
+          sessions.push(s);
+        }
+      }
+    }
+    return sessions;
+  }, [codexSessionGroups, pinnedSessions]);
+
   const handleStartKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
     const metaSend = event.key === "Enter" && (event.metaKey || event.ctrlKey);
@@ -191,16 +335,214 @@ export function SessionList({
   const handleActionClick = (
     event: MouseEvent<HTMLButtonElement>,
     sessionId: string,
-    action: "archive" | "delete",
+    action: "archive" | "delete" | "pin",
   ) => {
     event.stopPropagation();
     event.preventDefault();
     if (action === "archive") {
       onArchiveSession?.(sessionId);
-    } else {
+    } else if (action === "delete") {
       onDeleteSession?.(sessionId);
+    } else if (action === "pin") {
+      togglePinned(sessionId);
     }
   };
+
+  const renderSessionRow = (
+    session: CodexSession,
+    options: { groupLabel: string; groupRoot?: string | null },
+  ) => {
+    const selected = session.sessionId === activeCodexThreadId;
+    const title = getCodexSessionTitle(session);
+    const monogramSeed = session.cwd ?? options.groupRoot ?? session.sessionId;
+    const monogramColor = pickMonogramColor(monogramSeed);
+    const monogram = deriveMonogram(title, options.groupLabel);
+    const preview =
+      session.lastMessagePreview?.trim() ||
+      (session.cwd ? session.cwd.split("/").filter(Boolean).slice(-1)[0] ?? "" : "") ||
+      "No transcript preview yet";
+    const hasActions = Boolean(onArchiveSession || onDeleteSession);
+    const pinned = session.sessionId ? pinnedIds.has(session.sessionId) : false;
+    const unread = !selected && isUnread(session);
+    const absoluteTimestamp = formatTimestamp ? formatTimestamp(session.updatedAt) : undefined;
+
+    return (
+      <div
+        key={session.sessionId}
+        className={cn(
+          "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 motion-safe:transition-colors",
+          selected
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-muted/60 active:bg-accent",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setSelectedCodexSessionId(session.sessionId)}
+          aria-pressed={selected}
+          aria-label={`Open thread ${title}`}
+          className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+        />
+        <span
+          className={cn(
+            "pointer-events-none relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white",
+            monogramColor,
+          )}
+        >
+          {monogram}
+        </span>
+        <span className="pointer-events-none relative z-10 min-w-0 flex-1">
+          <span className="line-clamp-1 text-[13px] font-medium text-foreground">
+            {title}
+          </span>
+          <span className="line-clamp-1 text-xs text-muted-foreground">
+            {preview}
+          </span>
+        </span>
+        <span className="relative z-10 flex shrink-0 items-center gap-1.5">
+          <span
+            title={absoluteTimestamp}
+            className={cn(
+              "text-[11px] text-muted-foreground motion-safe:transition-opacity",
+              hasActions ? "group-hover:opacity-0" : "",
+            )}
+          >
+            {formatRelativeTimestamp(session.updatedAt)}
+          </span>
+          {unread ? (
+            <span
+              aria-label="Unread"
+              className="size-2 rounded-full bg-blue-500 dark:bg-blue-400"
+            />
+          ) : null}
+          {selected ? (
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-blue-500 dark:bg-blue-400"
+            />
+          ) : null}
+          {hasActions ? (
+            <span className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 motion-safe:transition-opacity group-hover:opacity-100">
+              {session.sessionId ? (
+                <button
+                  type="button"
+                  onClick={(event) => handleActionClick(event, session.sessionId, "pin")}
+                  aria-label={pinned ? "Unpin thread" : "Pin thread"}
+                  title={pinned ? "Unpin thread" : "Pin thread"}
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:hover:bg-muted/40",
+                    pinned ? "text-blue-600 dark:text-blue-400" : "",
+                  )}
+                >
+                  {pinned ? (
+                    <StarOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Star className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              ) : null}
+              {onArchiveSession ? (
+                <button
+                  type="button"
+                  onClick={(event) => handleActionClick(event, session.sessionId, "archive")}
+                  aria-label="Archive thread"
+                  title="Archive thread"
+                  className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:hover:bg-muted/40"
+                  disabled={codexMutationPending != null}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+              {onDeleteSession ? (
+                <button
+                  type="button"
+                  onClick={(event) => handleActionClick(event, session.sessionId, "delete")}
+                  aria-label="Delete thread"
+                  title="Delete thread"
+                  className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:hover:bg-muted/40"
+                  disabled={codexMutationPending != null}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
+      </div>
+    );
+  };
+
+  if (collapsed) {
+    return (
+      <aside
+        className={cn(
+          "flex h-full min-h-0 w-14 min-w-0 flex-col overflow-hidden bg-background",
+          className,
+        )}
+        aria-label="Codex threads (collapsed)"
+      >
+        <div className="flex h-12 shrink-0 items-center justify-center border-b border-border/60">
+          {onToggleCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              aria-label="Expand threads rail"
+              title="Expand threads rail"
+              className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto py-3">
+          <button
+            type="button"
+            onClick={onOpenNewThread}
+            aria-label="Start a new Codex thread"
+            className="inline-flex size-9 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:bg-blue-600/50 dark:bg-blue-500 dark:hover:bg-blue-600"
+            disabled={createPending}
+          >
+            {createPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+          </button>
+          {allCollapsedSessions.map((session) => {
+            const selected = session.sessionId === activeCodexThreadId;
+            const title = getCodexSessionTitle(session);
+            const monogramSeed = session.cwd ?? session.sessionId;
+            const monogramColor = pickMonogramColor(monogramSeed);
+            const monogram = deriveMonogram(title, title);
+            const unread = !selected && isUnread(session);
+            return (
+              <button
+                key={session.sessionId}
+                type="button"
+                onClick={() => setSelectedCodexSessionId(session.sessionId)}
+                aria-label={`Open thread ${title}`}
+                aria-pressed={selected}
+                title={title}
+                className={cn(
+                  "relative flex size-9 items-center justify-center rounded-full text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60",
+                  monogramColor,
+                  selected ? "ring-2 ring-blue-500/80 ring-offset-1 ring-offset-background" : "",
+                )}
+              >
+                {monogram}
+                {unread ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-background bg-blue-500 dark:bg-blue-400"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside
@@ -218,6 +560,17 @@ export function SessionList({
           <span className="text-[11px] text-muted-foreground">
             {formatInt(totalVisible)}
           </span>
+          {onToggleCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              aria-label="Collapse threads rail"
+              title="Collapse threads rail"
+              className="hidden size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 md:inline-flex"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          ) : null}
           <Button
             type="button"
             onClick={onOpenNewThread}
@@ -231,6 +584,38 @@ export function SessionList({
               <Plus className="h-4 w-4" />
             )}
           </Button>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-b border-border/60 px-3 py-2">
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search threads"
+            aria-label="Search threads"
+            className="h-8 w-full rounded-lg border border-border/60 bg-background pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 dark:border-border/40 dark:focus-visible:border-blue-400"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.focus();
+              }}
+              aria-label="Clear search"
+              title="Clear search"
+              className="absolute right-1.5 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -253,7 +638,7 @@ export function SessionList({
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="line-clamp-1 text-sm font-medium text-foreground">
+              <span className="line-clamp-1 text-[13px] font-medium text-foreground">
                 Starting thread…
               </span>
               <span className="line-clamp-1 text-xs text-muted-foreground">
@@ -269,7 +654,28 @@ export function SessionList({
           </div>
         ) : null}
 
-        {codexSessionGroups.map((group) => (
+        {!codexError && normalizedQuery && filteredGroups.length === 0 && pinnedSessions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border/60 bg-card/60 px-4 py-6 text-center text-xs text-muted-foreground">
+            No threads match “{searchQuery}”.
+          </div>
+        ) : null}
+
+        {pinnedSessions.length > 0 ? (
+          <div className="mb-3">
+            <div className="flex items-center justify-between px-3 py-2">
+              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Pinned
+              </p>
+            </div>
+            <div className="space-y-0.5">
+              {pinnedSessions.map((session) =>
+                renderSessionRow(session, { groupLabel: "Pinned", groupRoot: session.cwd }),
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {filteredGroups.map((group) => (
           <div key={group.id} className="mb-3">
             <div className="flex items-center justify-between px-3 py-2">
               <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -282,97 +688,9 @@ export function SessionList({
               ) : null}
             </div>
             <div className="space-y-0.5">
-              {group.sessions.map((session) => {
-                const selected = session.sessionId === activeCodexThreadId;
-                const title = getCodexSessionTitle(session);
-                const monogramSeed = session.cwd ?? group.rootPath ?? session.sessionId;
-                const monogramColor = pickMonogramColor(monogramSeed);
-                const monogram = deriveMonogram(title, group.label);
-                const preview =
-                  session.lastMessagePreview?.trim() ||
-                  (session.cwd ? session.cwd.split("/").filter(Boolean).slice(-1)[0] ?? "" : "") ||
-                  "No transcript preview yet";
-                const hasActions = Boolean(onArchiveSession || onDeleteSession);
-                return (
-                  <div
-                    key={session.sessionId}
-                    className={cn(
-                      "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors",
-                      selected
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted/60 active:bg-accent",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCodexSessionId(session.sessionId)}
-                      aria-pressed={selected}
-                      aria-label={`Open thread ${title}`}
-                      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-                    />
-                    <span
-                      className={cn(
-                        "pointer-events-none relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white",
-                        monogramColor,
-                      )}
-                    >
-                      {monogram}
-                    </span>
-                    <span className="pointer-events-none relative z-10 min-w-0 flex-1">
-                      <span className="line-clamp-1 text-sm font-medium text-foreground">
-                        {title}
-                      </span>
-                      <span className="line-clamp-1 text-xs text-muted-foreground">
-                        {preview}
-                      </span>
-                    </span>
-                    <span className="relative z-10 flex shrink-0 items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "text-[11px] text-muted-foreground transition-opacity",
-                          hasActions ? "group-hover:opacity-0" : "",
-                        )}
-                      >
-                        {formatRelativeTimestamp(session.updatedAt)}
-                      </span>
-                      {selected ? (
-                        <span
-                          aria-hidden="true"
-                          className="size-1.5 rounded-full bg-blue-500 dark:bg-blue-400"
-                        />
-                      ) : null}
-                      {hasActions ? (
-                        <span className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                          {onArchiveSession ? (
-                            <button
-                              type="button"
-                              onClick={(event) => handleActionClick(event, session.sessionId, "archive")}
-                              aria-label="Archive thread"
-                              title="Archive thread"
-                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-                              disabled={codexMutationPending != null}
-                            >
-                              <Archive className="h-3.5 w-3.5" />
-                            </button>
-                          ) : null}
-                          {onDeleteSession ? (
-                            <button
-                              type="button"
-                              onClick={(event) => handleActionClick(event, session.sessionId, "delete")}
-                              aria-label="Delete thread"
-                              title="Delete thread"
-                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-                              disabled={codexMutationPending != null}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          ) : null}
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                );
-              })}
+              {group.sessions.map((session) =>
+                renderSessionRow(session, { groupLabel: group.label, groupRoot: group.rootPath }),
+              )}
             </div>
           </div>
         ))}
@@ -403,10 +721,13 @@ export function SessionList({
             onClick={onCloseNewThread}
             className="absolute inset-0 cursor-default bg-foreground/30 backdrop-blur-sm"
           />
-          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl">
+          <div
+            ref={newThreadDialogRef}
+            className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl"
+          >
             <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
               <div>
-                <h2 id="new-thread-heading" className="text-base font-semibold text-foreground">
+                <h2 id="new-thread-heading" className="text-base font-semibold tracking-tight text-foreground">
                   Start a new Codex thread
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -437,7 +758,7 @@ export function SessionList({
                       onClick={() => setNewCodexWorkspaceKey(workspace.key)}
                       aria-pressed={selected}
                       className={cn(
-                        "rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60",
+                        "rounded-xl border px-3 py-2.5 text-left motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60",
                         selected
                           ? "border-blue-500 bg-blue-600 text-white dark:bg-blue-500"
                           : "border-border/60 bg-background text-foreground hover:border-blue-500/40 hover:bg-muted/60",
