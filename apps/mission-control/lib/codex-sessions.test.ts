@@ -1,6 +1,25 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import { parseCodexSessionIndex, parseCodexTranscriptEvents, parseCodexTranscriptMetadata } from "@/lib/codex-sessions";
+import { afterEach, describe, expect, it } from "vitest";
+
+import {
+  getCodexSessionDetail,
+  parseCodexSessionIndex,
+  parseCodexTranscriptEvents,
+  parseCodexTranscriptMetadata,
+} from "@/lib/codex-sessions";
+
+const tempDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    tempDirectories.splice(0).map((directoryPath) =>
+      fs.rm(directoryPath, { recursive: true, force: true }),
+    ),
+  );
+});
 
 describe("parseCodexSessionIndex", () => {
   it("parses valid lines and sorts newest first", () => {
@@ -226,6 +245,95 @@ describe("parseCodexTranscriptEvents", () => {
         phase: "commentary",
         rawType: "message",
       },
+    ]);
+  });
+});
+
+describe("getCodexSessionDetail", () => {
+  it("finds transcript files even when the session index updated_at falls on a later day", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-detail-"));
+    tempDirectories.push(tempRoot);
+
+    const sessionIndexPath = path.join(tempRoot, "session_index.jsonl");
+    const sessionsRoot = path.join(tempRoot, "sessions");
+    const archivedRoot = path.join(tempRoot, "archived_sessions");
+    const sessionId = "019d55ec-5b7f-71b1-8311-6b151d856e3e";
+    const transcriptPath = path.join(
+      sessionsRoot,
+      "2026",
+      "04",
+      "03",
+      `rollout-2026-04-03T20-37-26-${sessionId}.jsonl`,
+    );
+
+    await fs.mkdir(path.dirname(transcriptPath), { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      `${JSON.stringify({
+        id: sessionId,
+        thread_name: "Review mission-control UI",
+        updated_at: "2026-04-04T00:37:52.949522Z",
+      })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      transcriptPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            cwd: "/Users/hd/Developer/cortana-external",
+            source: "vscode",
+            cli_version: "0.121.0",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-04-03T20:37:27.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Review mission-control UI" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-04-03T20:37:28.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            phase: "final_answer",
+            content: [{ type: "output_text", text: "Here is the review transcript." }],
+          },
+        }),
+      ].join("\n"),
+      "utf8",
+    );
+
+    const detail = await getCodexSessionDetail(sessionId, {
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+    });
+
+    expect(detail).toEqual(
+      expect.objectContaining({
+        sessionId,
+        threadName: "Review mission-control UI",
+        lastMessagePreview: "Here is the review transcript.",
+        transcriptPath,
+      }),
+    );
+    expect(detail.events).toEqual([
+      expect.objectContaining({
+        role: "user",
+        text: "Review mission-control UI",
+      }),
+      expect.objectContaining({
+        role: "assistant",
+        text: "Here is the review transcript.",
+      }),
     ]);
   });
 });

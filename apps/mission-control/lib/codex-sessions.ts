@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -350,6 +351,78 @@ async function readDailyTranscriptFiles(directoryPath: string) {
   }
 }
 
+async function findTranscriptFileInDirectory(directoryPath: string, sessionId: string) {
+  try {
+    const entries = await fs.readdir(directoryPath);
+    const match = entries.find((entry) => entry.includes(sessionId) && entry.endsWith(".jsonl"));
+    return match ? path.join(directoryPath, match) : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildNearbyTranscriptDirectories(updatedAt: number | null, sessionsRoot: string, radiusDays = 7) {
+  if (!updatedAt) return [];
+
+  const updatedDate = new Date(updatedAt);
+  if (Number.isNaN(updatedDate.getTime())) {
+    return [];
+  }
+
+  const offsets = [0];
+  for (let distance = 1; distance <= radiusDays; distance += 1) {
+    offsets.push(-distance, distance);
+  }
+
+  const directories = new Set<string>();
+  for (const offset of offsets) {
+    const day = new Date(updatedDate);
+    day.setUTCDate(day.getUTCDate() + offset);
+    directories.add(
+      path.join(
+        sessionsRoot,
+        String(day.getUTCFullYear()),
+        String(day.getUTCMonth() + 1).padStart(2, "0"),
+        String(day.getUTCDate()).padStart(2, "0"),
+      ),
+    );
+  }
+
+  return [...directories];
+}
+
+async function findTranscriptPathByWalk(sessionId: string, rootPath: string): Promise<string | null> {
+  const queue = [rootPath];
+
+  while (queue.length > 0) {
+    const currentPath = queue.shift();
+    if (!currentPath) continue;
+
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    const matchingFile = entries.find((entry) => entry.isFile() && entry.name.includes(sessionId) && entry.name.endsWith(".jsonl"));
+    if (matchingFile) {
+      return path.join(currentPath, matchingFile.name);
+    }
+
+    const childDirectories = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()
+      .map((directoryName) => path.join(currentPath, directoryName));
+
+    queue.unshift(...childDirectories);
+  }
+
+  return null;
+}
+
 export async function listUnindexedCodexSessions(
   options: CodexSessionLookupOptions & { limit?: number; lookbackDays?: number } = {},
 ): Promise<UnindexedCodexSession[]> {
@@ -412,23 +485,10 @@ async function findTranscriptPath(
   sessionsRoot: string,
   archivedRoot: string,
 ): Promise<string | null> {
-  if (updatedAt) {
-    const updatedDate = new Date(updatedAt);
-    if (!Number.isNaN(updatedDate.getTime())) {
-      const dailyDir = path.join(
-        sessionsRoot,
-        String(updatedDate.getUTCFullYear()),
-        String(updatedDate.getUTCMonth() + 1).padStart(2, "0"),
-        String(updatedDate.getUTCDate()).padStart(2, "0"),
-      );
-
-      try {
-        const entries = await fs.readdir(dailyDir);
-        const match = entries.find((entry) => entry.includes(sessionId) && entry.endsWith(".jsonl"));
-        if (match) return path.join(dailyDir, match);
-      } catch {
-        // Daily folder missing is acceptable; fall through to archive scan.
-      }
+  for (const dailyDir of buildNearbyTranscriptDirectories(updatedAt, sessionsRoot)) {
+    const match = await findTranscriptFileInDirectory(dailyDir, sessionId);
+    if (match) {
+      return match;
     }
   }
 
@@ -440,7 +500,7 @@ async function findTranscriptPath(
     // Archived sessions are optional.
   }
 
-  return null;
+  return findTranscriptPathByWalk(sessionId, sessionsRoot);
 }
 
 async function enrichSessionEntry(

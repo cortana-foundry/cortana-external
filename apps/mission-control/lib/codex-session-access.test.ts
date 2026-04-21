@@ -332,6 +332,7 @@ describe("listVisibleCodexSessions", () => {
     vi.clearAllMocks();
     codexMirrorMocks.listCodexMirroredSessions.mockResolvedValue([]);
     codexMirrorMocks.syncCodexMirrorThreadFromSession.mockResolvedValue(undefined);
+    codexSessionMocks.listCodexSessions.mockResolvedValue([]);
   });
 
   it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
@@ -366,6 +367,10 @@ describe("listVisibleCodexSessions", () => {
     const result = await listVisibleCodexSessions(10);
 
     expect(codexSessionMocks.listCodexSessionIndexSummaries).toHaveBeenCalledWith({ limit: 50 });
+    expect(codexSessionMocks.listCodexSessions).toHaveBeenCalledWith({
+      limit: 1,
+      sessionIds: ["abc"],
+    });
     expect(result.sessions).toEqual([
       {
         sessionId: "abc",
@@ -381,6 +386,59 @@ describe("listVisibleCodexSessions", () => {
     ]);
     expect(result.totalVisibleSessions).toBe(1);
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
+  });
+
+  it("hydrates the final visible sessions from file-backed Codex summaries", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "review-ui",
+        threadName: "Review mission-control UI",
+        updatedAt: 200,
+        cwd: null,
+        model: null,
+        source: null,
+        cliVersion: null,
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([
+      {
+        sessionId: "review-ui",
+        threadName: "Review mission-control UI",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "stale mirror preview",
+        transcriptPath: null,
+      },
+    ]);
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
+      {
+        sessionId: "review-ui",
+        threadName: "Review mission-control UI",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "Rendered from transcript",
+        transcriptPath: "/tmp/review-ui.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: "review-ui",
+        lastMessagePreview: "Rendered from transcript",
+        transcriptPath: "/tmp/review-ui.jsonl",
+      }),
+    ]);
   });
 
   it("keeps Codex index timing and preview metadata ahead of newer mirror timestamps", async () => {

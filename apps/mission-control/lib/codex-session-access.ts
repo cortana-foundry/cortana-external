@@ -14,6 +14,7 @@ import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from 
 import {
   getCodexSessionDetail,
   listCodexSessionIndexSummaries,
+  listCodexSessions,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -442,6 +443,64 @@ function mergeSessionSummary(
   };
 }
 
+function replaceVisibleSessions(
+  visible: VisibleCodexSessionsResult,
+  sessionMap: Map<string, CodexSessionSummary>,
+): VisibleCodexSessionsResult {
+  const groups = visible.groups.map((group) => ({
+    ...group,
+    sessions: group.sessions.map((session) => sessionMap.get(session.sessionId) ?? session),
+  }));
+  const sessions = groups.flatMap((group) => group.sessions);
+  const latestUpdatedAt = sessions.reduce<number | null>(
+    (latest, session) => {
+      if (!session.updatedAt) return latest;
+      return latest == null || session.updatedAt > latest ? session.updatedAt : latest;
+    },
+    null,
+  );
+
+  return {
+    ...visible,
+    groups,
+    sessions,
+    latestUpdatedAt,
+  };
+}
+
+async function enrichVisibleSessionSummaries(visible: VisibleCodexSessionsResult) {
+  if (visible.sessions.length === 0) {
+    return visible;
+  }
+
+  let enrichedSessions: CodexSessionSummary[] = [];
+  try {
+    enrichedSessions = await listCodexSessions({
+      limit: visible.sessions.length,
+      sessionIds: visible.sessions.map((session) => session.sessionId),
+    });
+  } catch {
+    return visible;
+  }
+
+  if (!Array.isArray(enrichedSessions) || enrichedSessions.length === 0) {
+    return visible;
+  }
+
+  const enrichedById = new Map(enrichedSessions.map((session) => [session.sessionId, session]));
+  const mergedVisibleSessions = new Map(
+    visible.sessions.map((session) => {
+      const enriched = enrichedById.get(session.sessionId);
+      return [
+        session.sessionId,
+        mergeSessionSummary(enriched, session) ?? session,
+      ] as const;
+    }),
+  );
+
+  return replaceVisibleSessions(visible, mergedVisibleSessions);
+}
+
 function mergeSessionEvents(
   baseEvents: FileCodexSessionEvent[],
   overlayEvents: CodexSessionEvent[],
@@ -547,8 +606,10 @@ export async function listVisibleCodexSessions(
     includeSessionIds: options.includeSessionIds,
   });
 
-  await Promise.allSettled(visible.sessions.map((session) => syncCodexMirrorThreadFromSession(session)));
-  return visible;
+  const enrichedVisible = await enrichVisibleSessionSummaries(visible);
+
+  await Promise.allSettled(enrichedVisible.sessions.map((session) => syncCodexMirrorThreadFromSession(session)));
+  return enrichedVisible;
 }
 
 export async function getVisibleCodexSessionDetail(sessionId: string): Promise<CodexSessionDetail | null> {
