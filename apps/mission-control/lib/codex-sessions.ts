@@ -58,6 +58,7 @@ type ListCodexSessionsOptions = {
   sessionIndexPath?: string;
   sessionsRoot?: string;
   archivedRoot?: string;
+  stateDbPath?: string;
 };
 
 type CodexSessionLookupOptions = Omit<ListCodexSessionsOptions, "limit">;
@@ -445,11 +446,44 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function findTranscriptPathFromStateDb(
+  sessionId: string,
+  stateDbPath: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "sqlite3",
+      [
+        "-json",
+        stateDbPath,
+        `
+          SELECT rollout_path
+          FROM threads
+          WHERE id = '${escapeSqlLiteral(sessionId)}'
+          LIMIT 1
+        `,
+      ],
+      { maxBuffer: 2 * 1024 * 1024 },
+    );
+
+    if (!stdout.trim()) {
+      return null;
+    }
+
+    const rows = JSON.parse(stdout) as Array<{ rollout_path?: string | null }>;
+    const rolloutPath = parseString(rows[0]?.rollout_path);
+    return rolloutPath && await fileExists(rolloutPath) ? rolloutPath : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findTranscriptPath(
   sessionId: string,
   updatedAt: number | null,
   sessionsRoot: string,
   archivedRoot: string,
+  stateDbPath: string,
 ): Promise<string | null> {
   if (updatedAt) {
     const updatedDate = new Date(updatedAt);
@@ -471,6 +505,11 @@ async function findTranscriptPath(
     }
   }
 
+  const stateDbTranscriptPath = await findTranscriptPathFromStateDb(sessionId, stateDbPath);
+  if (stateDbTranscriptPath) {
+    return stateDbTranscriptPath;
+  }
+
   try {
     const archivedEntries = await fs.readdir(archivedRoot);
     const archivedMatch = archivedEntries.find((entry) => entry.includes(sessionId) && entry.endsWith(".jsonl"));
@@ -486,8 +525,9 @@ async function enrichSessionEntry(
   entry: SessionIndexEntry,
   sessionsRoot: string,
   archivedRoot: string,
+  stateDbPath: string,
 ): Promise<CodexSessionSummary> {
-  const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot);
+  const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot, stateDbPath);
   if (!transcriptPath || !(await fileExists(transcriptPath))) {
     return {
       sessionId: entry.id,
@@ -523,6 +563,7 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
   const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
   const sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
   const archivedRoot = options.archivedRoot ?? DEFAULT_ARCHIVED_ROOT;
+  const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const requestedIds = new Set(
     (options.sessionIds ?? [])
       .map((value) => value.trim())
@@ -535,7 +576,7 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
     ? parsedEntries.filter((entry) => requestedIds.has(entry.id)).slice(0, limit)
     : parsedEntries.slice(0, limit);
 
-  return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot)));
+  return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath)));
 }
 
 export async function getCodexSessionDetail(
@@ -545,6 +586,7 @@ export async function getCodexSessionDetail(
   const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
   const sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
   const archivedRoot = options.archivedRoot ?? DEFAULT_ARCHIVED_ROOT;
+  const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
 
   const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
   const entry = parseCodexSessionIndex(rawIndex).find((item) => item.id === sessionId) ?? {
@@ -553,7 +595,7 @@ export async function getCodexSessionDetail(
     updatedAt: Date.now(),
   };
 
-  const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot);
+  const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot, stateDbPath);
   if (!transcriptPath || !(await fileExists(transcriptPath))) {
     throw new Error(`Codex session ${sessionId} not found`);
   }
