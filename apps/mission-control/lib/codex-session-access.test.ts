@@ -429,6 +429,115 @@ describe("listVisibleCodexSessions", () => {
     ]);
   });
 
+  it("keeps canonical index names for older sessions that only have stale mirror titles", async () => {
+    const externalRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    const cortanaRoot = path.join(os.homedir(), "Developer", "cortana");
+
+    const indexedSessions = Array.from({ length: 300 }, (_, index) => ({
+      sessionId: `index-${index}`,
+      threadName: `Index thread ${index}`,
+      updatedAt: 10_000 - index,
+      cwd: externalRoot,
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: `preview ${index}`,
+      transcriptPath: `/tmp/index-${index}.jsonl`,
+    }));
+
+    indexedSessions[127] = {
+      sessionId: "review-ui",
+      threadName: "Review mission-control UI",
+      updatedAt: 8_000,
+      cwd: cortanaRoot,
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "Canonical Codex title",
+      transcriptPath: "/tmp/review-ui.jsonl",
+    };
+
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce(indexedSessions);
+    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([
+      {
+        sessionId: "review-ui",
+        threadName: "Hey take a look at mission-control in the app folder",
+        updatedAt: 8_000,
+        cwd: cortanaRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.121.0",
+        lastMessagePreview: "Stale mirrored title",
+        transcriptPath: "/tmp/review-ui.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(50);
+    const reviewThread = result.sessions.find((session) => session.sessionId === "review-ui");
+
+    expect(codexSessionMocks.listCodexSessionIndexSummaries).toHaveBeenCalledWith({ limit: 250 });
+    expect(reviewThread).toEqual(
+      expect.objectContaining({
+        sessionId: "review-ui",
+        threadName: "Review mission-control UI",
+      }),
+    );
+  });
+
+  it("does not drop borderline project threads when newer mirror-only sessions expand the merged set", async () => {
+    const externalRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    const cortanaRoot = path.join(os.homedir(), "Developer", "cortana");
+
+    const indexedSessions = Array.from({ length: 100 }, (_, index) => ({
+      sessionId: `index-${index}`,
+      threadName: `Index thread ${index}`,
+      updatedAt: 5_000 - index,
+      cwd: externalRoot,
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: `preview ${index}`,
+      transcriptPath: `/tmp/index-${index}.jsonl`,
+    }));
+
+    indexedSessions[96] = {
+      sessionId: "check-backtester",
+      threadName: "Check backtester cron firing",
+      updatedAt: 4_000,
+      cwd: cortanaRoot,
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "Canonical backtester thread",
+      transcriptPath: "/tmp/check-backtester.jsonl",
+    };
+
+    const mirroredSessions = Array.from({ length: 30 }, (_, index) => ({
+      sessionId: `mirror-${index}`,
+      threadName: `Mirror-only ${index}`,
+      updatedAt: 6_000 - index,
+      cwd: externalRoot,
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.121.0",
+      lastMessagePreview: `mirror ${index}`,
+      transcriptPath: `/tmp/mirror-${index}.jsonl`,
+    }));
+
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce(indexedSessions);
+    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce(mirroredSessions);
+
+    const result = await listVisibleCodexSessions(50);
+    const backtesterThread = result.sessions.find((session) => session.sessionId === "check-backtester");
+
+    expect(backtesterThread).toEqual(
+      expect.objectContaining({
+        sessionId: "check-backtester",
+        threadName: "Check backtester cron firing",
+      }),
+    );
+  });
+
   it("hides empty threads that have no renderable transcript preview", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
     const result = buildVisibleCodexSessionGroups(

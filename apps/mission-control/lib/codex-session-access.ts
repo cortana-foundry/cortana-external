@@ -21,7 +21,7 @@ const DEFAULT_CODEX_ROOT = path.join(os.homedir(), ".codex");
 const DEFAULT_CODEX_GLOBAL_STATE_PATH = path.join(DEFAULT_CODEX_ROOT, ".codex-global-state.json");
 const DEFAULT_CODEX_STATE_DB_PATH = path.join(DEFAULT_CODEX_ROOT, "state_5.sqlite");
 const DEFAULT_VISIBLE_GROUP_SESSION_LIMIT = 5;
-const DEFAULT_DISCOVERY_LIMIT = 100;
+const DEFAULT_DISCOVERY_LIMIT = 1000;
 const execFileAsync = promisify(execFile);
 
 type CodexDesktopSidebarState = {
@@ -536,8 +536,7 @@ export async function listVisibleCodexSessions(
   }
 
   const candidates = [...merged.values()]
-    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
-    .slice(0, discoveryLimit);
+    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
 
   const threadRows = await readCodexLocalThreadStateRows(
     candidates.map((session) => session.sessionId),

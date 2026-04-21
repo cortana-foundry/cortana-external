@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import prisma from "@/lib/prisma";
 import {
   getCodexSessionDetail,
+  parseCodexSessionIndex,
   type CodexSessionDetail,
   type CodexSessionEvent,
   type CodexSessionSummary,
@@ -143,6 +144,50 @@ function truncatePreview(value: string, maxLength = 160) {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function chooseCanonicalThreadName(...candidates: Array<string | null | undefined>) {
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+async function readCodexSessionIndexNames(
+  sessionIds: string[],
+  sessionIndexPath = DEFAULT_SESSION_INDEX_PATH,
+) {
+  const uniqueSessionIds = [...new Set(sessionIds.map((value) => value.trim()).filter(Boolean))];
+  if (uniqueSessionIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const wantedIds = new Set(uniqueSessionIds);
+
+  try {
+    const raw = await fs.readFile(sessionIndexPath, "utf8");
+    const names = new Map<string, string>();
+
+    for (const entry of parseCodexSessionIndex(raw)) {
+      if (!wantedIds.has(entry.id) || !entry.threadName) {
+        continue;
+      }
+
+      names.set(entry.id, entry.threadName);
+      if (names.size >= wantedIds.size) {
+        break;
+      }
+    }
+
+    return names;
+  } catch {
+    return new Map<string, string>();
+  }
 }
 
 function buildSessionSummary(row: CodexMirrorThreadRow): CodexSessionSummary {
@@ -294,7 +339,7 @@ async function safeQuery<T>(query: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 export async function listCodexMirroredSessions(limit = 20): Promise<CodexSessionSummary[]> {
-  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const safeLimit = Math.max(1, Math.min(limit, 1000));
   const sql = `
     SELECT
       id,
@@ -525,9 +570,13 @@ export async function reconcileCodexMirrorSession(
   const archivedRoot = options.archivedRoot ?? DEFAULT_ARCHIVED_ROOT;
   const reconciledAt = new Date();
 
-  const filesystemState = await resolveCodexFilesystemLifecycle(sessionId, {
-    stateDbPath,
-  });
+  const [filesystemState, canonicalNames] = await Promise.all([
+    resolveCodexFilesystemLifecycle(sessionId, {
+      stateDbPath,
+    }),
+    readCodexSessionIndexNames([sessionId], sessionIndexPath),
+  ]);
+  const canonicalThreadName = canonicalNames.get(sessionId) ?? null;
 
   if (filesystemState.lifecycleState === "active") {
     try {
@@ -544,7 +593,7 @@ export async function reconcileCodexMirrorSession(
     } catch {
       await upsertCodexMirrorThread({
         sessionId,
-        threadName: filesystemState.threadName,
+        threadName: chooseCanonicalThreadName(canonicalThreadName, filesystemState.threadName),
         cwd: filesystemState.stateRow?.cwd,
         model: filesystemState.stateRow?.model,
         source: filesystemState.stateRow?.source,
@@ -561,7 +610,7 @@ export async function reconcileCodexMirrorSession(
 
   await upsertCodexMirrorThread({
     sessionId,
-    threadName: filesystemState.threadName,
+    threadName: chooseCanonicalThreadName(canonicalThreadName, filesystemState.threadName),
     transcriptPath: filesystemState.transcriptPath,
     lifecycleState: filesystemState.lifecycleState,
     lastReconciledAt: reconciledAt,
@@ -572,6 +621,7 @@ export async function reconcileCodexMirrorSession(
 
 export async function reconcileCodexMirrorSessions(options: ReconcileCodexMirrorOptions = {}) {
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
+  const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
   const limit = clampLimit(options.limit);
   const reconciledAt = new Date();
 
@@ -594,12 +644,21 @@ export async function reconcileCodexMirrorSessions(options: ReconcileCodexMirror
       })
     : [];
   const stateRowsById = new Map([...activeEntries, ...mirrorStateRows].map((row) => [row.id, row] as const));
+  const mirrorRowsById = new Map(mirrorRows.map((row) => [row.id, row] as const));
+  const canonicalNames = await readCodexSessionIndexNames(
+    [...activeEntries.map((entry) => entry.id), ...mirrorRows.map((row) => row.id)],
+    sessionIndexPath,
+  );
 
   await Promise.allSettled(
     activeEntries.map(async (entry) => {
       await upsertCodexMirrorThread({
         sessionId: entry.id,
-        threadName: entry.title,
+        threadName: chooseCanonicalThreadName(
+          canonicalNames.get(entry.id),
+          mirrorRowsById.get(entry.id)?.thread_name ?? null,
+          entry.title,
+        ),
         cwd: entry.cwd,
         model: entry.model,
         source: entry.source,
@@ -619,7 +678,11 @@ export async function reconcileCodexMirrorSessions(options: ReconcileCodexMirror
         const stateRow = stateRowsById.get(row.id) ?? null;
         await upsertCodexMirrorThread({
           sessionId: row.id,
-          threadName: stateRow?.title ?? row.thread_name,
+          threadName: chooseCanonicalThreadName(
+            canonicalNames.get(row.id),
+            row.thread_name,
+            stateRow?.title ?? null,
+          ),
           cwd: stateRow?.cwd,
           model: stateRow?.model,
           source: stateRow?.source,
