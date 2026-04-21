@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getVisibleCodexSessionDetail } from "@/lib/codex-session-access";
+import { archiveCodexSession, deleteCodexSession } from "@/lib/codex-sessions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,6 +54,47 @@ export async function GET(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load Codex session";
+    const status = message.includes("not found") ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+type MutateSessionBody = {
+  action?: string;
+};
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ sessionId: string }> },
+) {
+  const { sessionId } = await context.params;
+
+  try {
+    const body = (await request.json()) as MutateSessionBody;
+    if (body.action !== "archive") {
+      return NextResponse.json({ error: "Unsupported session action" }, { status: 400 });
+    }
+
+    await archiveCodexSession(sessionId);
+    return NextResponse.json({ ok: true, sessionId, action: "archive" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to archive Codex session";
+    const status = message.includes("not found") ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ sessionId: string }> },
+) {
+  const { sessionId } = await context.params;
+
+  try {
+    await deleteCodexSession(sessionId);
+    return NextResponse.json({ ok: true, sessionId, action: "delete" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete Codex session";
     const status = message.includes("not found") ? 404 : 500;
     return NextResponse.json({ error: message }, { status });
   }

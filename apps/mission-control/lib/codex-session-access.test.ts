@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -189,7 +191,7 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context"]);
   });
 
-  it("shows only interactive vscode sessions in the project rail", () => {
+  it("shows interactive and exec sessions in the project rail", () => {
     const repoRoot = "/Users/hd/Developer/cortana-external";
     const result = buildVisibleCodexSessionGroups(
       [
@@ -246,7 +248,7 @@ describe("buildVisibleCodexSessionGroups", () => {
       { limit: 20, homeDir: "/Users/hd" },
     );
 
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["interactive-session"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["exec-session", "interactive-session"]);
   });
 
   it("hides synthetic named vscode threads that never captured a user message", () => {
@@ -465,12 +467,19 @@ describe("listVisibleCodexSessions", () => {
 
     const result = await listVisibleCodexSessions(10);
 
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh", "stale"]);
     expect(result.sessions[0]).toEqual(
       expect.objectContaining({
         sessionId: "fresh",
         threadName: "Locate backtester v8-v10 PRDs",
         updatedAt: 500,
+      }),
+    );
+    expect(result.sessions[1]).toEqual(
+      expect.objectContaining({
+        sessionId: "stale",
+        threadName: "Inspect Mission Control API health",
+        updatedAt: 100,
       }),
     );
   });

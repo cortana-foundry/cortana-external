@@ -2,13 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const codexMocks = vi.hoisted(() => ({
   getVisibleCodexSessionDetail: vi.fn(),
+  archiveCodexSession: vi.fn(),
+  deleteCodexSession: vi.fn(),
 }));
 
 vi.mock("@/lib/codex-session-access", () => ({
   getVisibleCodexSessionDetail: codexMocks.getVisibleCodexSessionDetail,
 }));
 
-import { GET } from "@/app/api/codex/sessions/[sessionId]/route";
+vi.mock("@/lib/codex-sessions", () => ({
+  archiveCodexSession: codexMocks.archiveCodexSession,
+  deleteCodexSession: codexMocks.deleteCodexSession,
+}));
+
+import { DELETE, GET, PATCH } from "@/app/api/codex/sessions/[sessionId]/route";
 
 describe("GET /api/codex/sessions/[sessionId]", () => {
   beforeEach(() => {
@@ -117,5 +124,65 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
 
     expect(response.status).toBe(404);
     expect(payload.error).toContain("not found");
+  });
+});
+
+describe("PATCH /api/codex/sessions/[sessionId]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("archives a session", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/codex/sessions/abc", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "archive" }),
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(codexMocks.archiveCodexSession).toHaveBeenCalledWith("abc");
+    expect(payload).toEqual({ ok: true, sessionId: "abc", action: "archive" });
+  });
+
+  it("rejects unsupported actions", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/codex/sessions/abc", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "noop" }),
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(codexMocks.archiveCodexSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/codex/sessions/[sessionId]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("deletes a session transcript", async () => {
+    const response = await DELETE(
+      new Request("http://localhost/api/codex/sessions/abc", {
+        method: "DELETE",
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(codexMocks.deleteCodexSession).toHaveBeenCalledWith("abc");
+    expect(payload).toEqual({ ok: true, sessionId: "abc", action: "delete" });
   });
 });

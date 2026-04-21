@@ -1,15 +1,19 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
+  Archive,
   Bot,
+  Check,
   Clock3,
+  Copy,
   FolderTree,
   Loader2,
   MessageSquareText,
   Plus,
   Sparkles,
   TerminalSquare,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,9 +89,19 @@ type CodexStreamEnvelope = {
   data: unknown;
 };
 
+type WorkspaceOption = {
+  key: string;
+  label: string;
+  cwd: string;
+};
+
 const CODEX_RECONCILE_INTERVAL_MS = 4_000;
 const DEFAULT_CODEX_EVENT_PAGE_SIZE = 60;
 const TRANSCRIPT_SCROLL_TOP_FETCH_THRESHOLD_PX = 72;
+const START_WORKSPACE_OPTIONS: WorkspaceOption[] = [
+  { key: "cortana-external", label: "cortana-external", cwd: "/Users/hd/Developer/cortana-external" },
+  { key: "cortana", label: "cortana", cwd: "/Users/hd/Developer/cortana" },
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -209,6 +223,11 @@ function getProvisionalThreadName(prompt: string) {
   return normalized.length > 72 ? `${normalized.slice(0, 71)}…` : normalized;
 }
 
+function formatShortSessionId(value: string | null | undefined) {
+  if (!value) return "Unavailable";
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-8)}` : value;
+}
+
 function formatCompactPath(value: string | null | undefined, keepSegments = 3) {
   if (!value) return "Unavailable";
 
@@ -219,6 +238,63 @@ function formatCompactPath(value: string | null | undefined, keepSegments = 3) {
   if (parts.length <= keepSegments) return normalized;
 
   return `.../${parts.slice(-keepSegments).join("/")}`;
+}
+
+function getWorkspaceOption(workspaceKey: string | null | undefined) {
+  return START_WORKSPACE_OPTIONS.find((workspace) => workspace.key === workspaceKey) ?? START_WORKSPACE_OPTIONS[0];
+}
+
+function mergeGroupedCodexSessions(
+  sessions: CodexSession[],
+  fallbackSession: CodexSession,
+) {
+  const existing = sessions.find((session) => session.sessionId === fallbackSession.sessionId);
+  const merged = existing
+    ? sessions.map((session) =>
+        session.sessionId === fallbackSession.sessionId ? { ...session, ...fallbackSession } : session,
+      )
+    : [fallbackSession, ...sessions];
+
+  return [...merged].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+function mergeCodexSessionGroups(
+  groups: CodexSessionGroup[],
+  fallbackSession: CodexSession | null | undefined,
+) {
+  const fallbackCwd = fallbackSession?.cwd;
+  if (!fallbackSession || !fallbackCwd) return groups;
+
+  const groupIndex = groups.findIndex((group) =>
+    fallbackCwd === group.rootPath || fallbackCwd.startsWith(`${group.rootPath}/`),
+  );
+
+  if (groupIndex >= 0) {
+    const nextGroups = [...groups];
+    nextGroups[groupIndex] = {
+      ...nextGroups[groupIndex],
+      sessions: mergeGroupedCodexSessions(nextGroups[groupIndex].sessions, fallbackSession),
+    };
+    return nextGroups;
+  }
+
+  const workspace = START_WORKSPACE_OPTIONS.find((option) =>
+    fallbackCwd === option.cwd || fallbackCwd.startsWith(`${option.cwd}/`),
+  );
+
+  if (!workspace) return groups;
+
+  return [
+    {
+      id: workspace.cwd,
+      label: workspace.label,
+      rootPath: workspace.cwd,
+      isActive: false,
+      isCollapsed: false,
+      sessions: [fallbackSession],
+    },
+    ...groups,
+  ];
 }
 
 export function mergeCodexSessions(
@@ -307,8 +383,10 @@ export default function SessionsPage() {
   const [codexDetailLoading, setCodexDetailLoading] = useState(false);
   const [codexOlderLoading, setCodexOlderLoading] = useState(false);
   const [newCodexPrompt, setNewCodexPrompt] = useState("");
+  const [newCodexWorkspaceKey, setNewCodexWorkspaceKey] = useState<string>("cortana-external");
   const [replyPrompt, setReplyPrompt] = useState("");
-  const [codexMutationPending, setCodexMutationPending] = useState<"create" | "reply" | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
+  const [codexMutationPending, setCodexMutationPending] = useState<"create" | "reply" | "archive" | "delete" | null>(null);
   const [codexMutationError, setCodexMutationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -389,13 +467,28 @@ export default function SessionsPage() {
     fallbackSession?: CodexSession | null,
   ) {
     const payload = await fetchCodexSessions();
-    const sessions = mergeCodexSessions(payload.sessions ?? [], fallbackSession);
+    const preferredFallback =
+      fallbackSession
+      ?? (preferredSessionId && selectedCodexSession?.sessionId === preferredSessionId ? selectedCodexSession : null)
+      ?? (preferredSessionId && provisionalCodexSession?.sessionId === preferredSessionId ? provisionalCodexSession : null);
+    const payloadHasPreferredSession =
+      Boolean(preferredSessionId)
+      && (payload.sessions ?? []).some((session) => session.sessionId === preferredSessionId);
+    const sessions = mergeCodexSessions(payload.sessions ?? [], preferredFallback);
+    const groups = payloadHasPreferredSession
+      ? (payload.groups ?? [])
+      : mergeCodexSessionGroups(payload.groups ?? [], preferredFallback);
+
     setCodexSessions(sessions);
-    setCodexSessionGroups(payload.groups ?? []);
-    setCodexVisibleTotal(payload.totalVisibleSessions ?? sessions.length);
-    setCodexMatchedTotal(payload.totalMatchedSessions ?? sessions.length);
+    setCodexSessionGroups(groups);
+    setCodexVisibleTotal(Math.max(payload.totalVisibleSessions ?? 0, sessions.length));
+    setCodexMatchedTotal(Math.max(payload.totalMatchedSessions ?? 0, sessions.length));
     setCodexLatestUpdatedAt(payload.latestUpdatedAt ?? null);
     setCodexError(null);
+
+    if (payloadHasPreferredSession && provisionalCodexSession?.sessionId === preferredSessionId) {
+      setProvisionalCodexSession(null);
+    }
 
     const nextSelected =
       preferredSessionId && sessions.some((session) => session.sessionId === preferredSessionId)
@@ -563,45 +656,47 @@ export default function SessionsPage() {
     void loadCodexSessionDetail(selectedCodexSessionId);
   }, [selectedCodexSessionId]);
 
+  const reconcileCodexSessions = useEffectEvent(async (isCancelled: () => boolean) => {
+    if (isCancelled() || document.visibilityState === "hidden") {
+      return;
+    }
+
+    try {
+      const previousSelectedSessionId = selectedCodexSessionId;
+      const { selectedSessionId } = await refreshCodexSessions(previousSelectedSessionId);
+      if (isCancelled()) return;
+
+      if (previousSelectedSessionId && previousSelectedSessionId !== selectedSessionId) {
+        setSelectedCodexSession(null);
+        setPendingCodexUserEvent(null);
+        setStreamedAssistantEvents([]);
+        setCodexMutationError("Selected Codex thread was archived or removed outside Mission Control.");
+      }
+    } catch (err) {
+      if (!isCancelled()) {
+        setCodexError(err instanceof Error ? err.message : "Failed to reconcile Codex sessions");
+      }
+    }
+  });
+
   useEffect(() => {
     if (loading || codexMutationPending) {
       return;
     }
 
     let cancelled = false;
-
-    const runReconciliation = async () => {
-      if (cancelled || document.visibilityState === "hidden") {
-        return;
-      }
-
-      try {
-        const previousSelectedSessionId = selectedCodexSessionId;
-        const { selectedSessionId } = await refreshCodexSessions(previousSelectedSessionId);
-        if (cancelled) return;
-
-        if (previousSelectedSessionId && previousSelectedSessionId !== selectedSessionId) {
-          setSelectedCodexSession(null);
-          setPendingCodexUserEvent(null);
-          setStreamedAssistantEvents([]);
-          setCodexMutationError("Selected Codex thread was archived or removed outside Mission Control.");
-          return;
-        }
-
-      } catch (err) {
-        if (!cancelled) {
-          setCodexError(err instanceof Error ? err.message : "Failed to reconcile Codex sessions");
-        }
-      }
+    const isCancelled = () => cancelled;
+    const runReconciliation = () => {
+      void reconcileCodexSessions(isCancelled);
     };
 
     const intervalId = window.setInterval(() => {
-      void runReconciliation();
+      runReconciliation();
     }, CODEX_RECONCILE_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void runReconciliation();
+        runReconciliation();
       }
     };
 
@@ -612,9 +707,9 @@ export default function SessionsPage() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loading, codexMutationPending, selectedCodexSessionId]);
+  }, [loading, codexMutationPending]);
 
-  async function loadOlderCodexEvents() {
+  const loadOlderCodexEvents = useEffectEvent(async () => {
     if (!selectedCodexSessionId || !selectedCodexPagination?.hasMore || selectedCodexPagination.nextBefore == null) {
       return;
     }
@@ -633,7 +728,7 @@ export default function SessionsPage() {
       before: selectedCodexPagination.nextBefore,
       appendMode: "prepend",
     });
-  }
+  });
 
   useEffect(() => {
     const viewport = transcriptViewportRef.current;
@@ -655,7 +750,7 @@ export default function SessionsPage() {
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
     };
-  }, [selectedCodexPagination?.hasMore, codexOlderLoading, codexDetailLoading, codexMutationPending, selectedCodexSessionId]);
+  }, [selectedCodexPagination?.hasMore, codexOlderLoading, codexDetailLoading, codexMutationPending]);
 
   useEffect(() => {
     const viewport = transcriptViewportRef.current;
@@ -730,10 +825,13 @@ export default function SessionsPage() {
   const activeCodexMessageCount = formatInt(
     selectedCodexPagination?.totalEvents ?? selectedCodexSession?.events.length ?? 0,
   );
+  const selectedCreateWorkspace = getWorkspaceOption(newCodexWorkspaceKey);
 
   async function handleCreateCodexSession() {
     const prompt = newCodexPrompt.trim();
     if (!prompt) return;
+
+    const workspace = getWorkspaceOption(newCodexWorkspaceKey);
 
     transcriptScrollActionRef.current = "bottom";
     setCodexMutationPending("create");
@@ -757,7 +855,7 @@ export default function SessionsPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt, workspaceKey: "repo-root" }),
+        body: JSON.stringify({ prompt, workspaceKey: workspace.key }),
       });
 
       const startPayload = (await startResponse.json()) as CodexRunStartResponse;
@@ -781,9 +879,6 @@ export default function SessionsPage() {
         response,
         async (session) => {
           transcriptScrollActionRef.current = "bottom";
-          const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
-          setProvisionalCodexSession(null);
-          setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
           setSelectedCodexSession(session);
           setSelectedCodexPagination({
             totalEvents: session.events.length,
@@ -793,6 +888,9 @@ export default function SessionsPage() {
             rangeStart: 0,
             rangeEnd: session.events.length,
           });
+          const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
+          setProvisionalCodexSession(null);
+          setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
           setPendingCodexUserEvent(null);
           setStreamedAssistantEvents([]);
         },
@@ -804,7 +902,7 @@ export default function SessionsPage() {
                 sessionId: threadId,
                 threadName: getProvisionalThreadName(prompt),
                 updatedAt: Date.now(),
-                cwd: null,
+                cwd: workspace.cwd,
                 model: null,
                 source: "exec",
                 cliVersion: null,
@@ -897,6 +995,85 @@ export default function SessionsPage() {
       void loadCodexSessionDetail(selectedCodexSessionId);
       setStreamedAssistantEvents([]);
       setCodexMutationError(err instanceof Error ? err.message : "Failed to send message to Codex session");
+    } finally {
+      setCodexMutationPending(null);
+    }
+  }
+
+  async function handleCopySessionId() {
+    const sessionId = activeCodexSession?.sessionId;
+    if (!sessionId || !navigator.clipboard) return;
+
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopiedSessionId(sessionId);
+      window.setTimeout(() => {
+        setCopiedSessionId((current) => (current === sessionId ? null : current));
+      }, 1800);
+    } catch {
+      setCodexMutationError("Failed to copy the Codex session id.");
+    }
+  }
+
+  async function handleArchiveCodexSession() {
+    const sessionId = activeCodexSession?.sessionId;
+    if (!sessionId) return;
+    if (!window.confirm("Archive this Codex thread? It will disappear from Mission Control and active resume views.")) {
+      return;
+    }
+
+    setCodexMutationPending("archive");
+    setCodexMutationError(null);
+    try {
+      const response = await fetch(`/api/codex/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "archive" }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to archive Codex session");
+      }
+
+      setSelectedCodexSession(null);
+      setSelectedCodexPagination(null);
+      setPendingCodexUserEvent(null);
+      setStreamedAssistantEvents([]);
+      await refreshCodexSessions(null);
+    } catch (err) {
+      setCodexMutationError(err instanceof Error ? err.message : "Failed to archive Codex session");
+    } finally {
+      setCodexMutationPending(null);
+    }
+  }
+
+  async function handleDeleteCodexSession() {
+    const sessionId = activeCodexSession?.sessionId;
+    if (!sessionId) return;
+    if (!window.confirm("Delete this Codex thread transcript? This cannot be undone from Mission Control.")) {
+      return;
+    }
+
+    setCodexMutationPending("delete");
+    setCodexMutationError(null);
+    try {
+      const response = await fetch(`/api/codex/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to delete Codex session");
+      }
+
+      setSelectedCodexSession(null);
+      setSelectedCodexPagination(null);
+      setPendingCodexUserEvent(null);
+      setStreamedAssistantEvents([]);
+      await refreshCodexSessions(null);
+    } catch (err) {
+      setCodexMutationError(err instanceof Error ? err.message : "Failed to delete Codex session");
     } finally {
       setCodexMutationPending(null);
     }
@@ -1011,6 +1188,29 @@ export default function SessionsPage() {
                     </div>
 
                     <div className="rounded-[28px] border border-border/60 bg-background/92 p-4 shadow-sm">
+                      <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                        {START_WORKSPACE_OPTIONS.map((workspace) => {
+                          const selected = workspace.key === newCodexWorkspaceKey;
+                          return (
+                            <button
+                              key={workspace.key}
+                              type="button"
+                              onClick={() => setNewCodexWorkspaceKey(workspace.key)}
+                              className={cn(
+                                "rounded-2xl border px-3 py-3 text-left transition-colors",
+                                selected
+                                  ? "border-foreground/20 bg-foreground text-background"
+                                  : "border-border/60 bg-background text-foreground hover:border-foreground/20",
+                              )}
+                            >
+                              <p className="text-sm font-semibold">{workspace.label}</p>
+                              <p className={cn("mt-1 text-xs", selected ? "text-background/72" : "text-muted-foreground")}>
+                                {formatCompactPath(workspace.cwd, 4)}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                       <Textarea
                         value={newCodexPrompt}
                         onChange={(event) => setNewCodexPrompt(event.target.value)}
@@ -1019,7 +1219,7 @@ export default function SessionsPage() {
                       />
                       <div className="mt-4 flex flex-col gap-3">
                         <p className="text-xs text-muted-foreground">
-                          Mission Control will create the thread and attach to the same local Codex session.
+                          Mission Control will create the thread in {formatCompactPath(selectedCreateWorkspace.cwd, 4)} and attach to the same local Codex session.
                         </p>
                         <Button
                           onClick={() => void handleCreateCodexSession()}
@@ -1176,6 +1376,28 @@ export default function SessionsPage() {
                             ? activeCodexSession.cwd
                             : "Select a thread to inspect the transcript and continue the same session."}
                         </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-3 py-1 text-[11px] text-muted-foreground">
+                            <TerminalSquare className="h-3.5 w-3.5" />
+                            Session id
+                            <code className="text-foreground">{formatShortSessionId(activeCodexSession?.sessionId ?? null)}</code>
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleCopySessionId()}
+                            disabled={!activeCodexSession?.sessionId}
+                            className="h-8 rounded-full px-3 text-xs"
+                          >
+                            {copiedSessionId === activeCodexSession?.sessionId ? (
+                              <Check className="mr-1.5 h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            {copiedSessionId === activeCodexSession?.sessionId ? "Copied" : "Copy id"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
@@ -1384,6 +1606,31 @@ export default function SessionsPage() {
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Updated</p>
                           <p className="text-sm leading-6 text-foreground">{formatTimestamp(activeCodexSession?.updatedAt ?? null)}</p>
                         </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleArchiveCodexSession()}
+                          disabled={!activeCodexSession?.sessionId || codexMutationPending != null}
+                          className="h-9 rounded-full px-3 text-xs"
+                        >
+                          <Archive className="mr-1.5 h-3.5 w-3.5" />
+                          Archive thread
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleDeleteCodexSession()}
+                          disabled={!activeCodexSession?.sessionId || codexMutationPending != null}
+                          className="h-9 rounded-full px-3 text-xs text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          Delete thread
+                        </Button>
                       </div>
                     </div>
                   </section>

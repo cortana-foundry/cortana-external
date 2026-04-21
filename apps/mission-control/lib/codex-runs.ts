@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 
 import { getCodexThreadId, streamCodexJson } from "@/lib/codex-cli";
 import { getVisibleCodexSessionDetail } from "@/lib/codex-session-access";
-import { type CodexSessionDetail, waitForCodexSessionDetail } from "@/lib/codex-sessions";
+import {
+  type CodexSessionDetail,
+  upsertCodexSessionIndexEntry,
+  waitForCodexSessionDetail,
+} from "@/lib/codex-sessions";
 import { upsertCodexMirrorThread } from "@/lib/codex-mirror";
 
 export type CodexRunKind = "create" | "reply";
@@ -65,10 +69,15 @@ export class CodexRunError extends Error {
 }
 
 const DEFAULT_WORKSPACE = path.resolve(process.cwd(), "..", "..");
+const CORTANA_EXTERNAL_WORKSPACE = DEFAULT_WORKSPACE;
+const CORTANA_WORKSPACE = path.resolve(DEFAULT_WORKSPACE, "..", "cortana");
+const DEFAULT_WORKSPACE_KEY = "cortana-external";
 const STREAM_RETENTION_MS = 10 * 60_000;
 
 const approvedWorkspaces = new Map<string, ApprovedWorkspace>([
-  ["repo-root", { key: "repo-root", cwd: DEFAULT_WORKSPACE }],
+  ["repo-root", { key: "repo-root", cwd: CORTANA_EXTERNAL_WORKSPACE }],
+  ["cortana-external", { key: "cortana-external", cwd: CORTANA_EXTERNAL_WORKSPACE }],
+  ["cortana", { key: "cortana", cwd: CORTANA_WORKSPACE }],
 ]);
 
 const activeRunsByStreamId = new Map<string, CodexRunRecord>();
@@ -105,7 +114,7 @@ function scheduleCleanup(streamId: string) {
 
 function resolveWorkspace(workspaceKey?: string | null) {
   if (!workspaceKey) {
-    return approvedWorkspaces.get("repo-root")!;
+    return approvedWorkspaces.get(DEFAULT_WORKSPACE_KEY)!;
   }
 
   const workspace = approvedWorkspaces.get(workspaceKey);
@@ -169,6 +178,12 @@ async function finalizeRunSession(record: CodexRunRecord, sessionId: string, pro
     transcriptPath: normalizedSession.transcriptPath,
     lastMessagePreview: normalizedSession.lastMessagePreview ?? prompt,
     updatedAt: normalizedSession.updatedAt ? new Date(normalizedSession.updatedAt) : new Date(),
+  });
+
+  await upsertCodexSessionIndexEntry({
+    id: sessionId,
+    threadName: normalizedSession.threadName,
+    updatedAt: normalizedSession.updatedAt ?? Date.now(),
   });
 
   record.sessionId = sessionId;

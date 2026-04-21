@@ -197,7 +197,7 @@ function shouldExposeSessionInSidebar(
 ) {
   const source = (stateRow?.source ?? session.source ?? "").trim();
   if (stateRow?.archived) return false;
-  if (source.length > 0 && source !== "vscode") return false;
+  if (source.length > 0 && source !== "vscode" && source !== "exec") return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
   if (isSyntheticNamedThread(stateRow, session)) return false;
@@ -364,10 +364,13 @@ export function buildVisibleCodexSessionGroups(
     .map(([rootPath, entries]) => {
       const sortedEntries = [...entries].sort(
         (left, right) => {
+          const updatedAtDelta = (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0);
+          if (updatedAtDelta !== 0) return updatedAtDelta;
+
           const sourceDelta = getSessionSourceRank(left.stateRow, left.session)
             - getSessionSourceRank(right.stateRow, right.session);
           if (sourceDelta !== 0) return sourceDelta;
-          return (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0);
+          return 0;
         },
       );
       return {
