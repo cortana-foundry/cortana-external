@@ -65,6 +65,7 @@ type CodexSessionsResponse = {
   error?: string;
 };
 type CodexSessionDetailResponse = { session?: CodexSessionDetail; error?: string };
+type CodexRunStartResponse = { streamId?: string; error?: string };
 
 type CodexStreamEnvelope = {
   event: string;
@@ -119,6 +120,12 @@ function getCodexStreamSession(data: unknown): CodexSessionDetail | null {
   if (!isRecord(data)) return null;
   const session = data.session;
   return isRecord(session) ? (session as CodexSessionDetail) : null;
+}
+
+function getLifecycleSessionId(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+  const sessionId = data.codexSessionId;
+  return typeof sessionId === "string" && sessionId.trim().length > 0 ? sessionId : null;
 }
 
 function getStreamedAssistantDelta(data: unknown): { id: string; text: string } | null {
@@ -383,6 +390,14 @@ export default function SessionsPage() {
         return;
       }
 
+      if (envelope.event === "lifecycle") {
+        const threadId = getLifecycleSessionId(envelope.data);
+        if (threadId) {
+          options?.onThreadStarted?.(threadId);
+        }
+        return;
+      }
+
       if (envelope.event === "error") {
         throw new Error(getCodexStreamError(envelope.data) ?? "Codex stream failed");
       }
@@ -580,18 +595,29 @@ export default function SessionsPage() {
     });
     setStreamedAssistantEvents([]);
     try {
-      const response = await fetch("/api/codex/sessions", {
+      const startResponse = await fetch("/api/codex/sessions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt, workspaceKey: "repo-root" }),
+      });
+
+      const startPayload = (await startResponse.json()) as CodexRunStartResponse;
+      if (!startResponse.ok || !startPayload.streamId) {
+        const payload = startPayload as CodexSessionDetailResponse & CodexRunStartResponse;
+        throw new Error(payload.error ?? "Failed to create Codex session");
+      }
+
+      const response = await fetch(`/api/codex/streams/${startPayload.streamId}`, {
+        headers: {
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ prompt }),
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as CodexSessionDetailResponse;
-        throw new Error(payload.error ?? "Failed to create Codex session");
+        const payload = (await response.json()) as CodexRunStartResponse;
+        throw new Error(payload.error ?? "Failed to attach to Codex stream");
       }
 
       await consumeCodexStream(
@@ -660,18 +686,29 @@ export default function SessionsPage() {
       };
     });
     try {
-      const response = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
+      const startResponse = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Accept: "text/event-stream",
         },
         body: JSON.stringify({ prompt }),
       });
 
-      if (!response.ok) {
-        const payload = (await response.json()) as CodexSessionDetailResponse;
+      const startPayload = (await startResponse.json()) as CodexRunStartResponse;
+      if (!startResponse.ok || !startPayload.streamId) {
+        const payload = startPayload as CodexSessionDetailResponse & CodexRunStartResponse;
         throw new Error(payload.error ?? "Failed to send message to Codex session");
+      }
+
+      const response = await fetch(`/api/codex/streams/${startPayload.streamId}`, {
+        headers: {
+          Accept: "text/event-stream",
+        },
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as CodexRunStartResponse;
+        throw new Error(payload.error ?? "Failed to attach to Codex stream");
       }
 
       await consumeCodexStream(response, async (session) => {
