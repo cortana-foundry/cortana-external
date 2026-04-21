@@ -79,12 +79,17 @@ export default function SessionsPage() {
   const { isUnread, markSeen } = useThreadReadState();
   const { ids: mcCreatedSessionIds, register: registerMCCreatedSession } = useMCCreatedSessions();
 
-  async function fetchCodexSessions() {
-    let url = "/api/codex/sessions";
+  async function fetchCodexSessions(options: { reconcile?: boolean } = {}) {
+    const params = new URLSearchParams();
     if (mcCreatedSessionIds.length > 0) {
-      const includeIdsParam = mcCreatedSessionIds.join(",");
-      url += `?includeIds=${encodeURIComponent(includeIdsParam)}`;
+      params.set("includeIds", mcCreatedSessionIds.join(","));
     }
+    if (options.reconcile) {
+      params.set("reconcile", "1");
+    }
+
+    const query = params.toString();
+    const url = query.length > 0 ? `/api/codex/sessions?${query}` : "/api/codex/sessions";
     const response = await fetch(url, { cache: "no-store" });
     const payload = (await response.json()) as CodexSessionsResponse;
 
@@ -126,8 +131,9 @@ export default function SessionsPage() {
   async function refreshCodexSessions(
     preferredSessionId?: string | null,
     fallbackSession?: CodexSession | null,
+    options: { reconcile?: boolean } = {},
   ) {
-    const payload = await fetchCodexSessions();
+    const payload = await fetchCodexSessions(options);
     const sessions = mergeCodexSessions(payload.sessions ?? [], fallbackSession);
     setCodexSessions(sessions);
     setCodexSessionGroups(payload.groups ?? []);
@@ -247,7 +253,7 @@ export default function SessionsPage() {
     let cancelled = false;
 
     async function load() {
-      const codexResult = await fetchCodexSessions()
+      const codexResult = await fetchCodexSessions({ reconcile: true })
         .then((value) => ({ status: "fulfilled" as const, value }))
         .catch((reason) => ({ status: "rejected" as const, reason }));
 
@@ -299,14 +305,14 @@ export default function SessionsPage() {
 
     let cancelled = false;
 
-    const runReconciliation = async () => {
+    const runReconciliation = async (options: { reconcile?: boolean } = {}) => {
       if (cancelled || document.visibilityState === "hidden") {
         return;
       }
 
       try {
         const previousSelectedSessionId = selectedCodexSessionId;
-        const { selectedSessionId } = await refreshCodexSessions(previousSelectedSessionId);
+        const { selectedSessionId } = await refreshCodexSessions(previousSelectedSessionId, undefined, options);
         if (cancelled) return;
 
         if (previousSelectedSessionId && previousSelectedSessionId !== selectedSessionId) {
@@ -333,7 +339,7 @@ export default function SessionsPage() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void runReconciliation();
+        void runReconciliation({ reconcile: true });
       }
     };
 

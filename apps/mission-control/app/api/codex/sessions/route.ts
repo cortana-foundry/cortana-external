@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import path from "node:path";
 
 import { backfillCodexThreadName, createCodexThread } from "@/lib/codex-app-server";
-import { recordCodexMirrorNotification, upsertCodexMirrorThread } from "@/lib/codex-mirror";
+import {
+  reconcileCodexMirrorSessions,
+  recordCodexMirrorNotification,
+  upsertCodexMirrorThread,
+} from "@/lib/codex-mirror";
 import { listVisibleCodexSessions, waitForVisibleCodexSessionDetail } from "@/lib/codex-session-access";
 import { listUnindexedCodexSessions } from "@/lib/codex-sessions";
 
@@ -28,9 +32,19 @@ function parseLimit(value: string | null): number {
   return Math.floor(parsed);
 }
 
+function wantsForcedReconcile(value: string | null) {
+  if (!value) return false;
+  return value === "1" || value.toLowerCase() === "true";
+}
+
+function getReconcileLimit(limit: number) {
+  return Math.max(100, Math.min(1000, limit * 5));
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const limit = parseLimit(searchParams.get("limit"));
+  const forceReconcile = wantsForcedReconcile(searchParams.get("reconcile"));
   const includeIdsParam = searchParams.get("includeIds");
   const includeIds = includeIdsParam
     ? new Set(
@@ -42,6 +56,10 @@ export async function GET(request: Request) {
     : undefined;
 
   try {
+    if (forceReconcile) {
+      await reconcileCodexMirrorSessions({ limit: getReconcileLimit(limit) });
+    }
+
     const unindexedSessions = await listUnindexedCodexSessions({ limit });
     await Promise.allSettled(
       unindexedSessions.map((session) => backfillCodexThreadName(session.sessionId, session.threadName)),

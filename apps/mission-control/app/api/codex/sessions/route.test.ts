@@ -10,6 +10,7 @@ const codexSessionAccessMocks = vi.hoisted(() => ({
 }));
 
 const codexMirrorMocks = vi.hoisted(() => ({
+  reconcileCodexMirrorSessions: vi.fn(),
   recordCodexMirrorNotification: vi.fn(),
   upsertCodexMirrorThread: vi.fn(),
 }));
@@ -34,6 +35,7 @@ vi.mock("@/lib/codex-app-server", () => ({
 }));
 
 vi.mock("@/lib/codex-mirror", () => ({
+  reconcileCodexMirrorSessions: codexMirrorMocks.reconcileCodexMirrorSessions,
   recordCodexMirrorNotification: codexMirrorMocks.recordCodexMirrorNotification,
   upsertCodexMirrorThread: codexMirrorMocks.upsertCodexMirrorThread,
 }));
@@ -45,6 +47,7 @@ const makeRequest = (query = "") => new Request(`http://localhost/api/codex/sess
 describe("GET /api/codex/sessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    codexMirrorMocks.reconcileCodexMirrorSessions.mockResolvedValue(undefined);
   });
 
   it("returns codex sessions with the default limit", async () => {
@@ -95,6 +98,7 @@ describe("GET /api/codex/sessions", () => {
     const payload = await response.json();
 
     expect(codexMocks.listUnindexedCodexSessions).toHaveBeenCalledWith({ limit: 20 });
+    expect(codexMirrorMocks.reconcileCodexMirrorSessions).not.toHaveBeenCalled();
     expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(20, {});
     expect(response.status).toBe(200);
     expect(payload.sessions).toHaveLength(1);
@@ -121,6 +125,22 @@ describe("GET /api/codex/sessions", () => {
 
     expect(response.status).toBe(200);
     expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(5, {});
+  });
+
+  it("forces mirror reconciliation when requested", async () => {
+    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
+    codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
+      sessions: [],
+      groups: [],
+      latestUpdatedAt: null,
+      totalMatchedSessions: 0,
+      totalVisibleSessions: 0,
+    });
+
+    const response = await GET(makeRequest("?reconcile=1"));
+
+    expect(response.status).toBe(200);
+    expect(codexMirrorMocks.reconcileCodexMirrorSessions).toHaveBeenCalledWith({ limit: 100 });
   });
 
   it("returns an error payload when discovery fails", async () => {

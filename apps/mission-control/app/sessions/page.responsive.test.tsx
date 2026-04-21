@@ -50,7 +50,7 @@ const EMPTY_SESSIONS_RESPONSE = {
 function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url === "/api/codex/sessions") {
+    if (url === "/api/codex/sessions" || url.startsWith("/api/codex/sessions?")) {
       return {
         ok: true,
         json: async () => EMPTY_SESSIONS_RESPONSE,

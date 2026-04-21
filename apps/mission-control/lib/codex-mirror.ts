@@ -107,7 +107,7 @@ function toSqlNumber(value: number | null | undefined) {
 
 function clampLimit(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 20;
-  return Math.max(1, Math.min(Math.floor(value), 100));
+  return Math.max(1, Math.min(Math.floor(value), 1000));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
