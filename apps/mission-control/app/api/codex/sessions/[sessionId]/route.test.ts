@@ -28,6 +28,7 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
       transcriptPath: "/tmp/session.jsonl",
       events: [
         { id: "0:user", role: "user", text: "Hi", timestamp: 100, phase: null, rawType: "user_message" },
+        { id: "1:assistant", role: "assistant", text: "Hello", timestamp: 200, phase: null, rawType: "agent_message" },
       ],
     });
 
@@ -38,7 +39,72 @@ describe("GET /api/codex/sessions/[sessionId]", () => {
 
     expect(response.status).toBe(200);
     expect(payload.session.sessionId).toBe("abc");
+    expect(payload.session.events).toEqual([
+      { id: "0:user", role: "user", text: "Hi", timestamp: 100, phase: null, rawType: "user_message" },
+      { id: "1:assistant", role: "assistant", text: "Hello", timestamp: 200, phase: null, rawType: "agent_message" },
+    ]);
+    expect(payload.pagination).toEqual({
+      totalEvents: 2,
+      loadedEvents: 2,
+      hasMore: false,
+      nextBefore: null,
+      rangeStart: 0,
+      rangeEnd: 2,
+    });
     expect(codexMocks.getVisibleCodexSessionDetail).toHaveBeenCalledWith("abc");
+  });
+
+  it("returns the latest event page by default and older events with before cursors", async () => {
+    codexMocks.getVisibleCodexSessionDetail.mockResolvedValue({
+      sessionId: "abc",
+      threadName: "Brainstorm",
+      updatedAt: 123,
+      cwd: "/Users/hd/Developer/cortana-external",
+      model: "gpt-5.4",
+      source: "exec",
+      cliVersion: "0.121.0",
+      lastMessagePreview: "Latest",
+      transcriptPath: "/tmp/session.jsonl",
+      events: Array.from({ length: 4 }, (_, index) => ({
+        id: `${index}`,
+        role: index % 2 === 0 ? "user" : "assistant",
+        text: `message-${index}`,
+        timestamp: 100 + index,
+        phase: null,
+        rawType: "event_msg",
+      })),
+    });
+
+    const latestResponse = await GET(new Request("http://localhost/api/codex/sessions/abc?limit=2"), {
+      params: Promise.resolve({ sessionId: "abc" }),
+    });
+    const latestPayload = await latestResponse.json();
+
+    expect(latestResponse.status).toBe(200);
+    expect(latestPayload.session.events.map((event: { id: string }) => event.id)).toEqual(["2", "3"]);
+    expect(latestPayload.pagination).toEqual({
+      totalEvents: 4,
+      loadedEvents: 2,
+      hasMore: true,
+      nextBefore: 2,
+      rangeStart: 2,
+      rangeEnd: 4,
+    });
+
+    const olderResponse = await GET(new Request("http://localhost/api/codex/sessions/abc?limit=2&before=2"), {
+      params: Promise.resolve({ sessionId: "abc" }),
+    });
+    const olderPayload = await olderResponse.json();
+
+    expect(olderPayload.session.events.map((event: { id: string }) => event.id)).toEqual(["0", "1"]);
+    expect(olderPayload.pagination).toEqual({
+      totalEvents: 4,
+      loadedEvents: 2,
+      hasMore: false,
+      nextBefore: null,
+      rangeStart: 0,
+      rangeEnd: 2,
+    });
   });
 
   it("returns 404 when the session is missing", async () => {

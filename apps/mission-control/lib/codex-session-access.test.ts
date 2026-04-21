@@ -189,7 +189,7 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context"]);
   });
 
-  it("prioritizes interactive vscode sessions ahead of exec sessions within a workspace", () => {
+  it("shows only interactive vscode sessions in the project rail", () => {
     const repoRoot = "/Users/hd/Developer/cortana-external";
     const result = buildVisibleCodexSessionGroups(
       [
@@ -246,70 +246,7 @@ describe("buildVisibleCodexSessionGroups", () => {
       { limit: 20, homeDir: "/Users/hd" },
     );
 
-    expect(result.sessions.map((session) => session.sessionId)).toEqual([
-      "interactive-session",
-      "exec-session",
-    ]);
-  });
-
-  it("hides low-signal Mission Control exec test threads", () => {
-    const repoRoot = "/Users/hd/Developer/cortana-external";
-    const result = buildVisibleCodexSessionGroups(
-      [
-        {
-          sessionId: "test-session",
-          threadName: "testing from mission control",
-          updatedAt: 500,
-          cwd: repoRoot,
-          model: "gpt-5.4",
-          source: "exec",
-          cliVersion: "0.122.0",
-          lastMessagePreview: null,
-          transcriptPath: "/tmp/test.jsonl",
-        },
-        {
-          sessionId: "real-session",
-          threadName: "Verify repo purpose",
-          updatedAt: 400,
-          cwd: repoRoot,
-          model: "gpt-5.4",
-          source: "vscode",
-          cliVersion: "0.122.0",
-          lastMessagePreview: "Check the repo purpose",
-          transcriptPath: "/tmp/real.jsonl",
-        },
-      ],
-      [
-        {
-          id: "test-session",
-          title: "testing from mission control",
-          cwd: repoRoot,
-          source: "exec",
-          first_user_message: "testing from mission control",
-          archived: 0,
-          has_user_event: 1,
-          updated_at_ms: 500,
-        },
-        {
-          id: "real-session",
-          title: "Verify repo purpose",
-          cwd: repoRoot,
-          source: "vscode",
-          first_user_message: "Hey Codex can you verify what cortana-external repo does?",
-          archived: 0,
-          has_user_event: 1,
-          updated_at_ms: 400,
-        },
-      ],
-      {
-        activeWorkspaceRoots: [repoRoot],
-        savedWorkspaceRoots: [],
-        collapsedGroups: [],
-      },
-      { limit: 20, homeDir: "/Users/hd" },
-    );
-
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["real-session"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["interactive-session"]);
   });
 
   it("hides synthetic named vscode threads that never captured a user message", () => {
@@ -528,7 +465,7 @@ describe("listVisibleCodexSessions", () => {
 
     const result = await listVisibleCodexSessions(10);
 
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh", "stale"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh"]);
     expect(result.sessions[0]).toEqual(
       expect.objectContaining({
         sessionId: "fresh",

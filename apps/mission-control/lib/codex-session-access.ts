@@ -195,7 +195,9 @@ function shouldExposeSessionInSidebar(
   session: CodexSessionSummary,
   stateRow: CodexLocalThreadStateRow | null,
 ) {
+  const source = (stateRow?.source ?? session.source ?? "").trim();
   if (stateRow?.archived) return false;
+  if (source.length > 0 && source !== "vscode") return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
   if (isSyntheticNamedThread(stateRow, session)) return false;

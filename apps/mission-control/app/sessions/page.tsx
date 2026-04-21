@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   Clock3,
@@ -50,6 +50,15 @@ type CodexSessionDetail = CodexSession & {
   events: CodexSessionEvent[];
 };
 
+type CodexSessionPagination = {
+  totalEvents: number;
+  loadedEvents: number;
+  hasMore: boolean;
+  nextBefore: number | null;
+  rangeStart: number;
+  rangeEnd: number;
+};
+
 type StreamingCodexEvent = {
   id: string;
   role: "assistant";
@@ -64,7 +73,11 @@ type CodexSessionsResponse = {
   totalVisibleSessions: number;
   error?: string;
 };
-type CodexSessionDetailResponse = { session?: CodexSessionDetail; error?: string };
+type CodexSessionDetailResponse = {
+  session?: CodexSessionDetail;
+  pagination?: CodexSessionPagination;
+  error?: string;
+};
 type CodexRunStartResponse = { streamId?: string; error?: string };
 
 type CodexStreamEnvelope = {
@@ -73,6 +86,8 @@ type CodexStreamEnvelope = {
 };
 
 const CODEX_RECONCILE_INTERVAL_MS = 4_000;
+const DEFAULT_CODEX_EVENT_PAGE_SIZE = 60;
+const TRANSCRIPT_SCROLL_TOP_FETCH_THRESHOLD_PX = 72;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -250,8 +265,21 @@ export function summarizeCodexSessions(sessions: CodexSession[]) {
   );
 }
 
+function mergeOlderCodexSessionEvents(
+  existingEvents: CodexSessionEvent[],
+  olderEvents: CodexSessionEvent[],
+) {
+  const byId = new Set(existingEvents.map((event) => event.id));
+  return [
+    ...olderEvents.filter((event) => !byId.has(event.id)),
+    ...existingEvents,
+  ];
+}
+
 export default function SessionsPage() {
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
+  const transcriptScrollActionRef = useRef<"bottom" | "preserve" | null>(null);
+  const transcriptPrependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
   const [codexSessionGroups, setCodexSessionGroups] = useState<CodexSessionGroup[]>([]);
   const [codexVisibleTotal, setCodexVisibleTotal] = useState(0);
@@ -259,11 +287,13 @@ export default function SessionsPage() {
   const [codexLatestUpdatedAt, setCodexLatestUpdatedAt] = useState<number | null>(null);
   const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
   const [selectedCodexSession, setSelectedCodexSession] = useState<CodexSessionDetail | null>(null);
+  const [selectedCodexPagination, setSelectedCodexPagination] = useState<CodexSessionPagination | null>(null);
   const [provisionalCodexSession, setProvisionalCodexSession] = useState<CodexSession | null>(null);
   const [streamedAssistantEvents, setStreamedAssistantEvents] = useState<StreamingCodexEvent[]>([]);
   const [pendingCodexUserEvent, setPendingCodexUserEvent] = useState<CodexSessionEvent | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [codexDetailLoading, setCodexDetailLoading] = useState(false);
+  const [codexOlderLoading, setCodexOlderLoading] = useState(false);
   const [newCodexPrompt, setNewCodexPrompt] = useState("");
   const [replyPrompt, setReplyPrompt] = useState("");
   const [codexMutationPending, setCodexMutationPending] = useState<"create" | "reply" | null>(null);
@@ -283,27 +313,60 @@ export default function SessionsPage() {
 
   async function loadCodexSessionDetail(
     sessionId: string,
-    options: { background?: boolean } = {},
+    options: { background?: boolean; before?: number | null; appendMode?: "replace" | "prepend" } = {},
   ) {
-    if (!options.background) {
+    const appendMode = options.appendMode ?? "replace";
+    const query = new URLSearchParams({
+      limit: String(DEFAULT_CODEX_EVENT_PAGE_SIZE),
+    });
+    if (options.before != null) {
+      query.set("before", String(options.before));
+    }
+
+    if (appendMode === "prepend") {
+      setCodexOlderLoading(true);
+    } else if (!options.background) {
       setCodexDetailLoading(true);
     }
 
     try {
-      const response = await fetch(`/api/codex/sessions/${sessionId}`, { cache: "no-store" });
+      const response = await fetch(`/api/codex/sessions/${sessionId}?${query.toString()}`, { cache: "no-store" });
       const payload = (await response.json()) as CodexSessionDetailResponse;
 
       if (!response.ok || !payload.session) {
         throw new Error(payload.error ?? "Failed to load Codex transcript");
       }
 
-      setSelectedCodexSession(payload.session);
+      if (appendMode === "prepend") {
+        startTransition(() => {
+          setSelectedCodexSession((current) => {
+            if (!current) return payload.session ?? null;
+            return {
+              ...payload.session!,
+              events: mergeOlderCodexSessionEvents(current.events, payload.session!.events),
+            };
+          });
+          setSelectedCodexPagination(payload.pagination ?? null);
+        });
+      } else {
+        transcriptScrollActionRef.current = "bottom";
+        setSelectedCodexSession(payload.session);
+        setSelectedCodexPagination(payload.pagination ?? null);
+      }
       setCodexMutationError(null);
     } catch (err) {
-      setSelectedCodexSession(null);
+      if (appendMode === "replace") {
+        setSelectedCodexSession(null);
+        setSelectedCodexPagination(null);
+      } else {
+        transcriptPrependAnchorRef.current = null;
+        transcriptScrollActionRef.current = null;
+      }
       setCodexMutationError(err instanceof Error ? err.message : "Failed to load Codex transcript");
     } finally {
-      if (!options.background) {
+      if (appendMode === "prepend") {
+        setCodexOlderLoading(false);
+      } else if (!options.background) {
         setCodexDetailLoading(false);
       }
     }
@@ -476,6 +539,7 @@ export default function SessionsPage() {
   useEffect(() => {
     if (!selectedCodexSessionId) {
       setSelectedCodexSession(null);
+      setSelectedCodexPagination(null);
       setPendingCodexUserEvent(null);
       setStreamedAssistantEvents([]);
       return;
@@ -483,6 +547,7 @@ export default function SessionsPage() {
 
     setPendingCodexUserEvent(null);
     setStreamedAssistantEvents([]);
+    setSelectedCodexPagination(null);
     void loadCodexSessionDetail(selectedCodexSessionId);
   }, [selectedCodexSessionId]);
 
@@ -511,9 +576,6 @@ export default function SessionsPage() {
           return;
         }
 
-        if (selectedSessionId) {
-          await loadCodexSessionDetail(selectedSessionId, { background: true });
-        }
       } catch (err) {
         if (!cancelled) {
           setCodexError(err instanceof Error ? err.message : "Failed to reconcile Codex sessions");
@@ -540,14 +602,70 @@ export default function SessionsPage() {
     };
   }, [loading, codexMutationPending, selectedCodexSessionId]);
 
+  async function loadOlderCodexEvents() {
+    if (!selectedCodexSessionId || !selectedCodexPagination?.hasMore || selectedCodexPagination.nextBefore == null) {
+      return;
+    }
+
+    const viewport = transcriptViewportRef.current;
+    if (viewport) {
+      transcriptPrependAnchorRef.current = {
+        scrollHeight: viewport.scrollHeight,
+        scrollTop: viewport.scrollTop,
+      };
+      transcriptScrollActionRef.current = "preserve";
+    }
+
+    await loadCodexSessionDetail(selectedCodexSessionId, {
+      background: true,
+      before: selectedCodexPagination.nextBefore,
+      appendMode: "prepend",
+    });
+  }
+
   useEffect(() => {
     const viewport = transcriptViewportRef.current;
     if (!viewport) return;
 
-    viewport.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: "smooth",
-    });
+    const handleScroll = () => {
+      if (
+        viewport.scrollTop <= TRANSCRIPT_SCROLL_TOP_FETCH_THRESHOLD_PX
+        && selectedCodexPagination?.hasMore
+        && !codexOlderLoading
+        && !codexDetailLoading
+        && !codexMutationPending
+      ) {
+        void loadOlderCodexEvents();
+      }
+    };
+
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, [selectedCodexPagination?.hasMore, codexOlderLoading, codexDetailLoading, codexMutationPending, selectedCodexSessionId]);
+
+  useEffect(() => {
+    const viewport = transcriptViewportRef.current;
+    if (!viewport) return;
+
+    if (transcriptScrollActionRef.current === "preserve") {
+      const anchor = transcriptPrependAnchorRef.current;
+      transcriptPrependAnchorRef.current = null;
+      transcriptScrollActionRef.current = null;
+      if (anchor) {
+        viewport.scrollTop = viewport.scrollHeight - anchor.scrollHeight + anchor.scrollTop;
+      }
+      return;
+    }
+
+    if (transcriptScrollActionRef.current === "bottom") {
+      transcriptScrollActionRef.current = null;
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }, [
     selectedCodexSessionId,
     selectedCodexSession?.events.length,
@@ -580,10 +698,12 @@ export default function SessionsPage() {
     const prompt = newCodexPrompt.trim();
     if (!prompt) return;
 
+    transcriptScrollActionRef.current = "bottom";
     setCodexMutationPending("create");
     setCodexMutationError(null);
     setSelectedCodexSessionId(null);
     setSelectedCodexSession(null);
+    setSelectedCodexPagination(null);
     setProvisionalCodexSession(null);
     setPendingCodexUserEvent({
       id: `pending-create-${Date.now()}`,
@@ -623,10 +743,19 @@ export default function SessionsPage() {
       await consumeCodexStream(
         response,
         async (session) => {
+          transcriptScrollActionRef.current = "bottom";
           const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
           setProvisionalCodexSession(null);
           setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
           setSelectedCodexSession(session);
+          setSelectedCodexPagination({
+            totalEvents: session.events.length,
+            loadedEvents: session.events.length,
+            hasMore: false,
+            nextBefore: null,
+            rangeStart: 0,
+            rangeEnd: session.events.length,
+          });
           setPendingCodexUserEvent(null);
           setStreamedAssistantEvents([]);
         },
@@ -665,6 +794,7 @@ export default function SessionsPage() {
     const prompt = replyPrompt.trim();
     if (!prompt) return;
 
+    transcriptScrollActionRef.current = "bottom";
     setCodexMutationPending("reply");
     setCodexMutationError(null);
     setStreamedAssistantEvents([]);
@@ -712,8 +842,17 @@ export default function SessionsPage() {
       }
 
       await consumeCodexStream(response, async (session) => {
+        transcriptScrollActionRef.current = "bottom";
         await refreshCodexSessions(session.sessionId, session);
         setSelectedCodexSession(session);
+        setSelectedCodexPagination({
+          totalEvents: session.events.length,
+          loadedEvents: session.events.length,
+          hasMore: false,
+          nextBefore: null,
+          rangeStart: 0,
+          rangeEnd: session.events.length,
+        });
         setStreamedAssistantEvents([]);
       });
       setReplyPrompt("");
@@ -960,7 +1099,7 @@ export default function SessionsPage() {
                       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
                           <MessageSquareText className="h-3.5 w-3.5" />
-                          {formatInt(selectedCodexSession?.events.length ?? 0)} saved messages
+                          {formatInt(selectedCodexPagination?.totalEvents ?? selectedCodexSession?.events.length ?? 0)} saved messages
                         </span>
                         <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1">
                           <Clock3 className="h-3.5 w-3.5" />
@@ -975,6 +1114,17 @@ export default function SessionsPage() {
                     className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(248,250,252,0.66)_0%,rgba(248,250,252,0.14)_100%)] px-4 py-5 md:px-6"
                   >
                     <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-4">
+                    {selectedCodexSession && (codexOlderLoading || selectedCodexPagination?.hasMore) ? (
+                      <div className="sticky top-0 z-10 flex justify-center">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
+                          {codexOlderLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquareText className="h-3.5 w-3.5" />}
+                          {codexOlderLoading
+                            ? "Loading earlier messages…"
+                            : "Scroll up to load earlier messages"}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {codexDetailLoading ? (
                       <div className="rounded-[22px] border border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
                         Loading Codex transcript…
