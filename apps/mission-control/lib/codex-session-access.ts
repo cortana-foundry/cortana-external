@@ -13,7 +13,7 @@ import {
 import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from "@/lib/codex-sessions";
 import {
   getCodexSessionDetail,
-  listCodexSessions,
+  listCodexSessionIndexSummaries,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -37,6 +37,7 @@ type CodexLocalThreadStateRow = {
   source: string | null;
   archived: number;
   has_user_event: number | null;
+  first_user_message: string | null;
   updated_at_ms: number | null;
 };
 
@@ -157,6 +158,19 @@ function isUtilityCliThread(row: CodexLocalThreadStateRow | null, session: Codex
   return /^[a-z0-9:_-]{1,48}$/i.test(title);
 }
 
+function hasRenderableSidebarContent(
+  session: CodexSessionSummary,
+  stateRow: CodexLocalThreadStateRow | null,
+) {
+  const firstUserMessage = stateRow?.first_user_message?.trim() ?? "";
+  if (firstUserMessage.length > 0) {
+    return true;
+  }
+
+  const preview = session.lastMessagePreview?.trim() ?? "";
+  return preview.length > 0;
+}
+
 function shouldExposeSessionInSidebar(
   session: CodexSessionSummary,
   stateRow: CodexLocalThreadStateRow | null,
@@ -165,6 +179,7 @@ function shouldExposeSessionInSidebar(
   if (stateRow?.archived) return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
+  if (!hasRenderableSidebarContent(session, stateRow)) return false;
   // Match the Codex desktop sidebar: only surface threads that originated from
   // the Codex desktop / VSCode extension. `cli` and `exec` threads (including
   // ad-hoc `codex exec` spawns) are hidden there, so hide them here too.
@@ -257,6 +272,7 @@ async function readCodexLocalThreadStateRows(
             source,
             archived,
             has_user_event,
+            first_user_message,
             COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
           FROM threads
           WHERE id IN (${sessionIdList})
@@ -509,7 +525,7 @@ export async function listVisibleCodexSessions(
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
   const [indexedSessions, mirroredSessions, sidebarState] = await Promise.all([
-    listCodexSessions({ limit: discoveryLimit }),
+    listCodexSessionIndexSummaries({ limit: discoveryLimit }),
     listCodexMirroredSessions(discoveryLimit),
     readCodexDesktopSidebarState(),
   ]);
@@ -520,7 +536,6 @@ export async function listVisibleCodexSessions(
   }
 
   const candidates = [...merged.values()]
-    .filter((session) => Boolean(session.lastMessagePreview))
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .slice(0, discoveryLimit);
 
