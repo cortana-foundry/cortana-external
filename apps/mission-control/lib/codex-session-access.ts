@@ -13,6 +13,7 @@ import {
 import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from "@/lib/codex-sessions";
 import {
   getCodexSessionDetail,
+  listCodexSessionIndexSummariesById,
   listCodexSessionIndexSummaries,
   listCodexStateThreadSummaries,
   type CodexSessionEvent as FileCodexSessionEvent,
@@ -36,6 +37,7 @@ type CodexLocalThreadStateRow = {
   title: string | null;
   cwd: string | null;
   source: string | null;
+  first_user_message: string | null;
   archived: number;
   has_user_event: number | null;
   updated_at_ms: number | null;
@@ -158,6 +160,29 @@ function isUtilityCliThread(row: CodexLocalThreadStateRow | null, session: Codex
   return /^[a-z0-9:_-]{1,48}$/i.test(title);
 }
 
+function isSyntheticNamedThread(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  if (!row) return false;
+  const source = row?.source ?? session.source;
+  const firstUserMessage = row?.first_user_message?.trim() ?? "";
+  if (source !== "vscode") return false;
+  if (firstUserMessage.length > 0) return false;
+  return !session.lastMessagePreview?.trim();
+}
+
+function isMissionControlTestThread(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  const source = row?.source ?? session.source;
+  if (source !== "exec") return false;
+
+  const title = (row?.title ?? session.threadName ?? row?.first_user_message ?? "").trim().toLowerCase();
+  if (!title) return false;
+
+  return (
+    title === "testing from mission control"
+    || title === "hey this a test"
+    || title.startsWith("reply with exactly:")
+  );
+}
+
 function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
   const source = (row?.source ?? session.source ?? "").trim();
   if (source === "vscode") return 0;
@@ -173,6 +198,8 @@ function shouldExposeSessionInSidebar(
   if (stateRow?.archived) return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
+  if (isSyntheticNamedThread(stateRow, session)) return false;
+  if (isMissionControlTestThread(stateRow, session)) return false;
   return true;
 }
 
@@ -254,6 +281,7 @@ async function readCodexLocalThreadStateRows(
             title,
             cwd,
             source,
+            first_user_message,
             archived,
             has_user_event,
             COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
@@ -415,9 +443,39 @@ function mergeSessionSummary(
   if (!base) return overlay ?? null;
   if (!overlay) return base;
 
+  const pickPreferredThreadName = (
+    primary: string | null | undefined,
+    secondary: string | null | undefined,
+  ) => {
+    const score = (value: string | null | undefined) => {
+      const title = value?.trim() ?? "";
+      if (!title) return Number.POSITIVE_INFINITY;
+
+      let total = 0;
+      if (title.includes("\n")) total += 4;
+      if (title.length > 120) total += 2;
+      if (title.includes("/Users/")) total += 1;
+      if (title.includes("What I want from you:")) total += 3;
+      if (title.includes("Deliverables:")) total += 3;
+      if (title.includes("Execution style:")) total += 3;
+      return total;
+    };
+
+    const primaryScore = score(primary);
+    const secondaryScore = score(secondary);
+
+    if (primaryScore < secondaryScore) return primary ?? null;
+    if (secondaryScore < primaryScore) return secondary ?? null;
+
+    const primaryLength = primary?.trim().length ?? Number.POSITIVE_INFINITY;
+    const secondaryLength = secondary?.trim().length ?? Number.POSITIVE_INFINITY;
+    if (primaryLength <= secondaryLength) return primary ?? secondary ?? null;
+    return secondary ?? primary ?? null;
+  };
+
   return {
     sessionId: overlay.sessionId,
-    threadName: overlay.threadName ?? base.threadName,
+    threadName: pickPreferredThreadName(base.threadName, overlay.threadName),
     updatedAt: Math.max(base.updatedAt ?? 0, overlay.updatedAt ?? 0) || null,
     cwd: overlay.cwd ?? base.cwd,
     model: overlay.model ?? base.model,
@@ -490,6 +548,12 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
     listCodexStateThreadSummaries({ limit: discoveryLimit }),
     readCodexDesktopSidebarState(),
   ]);
+  const stateIndexedSessions = stateSessions.length > 0
+    ? await listCodexSessionIndexSummariesById(
+        stateSessions.map((session) => session.sessionId),
+      )
+    : [];
+  const stateIndexedById = new Map(stateIndexedSessions.map((session) => [session.sessionId, session] as const));
   const merged = new Map(indexedSessions.map((session) => [session.sessionId, session] as const));
 
   for (const session of mirroredSessions) {
@@ -497,7 +561,11 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
   }
 
   for (const session of stateSessions) {
-    merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
+    const preferredTitleSession = mergeSessionSummary(stateIndexedById.get(session.sessionId), session) ?? session;
+    merged.set(
+      session.sessionId,
+      mergeSessionSummary(merged.get(session.sessionId), preferredTitleSession) ?? preferredTitleSession,
+    );
   }
 
   const candidates = [...merged.values()]

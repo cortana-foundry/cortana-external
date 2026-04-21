@@ -164,6 +164,37 @@ export async function listCodexSessionIndexSummaries(
     }));
 }
 
+export async function listCodexSessionIndexSummariesById(
+  sessionIds: string[],
+  options: Pick<ListCodexSessionsOptions, "sessionIndexPath"> = {},
+): Promise<CodexSessionSummary[]> {
+  const requestedIds = new Set(
+    sessionIds
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+  if (requestedIds.size === 0) {
+    return [];
+  }
+
+  const sessionIndexPath = options.sessionIndexPath ?? DEFAULT_SESSION_INDEX_PATH;
+  const raw = await fs.readFile(sessionIndexPath, "utf8");
+
+  return parseCodexSessionIndex(raw)
+    .filter((entry) => requestedIds.has(entry.id))
+    .map((entry) => ({
+      sessionId: entry.id,
+      threadName: entry.threadName,
+      updatedAt: entry.updatedAt,
+      cwd: null,
+      model: null,
+      source: null,
+      cliVersion: null,
+      lastMessagePreview: null,
+      transcriptPath: null,
+    }));
+}
+
 export async function listCodexStateThreadSummaries(
   options: { limit?: number | null; stateDbPath?: string } = {},
 ): Promise<CodexSessionSummary[]> {

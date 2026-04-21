@@ -12,9 +12,9 @@ const codexMirrorMocks = vi.hoisted(() => ({
 
 const codexSessionMocks = vi.hoisted(() => ({
   getCodexSessionDetail: vi.fn(),
+  listCodexSessionIndexSummariesById: vi.fn(),
   listCodexSessionIndexSummaries: vi.fn(),
   listCodexStateThreadSummaries: vi.fn(),
-  listCodexSessions: vi.fn(),
 }));
 
 vi.mock("@/lib/codex-mirror", () => ({
@@ -27,9 +27,9 @@ vi.mock("@/lib/codex-mirror", () => ({
 
 vi.mock("@/lib/codex-sessions", () => ({
   getCodexSessionDetail: codexSessionMocks.getCodexSessionDetail,
+  listCodexSessionIndexSummariesById: codexSessionMocks.listCodexSessionIndexSummariesById,
   listCodexSessionIndexSummaries: codexSessionMocks.listCodexSessionIndexSummaries,
   listCodexStateThreadSummaries: codexSessionMocks.listCodexStateThreadSummaries,
-  listCodexSessions: codexSessionMocks.listCodexSessions,
 }));
 
 import {
@@ -82,6 +82,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "Brainstorm Codex web interface",
           cwd: "/Users/hd/Developer/cortana-external",
           source: "vscode",
+          first_user_message: "Ship Mission Control parity",
           archived: 0,
           has_user_event: 0,
           updated_at_ms: 300,
@@ -91,6 +92,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "Investigate streamer contract",
           cwd: "/Users/hd/Developer/cortana-external",
           source: "{\"subagent\":{\"thread_spawn\":{\"parent_thread_id\":\"root\"}}}",
+          first_user_message: "Investigate streamer contract",
           archived: 0,
           has_user_event: 0,
           updated_at_ms: 250,
@@ -100,6 +102,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "sessions",
           cwd: "/Users/hd/Developer/cortana-external/apps/mission-control/scripts",
           source: "cli",
+          first_user_message: "",
           archived: 0,
           has_user_event: 0,
           updated_at_ms: 200,
@@ -157,6 +160,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "Reply with exactly: ack-two",
           cwd: null,
           source: null,
+          first_user_message: "Reply with exactly: ack-two",
           archived: 0,
           has_user_event: 1,
           updated_at_ms: 300,
@@ -166,6 +170,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "Brainstorm Codex web interface",
           cwd: "/Users/hd/Developer/cortana-external",
           source: "vscode",
+          first_user_message: "Brainstorm Codex web interface",
           archived: 0,
           has_user_event: 1,
           updated_at_ms: 250,
@@ -190,7 +195,7 @@ describe("buildVisibleCodexSessionGroups", () => {
       [
         {
           sessionId: "exec-session",
-          threadName: "testing from mission control",
+          threadName: "Inspect Mission Control API health",
           updatedAt: 500,
           cwd: repoRoot,
           model: "gpt-5.4",
@@ -214,9 +219,10 @@ describe("buildVisibleCodexSessionGroups", () => {
       [
         {
           id: "exec-session",
-          title: "testing from mission control",
+          title: "Inspect Mission Control API health",
           cwd: repoRoot,
           source: "exec",
+          first_user_message: "Inspect Mission Control API health",
           archived: 0,
           has_user_event: 1,
           updated_at_ms: 500,
@@ -226,6 +232,7 @@ describe("buildVisibleCodexSessionGroups", () => {
           title: "Locate backtester v8-v10 PRDs",
           cwd: repoRoot,
           source: "vscode",
+          first_user_message: "Hey check the cortana-external repo for some PRDs",
           archived: 0,
           has_user_event: 1,
           updated_at_ms: 400,
@@ -244,6 +251,126 @@ describe("buildVisibleCodexSessionGroups", () => {
       "exec-session",
     ]);
   });
+
+  it("hides low-signal Mission Control exec test threads", () => {
+    const repoRoot = "/Users/hd/Developer/cortana-external";
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "test-session",
+          threadName: "testing from mission control",
+          updatedAt: 500,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "exec",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/tmp/test.jsonl",
+        },
+        {
+          sessionId: "real-session",
+          threadName: "Verify repo purpose",
+          updatedAt: 400,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: "Check the repo purpose",
+          transcriptPath: "/tmp/real.jsonl",
+        },
+      ],
+      [
+        {
+          id: "test-session",
+          title: "testing from mission control",
+          cwd: repoRoot,
+          source: "exec",
+          first_user_message: "testing from mission control",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 500,
+        },
+        {
+          id: "real-session",
+          title: "Verify repo purpose",
+          cwd: repoRoot,
+          source: "vscode",
+          first_user_message: "Hey Codex can you verify what cortana-external repo does?",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 400,
+        },
+      ],
+      {
+        activeWorkspaceRoots: [repoRoot],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["real-session"]);
+  });
+
+  it("hides synthetic named vscode threads that never captured a user message", () => {
+    const repoRoot = "/Users/hd/Developer/cortana-external";
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "synthetic-session",
+          threadName: "MC visibility test",
+          updatedAt: 500,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/tmp/synthetic.jsonl",
+        },
+        {
+          sessionId: "real-session",
+          threadName: "Verify repo purpose",
+          updatedAt: 400,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: "We should show this session",
+          transcriptPath: "/tmp/real.jsonl",
+        },
+      ],
+      [
+        {
+          id: "synthetic-session",
+          title: "MC visibility test",
+          cwd: repoRoot,
+          source: "vscode",
+          first_user_message: "",
+          archived: 0,
+          has_user_event: 0,
+          updated_at_ms: 500,
+        },
+        {
+          id: "real-session",
+          title: "Verify repo purpose",
+          cwd: repoRoot,
+          source: "vscode",
+          first_user_message: "Tell me what this repo is for",
+          archived: 0,
+          has_user_event: 1,
+          updated_at_ms: 400,
+        },
+      ],
+      {
+        activeWorkspaceRoots: [repoRoot],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["real-session"]);
+  });
 });
 
 describe("listVisibleCodexSessions", () => {
@@ -252,6 +379,7 @@ describe("listVisibleCodexSessions", () => {
     codexMirrorMocks.listCodexMirroredSessions.mockResolvedValue([]);
     codexMirrorMocks.syncCodexMirrorThreadFromSession.mockResolvedValue(undefined);
     codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValue([]);
+    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValue([]);
   });
 
   it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
@@ -304,12 +432,65 @@ describe("listVisibleCodexSessions", () => {
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
   });
 
+  it("prefers the indexed session title over state-backed long prompts", async () => {
+    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
+    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "poly",
+        threadName: "Add Polymarket intelligence layer",
+        updatedAt: 200,
+        cwd: null,
+        model: null,
+        source: null,
+        cliVersion: null,
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValueOnce([
+      {
+        sessionId: "poly",
+        threadName: "Read this PRD first: /Users/hd/Developer/cortana/docs/prd-polymarket-market-intelligence.md",
+        updatedAt: 300,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: null,
+        transcriptPath: "/tmp/poly.jsonl",
+      },
+    ]);
+    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([
+      {
+        sessionId: "poly",
+        threadName: "Add Polymarket intelligence layer",
+        updatedAt: 200,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: null,
+        transcriptPath: "/tmp/poly-index.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions[0]).toEqual(
+      expect.objectContaining({
+        sessionId: "poly",
+        threadName: "Add Polymarket intelligence layer",
+        updatedAt: 300,
+      }),
+    );
+  });
+
   it("includes active sessions that exist only in the Codex state database", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
     codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
       {
         sessionId: "stale",
-        threadName: "testing from mission control",
+        threadName: "Inspect Mission Control API health",
         updatedAt: 100,
         cwd: repoRoot,
         model: null,
@@ -331,7 +512,19 @@ describe("listVisibleCodexSessions", () => {
         lastMessagePreview: null,
         transcriptPath: "/tmp/fresh.jsonl",
       },
+      {
+        sessionId: "stale",
+        threadName: "Inspect Mission Control API health",
+        updatedAt: 100,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "exec",
+        cliVersion: "0.122.0",
+        lastMessagePreview: "Inspect Mission Control API health",
+        transcriptPath: "/tmp/stale.jsonl",
+      },
     ]);
+    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([]);
 
     const result = await listVisibleCodexSessions(10);
 
@@ -410,7 +603,7 @@ describe("getVisibleCodexSessionDetail", () => {
 
     expect(session).toEqual({
       sessionId: "abc",
-      threadName: "Mirror title",
+      threadName: "File title",
       updatedAt: 200,
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
