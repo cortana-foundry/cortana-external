@@ -160,20 +160,10 @@ function isUtilityCliThread(row: CodexLocalThreadStateRow | null, session: Codex
 function shouldExposeSessionInSidebar(
   session: CodexSessionSummary,
   stateRow: CodexLocalThreadStateRow | null,
-  bypassSourceFilter: boolean = false,
 ) {
   if (stateRow?.archived) return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
-  // Match the Codex desktop sidebar: only surface threads that originated from
-  // the Codex desktop / VSCode extension. `cli` and `exec` threads (including
-  // ad-hoc `codex exec` spawns) are hidden there, so hide them here too.
-  // However, if bypassSourceFilter is true (e.g., for MC-created sessions),
-  // allow them through.
-  if (!bypassSourceFilter) {
-    const source = stateRow?.source ?? session.source;
-    if (source !== "vscode") return false;
-  }
   return true;
 }
 
@@ -284,7 +274,6 @@ export function buildVisibleCodexSessionGroups(
     limit?: number;
     perGroupLimit?: number;
     homeDir?: string;
-    includeSessionIds?: Set<string>;
   } = {},
 ): VisibleCodexSessionsResult {
   const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 20), DEFAULT_DISCOVERY_LIMIT));
@@ -318,8 +307,7 @@ export function buildVisibleCodexSessionGroups(
 
   for (const session of sessions) {
     const stateRow = stateRowsById.get(session.sessionId) ?? null;
-    const bypass = options.includeSessionIds?.has(session.sessionId) ?? false;
-    if (!shouldExposeSessionInSidebar(session, stateRow, bypass)) {
+    if (!shouldExposeSessionInSidebar(session, stateRow)) {
       continue;
     }
 
@@ -476,12 +464,7 @@ function mergeSessionEvents(
   });
 }
 
-export async function listVisibleCodexSessions(
-  limit = 20,
-  options: {
-    includeSessionIds?: Set<string>;
-  } = {},
-): Promise<VisibleCodexSessionsResult> {
+export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodexSessionsResult> {
   const safeLimit = Math.max(1, Math.min(Math.floor(limit), DEFAULT_DISCOVERY_LIMIT));
   const discoveryLimit = Math.max(
     safeLimit,
@@ -508,7 +491,6 @@ export async function listVisibleCodexSessions(
 
   const visible = buildVisibleCodexSessionGroups(candidates, threadRows, sidebarState, {
     limit: safeLimit,
-    includeSessionIds: options.includeSessionIds,
   });
 
   await Promise.allSettled(visible.sessions.map((session) => syncCodexMirrorThreadFromSession(session)));
