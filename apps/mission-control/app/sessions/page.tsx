@@ -997,7 +997,7 @@ export default function SessionsPage() {
           ) : null}
 
           <div className="overflow-hidden rounded-[32px] border border-border/60 bg-background/96 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-            <div className="grid min-h-[calc(100svh-16rem)] gap-0 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)_19rem]">
+            <div className="grid gap-0 xl:h-[calc(100svh-15.5rem)] xl:min-h-[44rem] xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)_19rem]">
               <aside className="overflow-y-auto border-b border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(248,250,252,0.6))] xl:border-r xl:border-b-0">
                 <div className="space-y-6 p-4 md:p-5">
                   <section className="space-y-3">
@@ -1202,7 +1202,7 @@ export default function SessionsPage() {
 
                 <div
                   ref={transcriptViewportRef}
-                  className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6"
+                  className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6"
                 >
                   <div className="mx-auto flex max-w-4xl flex-col gap-4 pb-6">
                     {selectedCodexSession && (codexOlderLoading || selectedCodexPagination?.hasMore) ? (
@@ -1308,28 +1308,28 @@ export default function SessionsPage() {
                     </div>
                   ) : null}
 
-                  <div className="rounded-[28px] border border-border/60 bg-background/96 p-4 shadow-sm">
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        {selectedCodexSessionId ? "Reply" : "Reply disabled"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedCodexSessionId
-                          ? "Continue the selected Codex session."
-                          : "Select a thread from the left rail before sending a reply."}
-                      </p>
-                    </div>
+                    <div className="rounded-[28px] border border-border/60 bg-background/96 p-4 shadow-sm">
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          {selectedCodexSessionId ? "Reply" : "Reply disabled"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedCodexSessionId
+                            ? "Send the next message into this shared Codex thread."
+                            : "Select a thread from the left rail before sending a reply."}
+                        </p>
+                      </div>
 
                     <div className="mt-4 space-y-4">
-                      <Textarea
-                        value={replyPrompt}
-                        onChange={(event) => setReplyPrompt(event.target.value)}
-                        placeholder={
-                          selectedCodexSessionId
-                            ? "Continue the selected Codex session"
-                            : "Pick a thread from the left rail before sending a reply"
-                        }
-                        disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
+                        <Textarea
+                          value={replyPrompt}
+                          onChange={(event) => setReplyPrompt(event.target.value)}
+                          placeholder={
+                            selectedCodexSessionId
+                              ? "Type your next message"
+                              : "Pick a thread from the left rail before sending a reply"
+                          }
+                          disabled={!selectedCodexSessionId || codexMutationPending === "reply"}
                         className="min-h-[124px] resize-none border-0 bg-transparent px-0 text-sm leading-6 shadow-none focus-visible:ring-0"
                       />
 
