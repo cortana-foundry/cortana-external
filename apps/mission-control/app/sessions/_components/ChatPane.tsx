@@ -1,16 +1,19 @@
 "use client";
 
 import type { KeyboardEvent, RefObject } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowDown,
   ArrowUp,
   Check,
   Copy,
+  Eraser,
   Info,
   Loader2,
   MessageSquareText,
+  Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,8 +56,28 @@ type ChatPaneProps = {
   formatRelativeTimestamp: (value: number | null | undefined) => string;
   formatShortSessionId: (value: string | null | undefined) => string;
   onOpenInspector?: () => void;
+  onStartNewThread?: () => void;
+  onPickSuggestion?: (text: string) => void;
   className?: string;
 };
+
+type SlashCommand = {
+  id: string;
+  label: string;
+  description: string;
+  icon: typeof Copy;
+  disabled?: boolean;
+  run: () => void;
+};
+
+const PROMPT_SUGGESTIONS: readonly string[] = [
+  "Debug a failing test",
+  "Write a unit test for this file",
+  "Explain how this module works",
+  "Refactor to extract helpers",
+  "Add error handling to X",
+  "Review this PR branch",
+];
 
 const COMPOSER_MAX_HEIGHT_PX = 192;
 const COMPOSER_MIN_HEIGHT_PX = 40;
@@ -141,6 +164,8 @@ export function ChatPane({
   formatRelativeTimestamp: _formatRelativeTimestamp,
   formatShortSessionId: _formatShortSessionId,
   onOpenInspector,
+  onStartNewThread,
+  onPickSuggestion,
   className,
 }: ChatPaneProps) {
   void _activeCodexMessageCount;
@@ -154,6 +179,9 @@ export function ChatPane({
   const streamingInProgress = codexMutationPending === "create" || codexMutationPending === "reply";
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [slashPaletteOpen, setSlashPaletteOpen] = useState(false);
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const composerWrapperRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const previousMutationErrorRef = useRef<string | null>(null);
 
@@ -178,8 +206,152 @@ export function ChatPane({
     };
   }, [transcriptViewportRef, selectedCodexSessionId]);
 
+  const hasSession = Boolean(activeCodexSession?.sessionId);
+
+  const slashCommands: SlashCommand[] = useMemo(
+    () => [
+      {
+        id: "copy",
+        label: "/copy",
+        description: "Copy session id",
+        icon: Copy,
+        disabled: !hasSession,
+        run: () => {
+          if (hasSession) onCopySessionId();
+        },
+      },
+      {
+        id: "archive",
+        label: "/archive",
+        description: "Archive this thread",
+        icon: Archive,
+        disabled: !hasSession,
+        run: () => {
+          if (hasSession) onArchiveCodexSession();
+        },
+      },
+      {
+        id: "delete",
+        label: "/delete",
+        description: "Delete this thread",
+        icon: Trash2,
+        disabled: !hasSession,
+        run: () => {
+          if (hasSession) onDeleteCodexSession();
+        },
+      },
+      {
+        id: "clear",
+        label: "/clear",
+        description: "Clear the composer",
+        icon: Eraser,
+        run: () => {
+          setReplyPrompt("");
+        },
+      },
+      {
+        id: "info",
+        label: "/info",
+        description: "Open session details",
+        icon: Info,
+        disabled: !onOpenInspector,
+        run: () => {
+          onOpenInspector?.();
+        },
+      },
+    ],
+    [
+      hasSession,
+      onArchiveCodexSession,
+      onCopySessionId,
+      onDeleteCodexSession,
+      onOpenInspector,
+      setReplyPrompt,
+    ],
+  );
+
+  const slashQueryActive = slashPaletteOpen && replyPrompt.startsWith("/");
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashPaletteOpen) return slashCommands;
+    if (!slashQueryActive) return slashCommands;
+    const query = replyPrompt.slice(1).trim().toLowerCase();
+    if (query.length === 0) return slashCommands;
+    return slashCommands.filter((command) =>
+      command.label.slice(1).toLowerCase().startsWith(query),
+    );
+  }, [slashCommands, slashPaletteOpen, slashQueryActive, replyPrompt]);
+
+  const effectiveSlashIndex =
+    slashPaletteOpen && filteredSlashCommands.length > 0
+      ? slashActiveIndex % filteredSlashCommands.length
+      : 0;
+
+  useEffect(() => {
+    if (!slashPaletteOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const wrapper = composerWrapperRef.current;
+      if (!wrapper) return;
+      if (wrapper.contains(event.target as Node)) return;
+      setSlashPaletteOpen(false);
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [slashPaletteOpen]);
+
+  const runSlashCommand = (command: SlashCommand) => {
+    if (command.disabled) return;
+    command.run();
+    setReplyPrompt("");
+    setSlashPaletteOpen(false);
+    setSlashActiveIndex(0);
+  };
+
+  const handleReplyChange = (value: string) => {
+    setReplyPrompt(value);
+    if (value.startsWith("/")) {
+      setSlashPaletteOpen(true);
+    } else {
+      setSlashPaletteOpen(false);
+    }
+  };
+
   const handleReplyKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (slashPaletteOpen && filteredSlashCommands.length > 0) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setSlashActiveIndex(
+          (effectiveSlashIndex + 1) % filteredSlashCommands.length,
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setSlashActiveIndex(
+          (effectiveSlashIndex - 1 + filteredSlashCommands.length) %
+            filteredSlashCommands.length,
+        );
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        const command = filteredSlashCommands[effectiveSlashIndex];
+        if (command) runSlashCommand(command);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSlashPaletteOpen(false);
+        return;
+      }
+    }
+    if (event.key === "Escape" && slashPaletteOpen) {
+      event.preventDefault();
+      setSlashPaletteOpen(false);
+      return;
+    }
     const metaSend = event.key === "Enter" && (event.metaKey || event.ctrlKey);
     if (metaSend || isSendKeystroke(event)) {
       event.preventDefault();
@@ -195,7 +367,7 @@ export function ChatPane({
     viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
   };
 
-  const canCopy = Boolean(activeCodexSession?.sessionId);
+  const canCopy = hasSession;
   const canAct = canCopy && codexMutationPending == null;
   const copiedActive = copiedSessionId != null && copiedSessionId === activeCodexSession?.sessionId;
 
@@ -232,7 +404,12 @@ export function ChatPane({
   }
 
   const groups = groupEvents(renderedEvents);
-  const hasAnyMessages = groups.length > 0;
+  const hasStreamedAssistantText = streamedAssistantEvents.some(
+    (event) => typeof event.text === "string" && event.text.length > 0,
+  );
+  const showThinkingPlaceholder =
+    streamingInProgress && !hasStreamedAssistantText;
+  const hasAnyMessages = groups.length > 0 || showThinkingPlaceholder;
   const noSelection = !selectedCodexSessionId && !activeCodexSession;
 
   const activeSessionId = activeCodexSession?.sessionId ?? null;
@@ -398,7 +575,7 @@ export function ChatPane({
           ) : null}
 
           {!codexDetailLoading && !hasCodexTranscriptContent && noSelection ? (
-            <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-3 text-center">
+            <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-4 text-center">
               <MessageSquareText className="h-10 w-10 text-muted-foreground/60" aria-hidden="true" />
               <p className="text-sm font-medium text-foreground">
                 Pick a thread or start a new one
@@ -406,6 +583,31 @@ export function ChatPane({
               <p className="max-w-sm text-xs text-muted-foreground">
                 Mission Control mirrors the local Codex store on this machine.
               </p>
+              {onStartNewThread ? (
+                <Button
+                  type="button"
+                  onClick={onStartNewThread}
+                  className="rounded-full bg-blue-600 px-4 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Start new thread
+                </Button>
+              ) : null}
+              {onPickSuggestion ? (
+                <div className="flex flex-wrap justify-center gap-2 max-w-md mx-auto">
+                  {PROMPT_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      type="button"
+                      key={suggestion}
+                      onClick={() => onPickSuggestion(suggestion)}
+                      className="rounded-full border border-border/60 bg-card hover:border-blue-500/50 hover:bg-accent/40 px-3 py-1.5 text-xs text-foreground transition-colors"
+                    >
+                      <Sparkles className="mr-1.5 inline-block h-3 w-3 text-muted-foreground align-[-2px]" aria-hidden="true" />
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -440,6 +642,7 @@ export function ChatPane({
                   />
                 );
               })}
+              {showThinkingPlaceholder ? <ThinkingPlaceholder /> : null}
             </div>
           ) : null}
         </div>
@@ -464,33 +667,82 @@ export function ChatPane({
           </div>
         ) : null}
 
-        <div className="mx-auto flex w-full max-w-3xl items-end gap-2 rounded-3xl border border-border/60 bg-card px-3 py-2 shadow-sm transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
-          <Textarea
-            ref={replyTextareaRef}
-            rows={1}
-            value={replyPrompt}
-            onChange={(event) => setReplyPrompt(event.target.value)}
-            onKeyDown={handleReplyKeyDown}
-            placeholder={
-              selectedCodexSessionId ? "Message Codex…" : "Select a thread to reply"
-            }
-            disabled={!selectedCodexSessionId || replyPending}
-            aria-label="Reply message"
-            className="min-h-[40px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-6 shadow-none focus-visible:outline-none focus-visible:ring-0"
-          />
-          <Button
-            type="button"
-            onClick={() => onReplyToCodexSession()}
-            disabled={replyDisabled}
-            aria-label="Send message"
-            className="size-9 shrink-0 rounded-full bg-blue-600 p-0 text-white hover:bg-blue-700 disabled:bg-blue-600/40 dark:bg-blue-500 dark:hover:bg-blue-600"
-          >
-            {replyPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowUp className="h-4 w-4" />
-            )}
-          </Button>
+        <div
+          ref={composerWrapperRef}
+          className="relative mx-auto w-full max-w-3xl"
+        >
+          {slashPaletteOpen && filteredSlashCommands.length > 0 ? (
+            <div
+              role="listbox"
+              aria-label="Slash commands"
+              className="absolute bottom-full mb-2 left-0 right-0 rounded-xl border border-border/60 bg-card shadow-lg p-1 max-h-64 overflow-y-auto"
+            >
+              {filteredSlashCommands.map((command, index) => {
+                const Icon = command.icon;
+                const active = index === effectiveSlashIndex;
+                return (
+                  <button
+                    type="button"
+                    key={command.id}
+                    role="option"
+                    aria-selected={active}
+                    disabled={command.disabled}
+                    onMouseEnter={() => setSlashActiveIndex(index)}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={() => runSlashCommand(command)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-left transition-colors",
+                      active ? "bg-accent" : "hover:bg-accent",
+                      command.disabled
+                        ? "cursor-not-allowed opacity-50"
+                        : "cursor-pointer",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="font-medium text-foreground">
+                      {command.label}
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {command.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className="flex w-full items-end gap-2 rounded-3xl border border-border/60 bg-card px-3 py-2 shadow-sm transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+            <Textarea
+              ref={replyTextareaRef}
+              rows={1}
+              value={replyPrompt}
+              onChange={(event) => handleReplyChange(event.target.value)}
+              onKeyDown={handleReplyKeyDown}
+              onFocus={() => {
+                if (replyPrompt.startsWith("/")) setSlashPaletteOpen(true);
+              }}
+              placeholder={
+                selectedCodexSessionId ? "Message Codex…" : "Select a thread to reply"
+              }
+              disabled={!selectedCodexSessionId || replyPending}
+              aria-label="Reply message"
+              className="min-h-[40px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-6 shadow-none focus-visible:outline-none focus-visible:ring-0"
+            />
+            <Button
+              type="button"
+              onClick={() => onReplyToCodexSession()}
+              disabled={replyDisabled}
+              aria-label="Send message"
+              className="size-9 shrink-0 rounded-full bg-blue-600 p-0 text-white hover:bg-blue-700 disabled:bg-blue-600/40 dark:bg-blue-500 dark:hover:bg-blue-600"
+            >
+              {replyPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
 
         <p className="mx-auto mt-1 hidden max-w-3xl text-[11px] text-muted-foreground sm:block">
@@ -575,6 +827,43 @@ function MessageGroupView({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ThinkingPlaceholder() {
+  return (
+    <div className="motion-safe:animate-entrance" aria-live="polite">
+      <div className="group/bubble mt-3 flex gap-3 flex-row">
+        <div className="w-7 shrink-0">
+          <span
+            className="flex size-7 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white dark:bg-blue-500"
+            aria-hidden="true"
+          >
+            C
+          </span>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col items-start">
+          <span className="mb-1 text-[11px] font-medium text-muted-foreground">
+            Codex
+          </span>
+          <div className="relative max-w-[85%] rounded-2xl rounded-tl-sm border border-border/60 bg-card px-4 py-2.5 text-sm leading-7 text-foreground shadow-sm ring-1 ring-amber-400/40 md:max-w-full">
+            <span className="flex items-center gap-2">
+              <span className="italic text-muted-foreground">
+                Codex is thinking…
+              </span>
+              <span
+                className="inline-flex items-center gap-1"
+                aria-hidden="true"
+              >
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500 [animation-delay:0ms] dark:bg-amber-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500 [animation-delay:150ms] dark:bg-amber-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500 [animation-delay:300ms] dark:bg-amber-400" />
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

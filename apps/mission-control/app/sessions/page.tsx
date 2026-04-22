@@ -1279,6 +1279,11 @@ export default function SessionsPage() {
           formatRelativeTimestamp={formatRelativeTimestamp}
           formatShortSessionId={formatShortSessionId}
           onOpenInspector={handleOpenInspector}
+          onStartNewThread={() => setNewThreadOpen(true)}
+          onPickSuggestion={(text) => {
+            setNewCodexPrompt(text);
+            setNewThreadOpen(true);
+          }}
         />
       </div>
 
