@@ -7,6 +7,7 @@ import { ChatPane } from "./_components/ChatPane";
 import { ConfirmDialog } from "./_components/ConfirmDialog";
 import { Inspector } from "./_components/Inspector";
 import { SessionList } from "./_components/SessionList";
+import { Toaster, ToastProvider } from "./_components/Toast";
 import { useFocusTrap } from "./_components/useFocusTrap";
 import type {
   CodexRunStartResponse,
@@ -1172,7 +1173,8 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="flex h-[100dvh] min-h-0 flex-col bg-gradient-to-b from-background to-muted/40 px-4 md:px-6 lg:px-8">
+    <ToastProvider>
+      <div className="flex h-[100dvh] min-h-0 flex-col bg-gradient-to-b from-background to-muted/40 px-4 md:px-6 lg:px-8">
       <header className="sticky top-0 z-20 -mx-4 flex h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <button
@@ -1382,6 +1384,8 @@ export default function SessionsPage() {
         onCancel={() => setConfirmAction(null)}
       />
 
+      <Toaster />
+
       {shortcutsHelpOpen ? (
         <div
           role="dialog"
@@ -1427,7 +1431,8 @@ export default function SessionsPage() {
           </div>
         </div>
       ) : null}
-    </div>
+      </div>
+    </ToastProvider>
   );
 }
 

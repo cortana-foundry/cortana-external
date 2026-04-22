@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useToast } from "./Toast";
 import { useFocusTrap } from "./useFocusTrap";
 
 import type {
@@ -201,6 +202,7 @@ export function SessionList({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedFromStorage());
+  const { showToast } = useToast();
 
   useFocusTrap(newThreadDialogRef, newThreadOpen);
 
@@ -245,8 +247,10 @@ export function SessionList({
       const next = new Set(current);
       if (next.has(sessionId)) {
         next.delete(sessionId);
+        showToast("Thread unpinned");
       } else {
         next.add(sessionId);
+        showToast("Thread pinned");
       }
       persistPinned(next);
       return next;

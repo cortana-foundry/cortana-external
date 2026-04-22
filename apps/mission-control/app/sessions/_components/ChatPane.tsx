@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { MessageContent } from "./MessageContent";
+import { useToast } from "./Toast";
 import type {
   CodexMutationKind,
   CodexSession,
@@ -145,6 +146,7 @@ export function ChatPane({
   void _activeCodexMessageCount;
   void _formatRelativeTimestamp;
   void _formatShortSessionId;
+  const { showToast } = useToast();
   const replyTextareaRef = useAutosizeTextarea(replyPrompt);
   const replyDisabled =
     !selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply";
@@ -152,6 +154,8 @@ export function ChatPane({
   const streamingInProgress = codexMutationPending === "create" || codexMutationPending === "reply";
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const stickToBottomRef = useRef(true);
+  const previousMutationErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
     const viewport = transcriptViewportRef.current;
@@ -161,6 +165,7 @@ export function ChatPane({
       const distanceFromBottom =
         viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
       setShowJumpToLatest(distanceFromBottom > SCROLL_JUMP_THRESHOLD_PX);
+      stickToBottomRef.current = distanceFromBottom <= SCROLL_JUMP_THRESHOLD_PX;
       setIsScrolling(true);
       if (idleTimer !== undefined) window.clearTimeout(idleTimer);
       idleTimer = window.setTimeout(() => setIsScrolling(false), 350);
@@ -230,6 +235,47 @@ export function ChatPane({
   const hasAnyMessages = groups.length > 0;
   const noSelection = !selectedCodexSessionId && !activeCodexSession;
 
+  const activeSessionId = activeCodexSession?.sessionId ?? null;
+  useEffect(() => {
+    if (!copiedSessionId) return;
+    if (copiedSessionId !== activeSessionId) return;
+    showToast("Session id copied", "success");
+  }, [copiedSessionId, activeSessionId, showToast]);
+
+  useEffect(() => {
+    const previous = previousMutationErrorRef.current;
+    if (codexMutationError && previous !== codexMutationError) {
+      showToast(codexMutationError, "error");
+    }
+    previousMutationErrorRef.current = codexMutationError;
+  }, [codexMutationError, showToast]);
+
+  const streamedTokenLength = streamedAssistantEvents.reduce(
+    (sum, event) => sum + (event.text?.length ?? 0),
+    0,
+  );
+  const persistedEventsLength = selectedCodexSession?.events.length ?? 0;
+
+  useEffect(() => {
+    if (!hasAnyMessages) return;
+    if (!stickToBottomRef.current) return;
+    const viewport = transcriptViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+  }, [streamedTokenLength, persistedEventsLength, hasAnyMessages, transcriptViewportRef]);
+
+  const indicatorTone: "streaming" | "attached" | "idle" = streamingInProgress
+    ? "streaming"
+    : activeCodexSession != null
+      ? "attached"
+      : "idle";
+  const indicatorTitle =
+    indicatorTone === "streaming"
+      ? "Streaming"
+      : indicatorTone === "attached"
+        ? "Attached"
+        : "Idle";
+
   return (
     <section
       className={cn(
@@ -239,8 +285,24 @@ export function ChatPane({
     >
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 bg-background/90 px-3 backdrop-blur md:px-5">
         <div className="min-w-0 flex-1">
-          <h2 className="line-clamp-1 text-sm font-semibold text-foreground md:text-base">
-            {activeCodexSession ? activeCodexTitle : "Codex"}
+          <h2 className="flex items-center gap-2 line-clamp-1 text-sm font-semibold text-foreground md:text-base">
+            {activeCodexSession ? (
+              <span
+                aria-hidden="true"
+                title={indicatorTitle}
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  indicatorTone === "streaming"
+                    ? "bg-amber-500 motion-safe:animate-pulse dark:bg-amber-400"
+                    : indicatorTone === "attached"
+                      ? "bg-emerald-500 dark:bg-emerald-400"
+                      : "bg-muted-foreground",
+                )}
+              />
+            ) : null}
+            <span className="line-clamp-1">
+              {activeCodexSession ? activeCodexTitle : "Codex"}
+            </span>
           </h2>
           <p className="hidden line-clamp-1 text-xs text-muted-foreground md:block">
             {activeCodexSession?.cwd ?? "Select a thread to continue"}
@@ -532,6 +594,7 @@ function MessageBubble({
 }) {
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<number | null>(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     return () => {
@@ -543,6 +606,7 @@ function MessageBubble({
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
+      showToast("Message copied", "success");
       if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current);
       copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
     });
