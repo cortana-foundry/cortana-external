@@ -13,7 +13,9 @@ import {
 import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from "@/lib/codex-sessions";
 import {
   getCodexSessionDetail,
+  listCodexSessionIndexSummariesById,
   listCodexSessionIndexSummaries,
+  listCodexStateThreadSummaries,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
@@ -35,6 +37,7 @@ type CodexLocalThreadStateRow = {
   title: string | null;
   cwd: string | null;
   source: string | null;
+  first_user_message: string | null;
   archived: number;
   has_user_event: number | null;
   updated_at_ms: number | null;
@@ -157,13 +160,48 @@ function isUtilityCliThread(row: CodexLocalThreadStateRow | null, session: Codex
   return /^[a-z0-9:_-]{1,48}$/i.test(title);
 }
 
+function isSyntheticNamedThread(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  if (!row) return false;
+  const source = row?.source ?? session.source;
+  const firstUserMessage = row?.first_user_message?.trim() ?? "";
+  if (source !== "vscode") return false;
+  if (firstUserMessage.length > 0) return false;
+  return !session.lastMessagePreview?.trim();
+}
+
+function isMissionControlTestThread(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  const source = row?.source ?? session.source;
+  if (source !== "exec") return false;
+
+  const title = (row?.title ?? session.threadName ?? row?.first_user_message ?? "").trim().toLowerCase();
+  if (!title) return false;
+
+  return (
+    title === "testing from mission control"
+    || title === "hey this a test"
+    || title.startsWith("reply with exactly:")
+  );
+}
+
+function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
+  const source = (row?.source ?? session.source ?? "").trim();
+  if (source === "vscode") return 0;
+  if (source === "exec") return 2;
+  if (source === "cli") return 3;
+  return 1;
+}
+
 function shouldExposeSessionInSidebar(
   session: CodexSessionSummary,
   stateRow: CodexLocalThreadStateRow | null,
 ) {
+  const source = (stateRow?.source ?? session.source ?? "").trim();
   if (stateRow?.archived) return false;
+  if (source.length > 0 && source !== "vscode" && source !== "exec") return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
+  if (isSyntheticNamedThread(stateRow, session)) return false;
+  if (isMissionControlTestThread(stateRow, session)) return false;
   return true;
 }
 
@@ -245,6 +283,7 @@ async function readCodexLocalThreadStateRows(
             title,
             cwd,
             source,
+            first_user_message,
             archived,
             has_user_event,
             COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
@@ -324,7 +363,15 @@ export function buildVisibleCodexSessionGroups(
   const orderedGroups = [...grouped.entries()]
     .map(([rootPath, entries]) => {
       const sortedEntries = [...entries].sort(
-        (left, right) => (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0),
+        (left, right) => {
+          const updatedAtDelta = (right.session.updatedAt ?? 0) - (left.session.updatedAt ?? 0);
+          if (updatedAtDelta !== 0) return updatedAtDelta;
+
+          const sourceDelta = getSessionSourceRank(left.stateRow, left.session)
+            - getSessionSourceRank(right.stateRow, right.session);
+          if (sourceDelta !== 0) return sourceDelta;
+          return 0;
+        },
       );
       return {
         rootPath,
@@ -401,9 +448,39 @@ function mergeSessionSummary(
   if (!base) return overlay ?? null;
   if (!overlay) return base;
 
+  const pickPreferredThreadName = (
+    primary: string | null | undefined,
+    secondary: string | null | undefined,
+  ) => {
+    const score = (value: string | null | undefined) => {
+      const title = value?.trim() ?? "";
+      if (!title) return Number.POSITIVE_INFINITY;
+
+      let total = 0;
+      if (title.includes("\n")) total += 4;
+      if (title.length > 120) total += 2;
+      if (title.includes("/Users/")) total += 1;
+      if (title.includes("What I want from you:")) total += 3;
+      if (title.includes("Deliverables:")) total += 3;
+      if (title.includes("Execution style:")) total += 3;
+      return total;
+    };
+
+    const primaryScore = score(primary);
+    const secondaryScore = score(secondary);
+
+    if (primaryScore < secondaryScore) return primary ?? null;
+    if (secondaryScore < primaryScore) return secondary ?? null;
+
+    const primaryLength = primary?.trim().length ?? Number.POSITIVE_INFINITY;
+    const secondaryLength = secondary?.trim().length ?? Number.POSITIVE_INFINITY;
+    if (primaryLength <= secondaryLength) return primary ?? secondary ?? null;
+    return secondary ?? primary ?? null;
+  };
+
   return {
     sessionId: overlay.sessionId,
-    threadName: overlay.threadName ?? base.threadName,
+    threadName: pickPreferredThreadName(base.threadName, overlay.threadName),
     updatedAt: Math.max(base.updatedAt ?? 0, overlay.updatedAt ?? 0) || null,
     cwd: overlay.cwd ?? base.cwd,
     model: overlay.model ?? base.model,
@@ -470,15 +547,30 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
     safeLimit,
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
-  const [indexedSessions, mirroredSessions, sidebarState] = await Promise.all([
+  const [indexedSessions, mirroredSessions, stateSessions, sidebarState] = await Promise.all([
     listCodexSessionIndexSummaries({ limit: discoveryLimit }),
     listCodexMirroredSessions(discoveryLimit),
+    listCodexStateThreadSummaries({ limit: discoveryLimit }),
     readCodexDesktopSidebarState(),
   ]);
+  const stateIndexedSessions = stateSessions.length > 0
+    ? await listCodexSessionIndexSummariesById(
+        stateSessions.map((session) => session.sessionId),
+      )
+    : [];
+  const stateIndexedById = new Map(stateIndexedSessions.map((session) => [session.sessionId, session] as const));
   const merged = new Map(indexedSessions.map((session) => [session.sessionId, session] as const));
 
   for (const session of mirroredSessions) {
     merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
+  }
+
+  for (const session of stateSessions) {
+    const preferredTitleSession = mergeSessionSummary(stateIndexedById.get(session.sessionId), session) ?? session;
+    merged.set(
+      session.sessionId,
+      mergeSessionSummary(merged.get(session.sessionId), preferredTitleSession) ?? preferredTitleSession,
+    );
   }
 
   const candidates = [...merged.values()]
@@ -503,27 +595,56 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
     return null;
   }
 
-  const [mirroredResult, fileResult] = await Promise.allSettled([
+  const [mirroredResult, fileResult, indexedResult] = await Promise.allSettled([
     getCodexMirroredSessionDetail(sessionId),
     getCodexSessionDetail(sessionId),
+    listCodexSessionIndexSummariesById([sessionId]),
   ]);
 
   const mirrored = mirroredResult.status === "fulfilled" ? mirroredResult.value : null;
   const fileBacked = fileResult.status === "fulfilled" ? fileResult.value : null;
+  const indexed = indexedResult.status === "fulfilled"
+    ? indexedResult.value.find((session) => session.sessionId === sessionId) ?? null
+    : null;
+
+  if (!mirrored && !fileBacked && !indexed) {
+    return null;
+  }
 
   if (!mirrored && !fileBacked) {
     return null;
   }
 
   if (!mirrored) {
-    return fileBacked;
+    const detail = fileBacked
+      ? {
+          ...mergeSessionSummary(fileBacked, indexed) ?? fileBacked,
+          events: fileBacked.events,
+        }
+      : null;
+    if (detail) {
+      await syncCodexMirrorThreadFromSession(detail);
+    }
+    return detail;
   }
 
   if (!fileBacked) {
-    return mirrored;
+    const detail = mirrored
+      ? {
+          ...mergeSessionSummary(mirrored, indexed) ?? mirrored,
+          events: mirrored.events,
+        }
+      : null;
+    if (detail) {
+      await syncCodexMirrorThreadFromSession(detail);
+    }
+    return detail;
   }
 
-  const summary = mergeSessionSummary(fileBacked, mirrored) ?? mirrored;
+  const summary = mergeSessionSummary(
+    mergeSessionSummary(fileBacked, mirrored),
+    indexed,
+  ) ?? mirrored;
   const events = mergeSessionEvents(fileBacked.events, mirrored.events);
 
   const detail = {

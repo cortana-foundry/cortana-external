@@ -15,6 +15,7 @@ import {
   Landmark,
   LayoutDashboard,
   MessageCircle,
+  MessageSquareText,
   Play,
   ShieldCheck,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const COOKIE_KEY = "mc-sidebar-collapsed";
 
 const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/sessions", label: "Sessions", icon: MessageSquareText },
   { href: "/services", label: "Services", icon: PlugZap },
   { href: "/trading-ops", label: "Trading Ops", icon: Landmark },
   { href: "/task-board", label: "Task Board", icon: ClipboardList },

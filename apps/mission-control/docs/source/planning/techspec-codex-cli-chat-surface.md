@@ -48,7 +48,8 @@ Mission Control should add DB-backed session + event storage for normalized Code
 |-------------|-------------|-------------|-------|
 | PK | id | bigserial | Internal ordering key. |
 | FK, Not Null | codex_session_id | text | References `mc_codex_sessions.codex_session_id`. |
-| Not Null | event_index | integer | Monotonic order within one session ingest stream. |
+| Not Null | source_record_key | text | Stable idempotency key derived from the source record identity, such as transcript path plus byte offset or another source-native key. |
+| Not Null | event_index | integer | Monotonic render order within one Mission Control replay stream. |
 | Not Null | event_type | text | Normalized event type such as `user_message`, `assistant_message`, `response_item`, `token_count`, `task_complete`. |
 | Nullable | turn_id | text | Present when emitted in a Codex turn context. |
 | Nullable | phase | text | Commentary/final/system when present. |
@@ -58,6 +59,7 @@ Mission Control should add DB-backed session + event storage for normalized Code
 
 Recommended indexes:
 
+- unique index on `(codex_session_id, source_record_key)`
 - unique index on `(codex_session_id, event_index)`
 - index on `updated_at desc` for session listing
 - index on `(codex_session_id, event_ts, id)` for transcript replay
@@ -89,8 +91,15 @@ None required beyond existing Codex CLI auth on the host machine. Mission Contro
 ### Network/Security Changes
 
 - Mission Control must only expose this feature in the same operator security boundary as the local Codex CLI runtime.
-- Server-side execution should never trust browser-provided filesystem paths.
+- Server-side execution should never trust browser-provided filesystem paths, Codex profiles, or raw attachment paths.
 - Session resume must validate that the requested session id exists in Mission Control records or in the local Codex session index before invoking the CLI.
+
+Execution safety contract for v1:
+
+- The browser may submit prompt text plus a server-recognized `workspaceKey` and optional uploaded image references.
+- Mission Control resolves `workspaceKey` to an approved server-side `cwd`, writable roots, and backend-safe Codex profile. The browser does not choose arbitrary `cwd` or profile values.
+- Uploaded images must be staged through a Mission Control-controlled upload/store path before they are translated into Codex CLI `--image` inputs.
+- Optional model overrides should be allowlisted server-side or rejected explicitly.
 
 ---
 
@@ -100,6 +109,7 @@ None required beyond existing Codex CLI auth on the host machine. Mission Contro
 - Operators can create a new Codex chat or resume an existing Codex session directly from Mission Control.
 - When Mission Control resumes an existing Codex session, it targets the same Codex session id and local Codex state store rather than creating a Mission Control-only fork of the transcript.
 - Assistant output streams into the browser while the Codex subprocess runs.
+- Mission Control should allow only one active Codex turn per session at a time and return an explicit conflict when a second browser action targets the same live session.
 - Runtime failures are first-class UI states: CLI missing, auth missing, session id missing, transcript backfill failed, unsupported execution mode, subprocess non-zero exit.
 - Transcript history persists in Mission Control and can be reloaded without re-running the Codex command.
 
@@ -122,6 +132,17 @@ Recommended implementation notes:
 - Use `spawn` rather than `execFile` for live JSONL streaming.
 - Keep raw CLI event payloads in storage for debugging, but also derive a normalized message model for rendering.
 - Treat token/rate-limit events as separate telemetry items rather than inline transcript messages.
+- Persist both stream lifecycle events and transcript events so reconnect/debug flows do not depend on reconstructing ephemeral in-memory state alone.
+
+---
+
+## Session Run Lifecycle
+
+1. The browser calls `POST /api/codex/sessions` for a new thread or `POST /api/codex/sessions/[sessionId]/messages` for an existing one.
+2. Mission Control validates the session target, resolves the approved execution context, creates a `streamId`, and starts the Codex subprocess.
+3. The browser subscribes to `GET /api/codex/streams/[streamId]` for normalized SSE events.
+4. For new sessions, the stream starts before a durable Codex session id is known. Mission Control emits a lifecycle event that carries the discovered `codexSessionId` as soon as the CLI reveals it.
+5. Mission Control persists streamed events incrementally and marks the run complete only after the subprocess exits and final transcript state is mirrored.
 
 ---
 
@@ -140,7 +161,7 @@ Recommended implementation notes:
 | **Authentication** | Existing Mission Control auth boundary |
 | **URL Params** | Optional `limit`, `source=codex`, `sync=true` |
 | **Request** | None |
-| **Success Response** | `200 { sessions: [{ codexSessionId, threadName, cwd, branch, updatedAt, model, status, lastMessagePreview }] }` |
+| **Success Response** | `200 { sessions: [{ codexSessionId, threadName, cwd, branch, updatedAt, model, status, activeRun, lastMessagePreview }] }` |
 | **Error Responses** | `500` parse/runtime failure |
 
 ### [NEW] Codex Session Detail
@@ -171,9 +192,14 @@ Recommended implementation notes:
 |-------|--------|
 | **Authentication** | Existing Mission Control auth boundary |
 | **URL Params** | None |
-| **Request** | `{ prompt, cwd?, model?, profile?, images? }` |
-| **Success Response** | `202 { streamId, provisionalSessionId? }` or SSE upgrade |
-| **Error Responses** | `400` invalid request, `412` missing Codex prerequisites, `500` subprocess failure |
+| **Request** | `{ prompt, workspaceKey?, model?, imageIds? }` |
+| **Success Response** | `202 { streamId }` or `200 text/event-stream` |
+| **Error Responses** | `400` invalid request, `409` active run conflict, `412` missing Codex prerequisites, `500` subprocess failure |
+
+Additional contract notes:
+
+- Mission Control resolves `workspaceKey` to an approved server-side `cwd` and backend-safe Codex profile; the request does not carry arbitrary filesystem paths.
+- New-session calls are stream-first. The browser should attach to the `streamId` and wait for a lifecycle event that reveals the durable `codexSessionId`.
 
 ### [NEW] Codex Session Message
 
@@ -187,29 +213,29 @@ Recommended implementation notes:
 |-------|--------|
 | **Authentication** | Existing Mission Control auth boundary |
 | **URL Params** | `sessionId` |
-| **Request** | `{ prompt, model?, profile?, images? }` |
-| **Success Response** | `202 { streamId }` or SSE upgrade |
-| **Error Responses** | `404` unknown session, `412` unsupported runtime mode, `500` subprocess failure |
+| **Request** | `{ prompt, model?, imageIds? }` |
+| **Success Response** | `202 { streamId }` or `200 text/event-stream` |
+| **Error Responses** | `404` unknown session, `409` active run conflict, `412` unsupported runtime mode, `500` subprocess failure |
 
 Additional contract note:
 
 - Resume requests must use the exact Codex session id discovered from the shared local session index so Mission Control continues the same underlying session rather than writing a parallel transcript.
 
-### [NEW] Codex Session Stream
+### [NEW] Codex Stream
 
 | Field | Value |
 |-------|-------|
-| **API** | `GET /api/codex/sessions/[sessionId]/stream` |
-| **Description** | Streams normalized turn events to the browser while a Codex subprocess is active. |
-| **Additional Notes** | SSE is preferred for the first release. |
+| **API** | `GET /api/codex/streams/[streamId]` |
+| **Description** | Streams normalized run and transcript events to the browser while a Codex subprocess is active. |
+| **Additional Notes** | SSE is preferred for the first release. Stream events may reveal the durable `codexSessionId` after the stream starts. |
 
 | Field | Detail |
 |-------|--------|
 | **Authentication** | Existing Mission Control auth boundary |
-| **URL Params** | `sessionId` |
+| **URL Params** | `streamId` |
 | **Request** | None |
 | **Success Response** | `200 text/event-stream` |
-| **Error Responses** | `404` stream/session missing, `410` stream completed, `500` stream setup failure |
+| **Error Responses** | `404` stream missing, `410` stream completed, `500` stream setup failure |
 
 ---
 

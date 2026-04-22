@@ -6,17 +6,23 @@ const codexMocks = vi.hoisted(() => ({
 
 const codexSessionAccessMocks = vi.hoisted(() => ({
   listVisibleCodexSessions: vi.fn(),
-  waitForVisibleCodexSessionDetail: vi.fn(),
 }));
 
 const codexMirrorMocks = vi.hoisted(() => ({
-  recordCodexMirrorNotification: vi.fn(),
   upsertCodexMirrorThread: vi.fn(),
 }));
 
-const codexAppServerMocks = vi.hoisted(() => ({
-  backfillCodexThreadName: vi.fn(),
-  createCodexThread: vi.fn(),
+const codexRunMocks = vi.hoisted(() => ({
+  getActiveCodexSessionIds: vi.fn(),
+  startCreateCodexRun: vi.fn(),
+  CodexRunError: class MockCodexRunError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
 }));
 
 vi.mock("@/lib/codex-sessions", () => ({
@@ -25,16 +31,15 @@ vi.mock("@/lib/codex-sessions", () => ({
 
 vi.mock("@/lib/codex-session-access", () => ({
   listVisibleCodexSessions: codexSessionAccessMocks.listVisibleCodexSessions,
-  waitForVisibleCodexSessionDetail: codexSessionAccessMocks.waitForVisibleCodexSessionDetail,
 }));
 
-vi.mock("@/lib/codex-app-server", () => ({
-  backfillCodexThreadName: codexAppServerMocks.backfillCodexThreadName,
-  createCodexThread: codexAppServerMocks.createCodexThread,
+vi.mock("@/lib/codex-runs", () => ({
+  getActiveCodexSessionIds: codexRunMocks.getActiveCodexSessionIds,
+  startCreateCodexRun: codexRunMocks.startCreateCodexRun,
+  CodexRunError: codexRunMocks.CodexRunError,
 }));
 
 vi.mock("@/lib/codex-mirror", () => ({
-  recordCodexMirrorNotification: codexMirrorMocks.recordCodexMirrorNotification,
   upsertCodexMirrorThread: codexMirrorMocks.upsertCodexMirrorThread,
 }));
 
@@ -45,6 +50,7 @@ const makeRequest = (query = "") => new Request(`http://localhost/api/codex/sess
 describe("GET /api/codex/sessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    codexRunMocks.getActiveCodexSessionIds.mockReturnValue(new Set());
   });
 
   it("returns codex sessions with the default limit", async () => {
@@ -102,9 +108,40 @@ describe("GET /api/codex/sessions", () => {
       sessionId: "abc",
       threadName: "Brainstorm Codex web interface",
       model: "gpt-5.4",
+      activeRun: false,
     });
     expect(payload.totalVisibleSessions).toBe(1);
     expect(payload.groups).toHaveLength(1);
+  });
+
+  it("marks sessions with active runs", async () => {
+    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
+    codexRunMocks.getActiveCodexSessionIds.mockReturnValue(new Set(["abc"]));
+    codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
+      sessions: [
+        {
+          sessionId: "abc",
+          threadName: "Brainstorm Codex web interface",
+          updatedAt: 123,
+          cwd: "/Users/hd/Developer/cortana-external",
+          model: null,
+          source: "exec",
+          cliVersion: null,
+          lastMessagePreview: null,
+          transcriptPath: null,
+        },
+      ],
+      groups: [],
+      latestUpdatedAt: 123,
+      totalMatchedSessions: 1,
+      totalVisibleSessions: 1,
+    });
+
+    const response = await GET(makeRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.sessions[0].activeRun).toBe(true);
   });
 
   it("uses the supplied limit when present", async () => {
@@ -134,7 +171,7 @@ describe("GET /api/codex/sessions", () => {
     expect(payload).toEqual({ error: "missing session index" });
   });
 
-  it("backfills missing thread names before listing sessions", async () => {
+  it("mirrors missing thread names before listing sessions", async () => {
     codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([
       {
         sessionId: "missing-thread",
@@ -142,7 +179,6 @@ describe("GET /api/codex/sessions", () => {
         transcriptPath: "/tmp/missing-thread.jsonl",
       },
     ]);
-    codexAppServerMocks.backfillCodexThreadName.mockResolvedValueOnce(undefined);
     codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
       sessions: [],
       groups: [],
@@ -154,9 +190,12 @@ describe("GET /api/codex/sessions", () => {
     const response = await GET(makeRequest());
 
     expect(response.status).toBe(200);
-    expect(codexAppServerMocks.backfillCodexThreadName).toHaveBeenCalledWith(
-      "missing-thread",
-      "Recovered session name",
+    expect(codexMirrorMocks.upsertCodexMirrorThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "missing-thread",
+        threadName: "Recovered session name",
+        transcriptPath: "/tmp/missing-thread.jsonl",
+      }),
     );
   });
 });
@@ -166,71 +205,25 @@ describe("POST /api/codex/sessions", () => {
     vi.clearAllMocks();
   });
 
-  it("creates a codex session and returns detail", async () => {
-    codexAppServerMocks.createCodexThread.mockResolvedValueOnce({ threadId: "new-thread" });
-    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
-      sessionId: "new-thread",
-      events: [],
-    });
-    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
+  it("starts a codex session run and returns stream id", async () => {
+    codexRunMocks.startCreateCodexRun.mockResolvedValueOnce({ streamId: "stream-1" });
 
     const response = await POST(
       new Request("http://localhost/api/codex/sessions", {
         method: "POST",
-        body: JSON.stringify({ prompt: "Start a new codex session" }),
+        body: JSON.stringify({ prompt: "Start a new codex session", workspaceKey: "repo-root" }),
       }),
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(codexAppServerMocks.createCodexThread).toHaveBeenCalledWith(
-      "Start a new codex session",
-      expect.any(String),
-      expect.objectContaining({
-        onNotification: expect.any(Function),
-      }),
-    );
-    expect(payload.session.sessionId).toBe("new-thread");
-  });
-
-  it("streams codex events when the client requests event-stream", async () => {
-    codexAppServerMocks.createCodexThread.mockImplementationOnce(async (_prompt, _cwd, options) => {
-      options?.onEvent?.({ type: "thread.started", thread_id: "new-thread" });
-      options?.onEvent?.({
-        type: "item.delta",
-        item: { type: "agent_message", id: "assistant-1", delta: "streamed answer" },
-      });
-      return { threadId: "new-thread" };
+    expect(response.status).toBe(202);
+    expect(codexRunMocks.startCreateCodexRun).toHaveBeenCalledWith({
+      prompt: "Start a new codex session",
+      workspaceKey: "repo-root",
+      model: undefined,
+      imageIds: undefined,
     });
-    codexSessionAccessMocks.waitForVisibleCodexSessionDetail.mockResolvedValueOnce({
-      sessionId: "new-thread",
-      events: [],
-    });
-    codexMirrorMocks.upsertCodexMirrorThread.mockResolvedValue(undefined);
-
-    const response = await POST(
-      new Request("http://localhost/api/codex/sessions", {
-        method: "POST",
-        headers: { Accept: "text/event-stream" },
-        body: JSON.stringify({ prompt: "Start a streamed codex session" }),
-      }),
-    );
-    const body = await response.text();
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("text/event-stream");
-    expect(codexAppServerMocks.createCodexThread).toHaveBeenCalledWith(
-      "Start a streamed codex session",
-      expect.any(String),
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-        onNotification: expect.any(Function),
-      }),
-    );
-    expect(body).toContain("event: ready");
-    expect(body).toContain("event: codex_event");
-    expect(body).toContain("streamed answer");
-    expect(body).toContain("event: done");
+    expect(payload).toEqual({ streamId: "stream-1" });
   });
 
   it("rejects empty prompts", async () => {
@@ -242,5 +235,22 @@ describe("POST /api/codex/sessions", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("maps invalid request failures to 400", async () => {
+    codexRunMocks.startCreateCodexRun.mockRejectedValueOnce(
+      new codexRunMocks.CodexRunError("invalid_request", "Unsupported workspaceKey"),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/codex/sessions", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Start a new codex session", workspaceKey: "bad" }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({ error: "Unsupported workspaceKey" });
   });
 });
