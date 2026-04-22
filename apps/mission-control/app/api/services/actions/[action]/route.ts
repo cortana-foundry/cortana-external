@@ -57,6 +57,16 @@ async function fetchActionUrl(action: string): Promise<string> {
     return url;
   }
 
+  if (action === "schwab-streamer-auth-url") {
+    const response = await fetch(`${baseUrl}/auth/schwab/streamer/url`, { cache: "no-store" });
+    const payload = (await response.json()) as { data?: { url?: string }; reason?: string };
+    const url = payload.data?.url;
+    if (!response.ok || !url) {
+      throw new Error(payload.reason || "Schwab streamer auth URL is unavailable");
+    }
+    return url;
+  }
+
   throw new Error(`Unknown action: ${action}`);
 }
 

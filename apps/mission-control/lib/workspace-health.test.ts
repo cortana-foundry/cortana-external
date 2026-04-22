@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getExternalHealth, getTonalHealth, getWhoopHealth } from "./workspace-health";
+import {
+  getExternalHealth,
+  getPolymarketHealth,
+  getSchwabHealth,
+  getSchwabStreamerHealth,
+  getTonalHealth,
+  getWhoopHealth,
+} from "./workspace-health";
 
 describe("workspace health mapping", () => {
   afterEach(() => {
@@ -174,6 +181,132 @@ describe("workspace health mapping", () => {
     );
 
     const result = await getWhoopHealth("http://external.test");
+
+    expect(result.tone).toBe("healthy");
+    expect(result.summary).toBe("Authenticated");
+  });
+
+  it("surfaces Schwab REST as re-auth required when the operator lane needs human action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/auth/schwab/status")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                clientConfigured: true,
+                refreshTokenPresent: true,
+                pendingStateIssuedAt: null,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/market-data/ready")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                ready: false,
+                operatorState: "human_action_required",
+                operatorAction: "Re-authorize the Schwab app.",
+              },
+            }),
+            { status: 503 },
+          );
+        }
+        if (url.endsWith("/market-data/ops")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                serviceOperatorState: "human_action_required",
+                serviceOperatorAction: "Re-authorize the Schwab app.",
+                providerMetrics: {
+                  schwabTokenStatus: "human_action_required",
+                  schwabTokenReason: "Refresh token rejected by Schwab.",
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+
+        throw new Error(`unexpected url ${url}`);
+      }),
+    );
+
+    const result = await getSchwabHealth("http://external.test");
+
+    expect(result.tone).toBe("unhealthy");
+    expect(result.summary).toBe("Re-auth required");
+    expect(result.detail).toContain("Refresh token rejected by Schwab.");
+  });
+
+  it("surfaces Schwab streamer as degraded when the stream is reconnecting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/auth/schwab/streamer/status")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                clientConfigured: true,
+                refreshTokenPresent: true,
+                pendingStateIssuedAt: null,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/market-data/ops")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                health: {
+                  providers: {
+                    schwabStreamerMeta: {
+                      connected: false,
+                      operatorState: "reconnecting",
+                      operatorAction: "Waiting for the shared streamer to reconnect.",
+                    },
+                  },
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+
+        throw new Error(`unexpected url ${url}`);
+      }),
+    );
+
+    const result = await getSchwabStreamerHealth("http://external.test");
+
+    expect(result.tone).toBe("degraded");
+    expect(result.summary).toBe("Reconnecting");
+    expect(result.detail).toContain("shared streamer");
+  });
+
+  it("surfaces Polymarket as authenticated from the dedicated health endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: "healthy",
+            apiBaseUrl: "https://api.polymarket.us",
+            gatewayBaseUrl: "https://gateway.polymarket.us",
+            keyIdSuffix: "106dac",
+            balanceCount: 0,
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await getPolymarketHealth("http://external.test");
 
     expect(result.tone).toBe("healthy");
     expect(result.summary).toBe("Authenticated");
