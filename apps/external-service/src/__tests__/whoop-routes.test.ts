@@ -138,6 +138,7 @@ describe("whoop routes", () => {
       const url = String(input);
       if (url.includes("/oauth/oauth2/token") && init?.method === "POST") {
         refreshCalls += 1;
+        expect(String(init.body)).toContain("redirect_uri=http%3A%2F%2Flocalhost%3A3033%2Fauth%2Fcallback");
         await new Promise((resolve) => setTimeout(resolve, 25));
         return new Response(
           JSON.stringify({
