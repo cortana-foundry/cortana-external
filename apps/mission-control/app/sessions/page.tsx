@@ -283,6 +283,19 @@ export function summarizeCodexSessions(sessions: CodexSession[]) {
   );
 }
 
+export function normalizeCodexMutationError(message: string | null | undefined) {
+  const trimmed = message?.trim();
+  if (!trimmed) {
+    return "Codex could not finish that action.";
+  }
+
+  if (/already has an active run/i.test(trimmed)) {
+    return "Codex is still finishing the previous reply for this thread.";
+  }
+
+  return trimmed;
+}
+
 function mergeOlderCodexSessionEvents(
   existingEvents: CodexSessionEvent[],
   olderEvents: CodexSessionEvent[],
@@ -862,6 +875,7 @@ export default function SessionsPage() {
     activeCodexThreadId
       ? visibleCodexSessions.find((session) => session.sessionId === activeCodexThreadId) ?? null
       : provisionalCodexSession;
+  const activeSessionHasRunInProgress = Boolean(activeCodexSummary?.activeRun);
   const activeCodexSession = selectedCodexSession ?? activeCodexSummary ?? provisionalCodexSession;
   const activeCodexTitle =
     selectedCodexSession?.threadName ??
@@ -979,30 +993,23 @@ export default function SessionsPage() {
   }
 
   async function handleReplyToCodexSession() {
-    if (!selectedCodexSessionId) return;
-    const prompt = replyPrompt.trim();
+    if (!selectedCodexSessionId || codexMutationPending === "reply") return;
+    const submittedPrompt = replyPrompt;
+    const prompt = submittedPrompt.trim();
     if (!prompt) return;
 
     transcriptScrollActionRef.current = "bottom";
     setCodexMutationPending("reply");
     setCodexMutationError(null);
+    setReplyPrompt("");
     setStreamedAssistantEvents([]);
-    setSelectedCodexSession((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        events: [
-          ...current.events,
-          {
-            id: `pending-reply-${Date.now()}`,
-            role: "user",
-            text: prompt,
-            timestamp: Date.now(),
-            phase: "submitted",
-            rawType: "user.pending",
-          },
-        ],
-      };
+    setPendingCodexUserEvent({
+      id: `pending-reply-${Date.now()}`,
+      role: "user",
+      text: prompt,
+      timestamp: Date.now(),
+      phase: "submitted",
+      rawType: "user.pending",
     });
     try {
       const startResponse = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
@@ -1042,13 +1049,18 @@ export default function SessionsPage() {
           rangeStart: 0,
           rangeEnd: session.events.length,
         });
+        setPendingCodexUserEvent(null);
         setStreamedAssistantEvents([]);
       });
-      setReplyPrompt("");
     } catch (err) {
-      void loadCodexSessionDetail(selectedCodexSessionId);
+      setPendingCodexUserEvent(null);
+      setReplyPrompt(submittedPrompt);
       setStreamedAssistantEvents([]);
-      setCodexMutationError(err instanceof Error ? err.message : "Failed to send message to Codex session");
+      setCodexMutationError(
+        normalizeCodexMutationError(
+          err instanceof Error ? err.message : "Failed to send message to Codex session",
+        ),
+      );
     } finally {
       setCodexMutationPending(null);
     }
@@ -1256,6 +1268,7 @@ export default function SessionsPage() {
         <ChatPane
           transcriptViewportRef={transcriptViewportRef}
           activeCodexSession={activeCodexSession}
+          activeSessionHasRunInProgress={activeSessionHasRunInProgress}
           activeCodexTitle={activeCodexTitle}
           activeCodexMessageCount={activeCodexMessageCount}
           codexMutationPending={codexMutationPending}

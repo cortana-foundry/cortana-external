@@ -33,6 +33,7 @@ import type {
 type ChatPaneProps = {
   transcriptViewportRef: RefObject<HTMLDivElement | null>;
   activeCodexSession: CodexSession | CodexSessionDetail | null;
+  activeSessionHasRunInProgress: boolean;
   activeCodexTitle: string;
   activeCodexMessageCount: string;
   codexMutationPending: CodexMutationKind | null;
@@ -141,6 +142,7 @@ function groupEvents(events: GroupableEvent[]): MessageGroup[] {
 export function ChatPane({
   transcriptViewportRef,
   activeCodexSession,
+  activeSessionHasRunInProgress,
   activeCodexTitle,
   activeCodexMessageCount: _activeCodexMessageCount,
   codexMutationPending,
@@ -173,9 +175,10 @@ export function ChatPane({
   void _formatShortSessionId;
   const { showToast } = useToast();
   const replyTextareaRef = useAutosizeTextarea(replyPrompt);
+  const replyLocked = codexMutationPending === "reply" || activeSessionHasRunInProgress;
   const replyDisabled =
-    !selectedCodexSessionId || !replyPrompt.trim() || codexMutationPending === "reply";
-  const replyPending = codexMutationPending === "reply";
+    !selectedCodexSessionId || !replyPrompt.trim() || replyLocked;
+  const replyPending = replyLocked;
   const streamingInProgress = codexMutationPending === "create" || codexMutationPending === "reply";
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -547,7 +550,10 @@ export function ChatPane({
         ref={transcriptViewportRef}
         className="relative min-h-0 flex-1 overflow-y-auto"
       >
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
+        <div
+          data-testid="codex-transcript-shell"
+          className="mx-auto w-full max-w-none px-3 py-5 sm:px-4 md:max-w-3xl md:px-6"
+        >
           {selectedCodexSession && (codexOlderLoading || selectedCodexPagination?.hasMore) ? (
             <div
               className={cn(
@@ -649,7 +655,7 @@ export function ChatPane({
 
       </div>
 
-      <div className="sticky bottom-0 border-t border-border/60 bg-background/90 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur md:px-6">
+      <div className="sticky bottom-0 border-t border-border/60 bg-background/90 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:px-4 md:px-6">
         {showJumpToLatest && hasAnyMessages && !isScrolling ? (
           <button
             type="button"
@@ -662,14 +668,20 @@ export function ChatPane({
           </button>
         ) : null}
         {codexMutationError ? (
-          <div className="mx-auto mb-2 max-w-3xl rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <div className="mx-auto mb-2 max-w-none rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive md:max-w-3xl">
             {codexMutationError}
+          </div>
+        ) : null}
+        {activeSessionHasRunInProgress && !codexMutationError ? (
+          <div className="mx-auto mb-2 max-w-none rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 md:max-w-3xl">
+            Codex is still finishing the previous reply for this thread.
           </div>
         ) : null}
 
         <div
           ref={composerWrapperRef}
-          className="relative mx-auto w-full max-w-3xl"
+          data-testid="codex-composer-shell"
+          className="relative mx-auto w-full max-w-none md:max-w-3xl"
         >
           {slashPaletteOpen && filteredSlashCommands.length > 0 ? (
             <div
@@ -725,7 +737,7 @@ export function ChatPane({
               placeholder={
                 selectedCodexSessionId ? "Message Codex…" : "Select a thread to reply"
               }
-              disabled={!selectedCodexSessionId || replyPending}
+              disabled={!selectedCodexSessionId || replyLocked}
               aria-label="Reply message"
               className="min-h-[40px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-6 shadow-none focus-visible:outline-none focus-visible:ring-0"
             />
@@ -745,8 +757,10 @@ export function ChatPane({
           </div>
         </div>
 
-        <p className="mx-auto mt-1 hidden max-w-3xl text-[11px] text-muted-foreground sm:block">
-          Enter to send · Shift+Enter for newline
+        <p className="mx-auto mt-1 hidden max-w-none text-[11px] text-muted-foreground sm:block md:max-w-3xl">
+          {replyLocked && selectedCodexSessionId
+            ? "Composer locked while Codex finishes this turn"
+            : "Enter to send · Shift+Enter for newline"}
         </p>
       </div>
     </section>
@@ -847,7 +861,7 @@ function ThinkingPlaceholder() {
           <span className="mb-1 text-[11px] font-medium text-muted-foreground">
             Codex
           </span>
-          <div className="relative max-w-[85%] rounded-2xl rounded-tl-sm border border-border/60 bg-card px-4 py-2.5 text-sm leading-7 text-foreground shadow-sm ring-1 ring-amber-400/40 md:max-w-full">
+          <div className="relative max-w-[calc(100%-0.25rem)] rounded-2xl rounded-tl-sm border border-border/60 bg-card px-4 py-2.5 text-sm leading-7 text-foreground shadow-sm ring-1 ring-amber-400/40 sm:max-w-[92%] md:max-w-full">
             <span className="flex items-center gap-2">
               <span className="italic text-muted-foreground">
                 Codex is thinking…
@@ -904,7 +918,7 @@ function MessageBubble({
   return (
     <div
       className={cn(
-        "relative max-w-[85%] break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm shadow-sm md:max-w-full",
+        "relative max-w-[calc(100%-0.25rem)] break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm shadow-sm sm:max-w-[92%] md:max-w-full",
         role === "user"
           ? "rounded-2xl rounded-tr-sm bg-blue-600 text-white leading-relaxed whitespace-pre-wrap dark:bg-blue-500"
           : "rounded-2xl rounded-tl-sm border border-border/60 bg-card text-foreground leading-7",

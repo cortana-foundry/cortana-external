@@ -8,6 +8,7 @@ export type CodexSession = {
   cliVersion: string | null;
   lastMessagePreview: string | null;
   transcriptPath: string | null;
+  activeRun?: boolean;
 };
 
 export type CodexSessionGroup = {

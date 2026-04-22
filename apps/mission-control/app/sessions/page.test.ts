@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergeCodexSessions,
   mergeStreamedAssistantEvents,
+  normalizeCodexMutationError,
   summarizeCodexSessions,
 } from "./page";
 
@@ -93,5 +94,21 @@ describe("mergeStreamedAssistantEvents", () => {
     );
 
     expect(merged).toEqual([{ id: "assistant-1", role: "assistant", text: "Final answer" }]);
+  });
+});
+
+describe("normalizeCodexMutationError", () => {
+  it("rephrases raw active-run conflicts for the composer UI", () => {
+    expect(
+      normalizeCodexMutationError(
+        "Codex session 019d9c46-f4d4-7013-abec-3ce9788b4814 already has an active run",
+      ),
+    ).toBe("Codex is still finishing the previous reply for this thread.");
+  });
+
+  it("preserves non-conflict mutation errors", () => {
+    expect(normalizeCodexMutationError("Failed to attach to Codex stream")).toBe(
+      "Failed to attach to Codex stream",
+    );
   });
 });
