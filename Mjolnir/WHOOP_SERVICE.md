@@ -47,8 +47,13 @@ Token/data paths can be overridden with:
 
 - Automatic token refresh is built in.
 - Refresh calls are deduplicated to avoid parallel refresh storms.
+- `/whoop/health` is strict:
+  - `200` only when auth/readiness is healthy
+  - `503` when token validation or refresh fails
+  - includes `auth_alert` metadata from `~/.cortana/auth-alerts/whoop.json`
 - If refresh fails but stale cache exists, the service can return stale data with:
   - `Warning: 110 - "Serving stale Whoop cache after token refresh failure"`
+- stale cached data does **not** make `/whoop/health` healthy
 
 ## Token Refresh
 

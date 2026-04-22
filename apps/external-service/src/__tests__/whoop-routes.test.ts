@@ -1,10 +1,12 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { resetAuthAlertsForTests } from "../lib/authalert.js";
 import { createWhoopRouter } from "../whoop/routes.js";
 import { WhoopService } from "../whoop/service.js";
 
@@ -13,14 +15,30 @@ function createTempDir(): string {
 }
 
 describe("whoop routes", () => {
+  const originalHome = process.env.HOME;
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    process.env.HOME = originalHome;
+    resetAuthAlertsForTests();
+    await Promise.all(
+      dirs.splice(0).map(async (dir) => {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }),
+    );
+  });
+
   it("returns auth url", async () => {
+    const temp = createTempDir();
+    dirs.push(temp);
+    process.env.HOME = temp;
     const app = new Hono();
     const service = new WhoopService({
       clientId: "abc",
       clientSecret: "secret",
       redirectUrl: "http://localhost:3033/auth/callback",
-      tokenPath: path.join(createTempDir(), "tokens.json"),
-      dataPath: path.join(createTempDir(), "whoop.json"),
+      tokenPath: path.join(temp, "tokens.json"),
+      dataPath: path.join(temp, "whoop.json"),
       fetchImpl: globalThis.fetch,
     });
     app.route("/", createWhoopRouter(service));
@@ -33,6 +51,8 @@ describe("whoop routes", () => {
 
   it("serves stale data with warning when token refresh fails", async () => {
     const temp = createTempDir();
+    dirs.push(temp);
+    process.env.HOME = temp;
     const tokenPath = path.join(temp, "tokens.json");
     const dataPath = path.join(temp, "whoop.json");
     fs.writeFileSync(
@@ -83,8 +103,76 @@ describe("whoop routes", () => {
     expect(payload.quality?.page_count).toBe(1);
   });
 
+  it("returns unhealthy health with auth-alert metadata even when stale cache exists", async () => {
+    const temp = createTempDir();
+    dirs.push(temp);
+    process.env.HOME = temp;
+    const tokenPath = path.join(temp, "tokens.json");
+    const dataPath = path.join(temp, "whoop.json");
+    fs.writeFileSync(
+      tokenPath,
+      JSON.stringify({
+        access_token: "expired",
+        refresh_token: "",
+        expires_at: "2020-01-01T00:00:00.000Z",
+      }),
+    );
+    fs.writeFileSync(
+      dataPath,
+      JSON.stringify({
+        profile: { name: "cached" },
+        body_measurement: {},
+        cycles: [],
+        recovery: [{ score: 90 }],
+        sleep: [],
+        workouts: [],
+        quality: {
+          fetched_at: "2026-04-05T12:00:00.000Z",
+          page_count: 1,
+          next_tokens: [],
+          repeated_next_token_detected: false,
+          workout_record_count: 0,
+          unique_workout_count: 0,
+          duplicate_workout_ids_removed: 0,
+        },
+      }),
+    );
+
+    const app = new Hono();
+    const service = new WhoopService({
+      clientId: "abc",
+      clientSecret: "secret",
+      redirectUrl: "http://localhost:3033/auth/callback",
+      tokenPath,
+      dataPath,
+      fetchImpl: globalThis.fetch,
+    });
+    app.route("/", createWhoopRouter(service));
+
+    let response: Response = new Response();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await app.request("/whoop/health");
+    }
+
+    expect(response.status).toBe(503);
+    const payload = (await response.json()) as {
+      status: string;
+      stale_cache: { available: boolean; fetched_at: string | null };
+      auth_alert: { active: boolean; consecutive_failures: number };
+    };
+    expect(payload.status).toBe("unhealthy");
+    expect(payload.stale_cache).toEqual({
+      available: true,
+      fetched_at: "2026-04-05T12:00:00.000Z",
+    });
+    expect(payload.auth_alert.active).toBe(true);
+    expect(payload.auth_alert.consecutive_failures).toBeGreaterThanOrEqual(3);
+  });
+
   it("returns 404 for latest recovery when empty", async () => {
     const temp = createTempDir();
+    dirs.push(temp);
+    process.env.HOME = temp;
     const tokenPath = path.join(temp, "tokens.json");
     fs.writeFileSync(
       tokenPath,
@@ -123,6 +211,8 @@ describe("whoop routes", () => {
 
   it("deduplicates concurrent refresh calls", async () => {
     const temp = createTempDir();
+    dirs.push(temp);
+    process.env.HOME = temp;
     const tokenPath = path.join(temp, "tokens.json");
     fs.writeFileSync(
       tokenPath,

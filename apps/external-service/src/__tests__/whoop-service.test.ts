@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { resetAuthAlertsForTests } from "../lib/authalert.js";
 import { WhoopService } from "../whoop/service.js";
 
 async function makeTempDir(): Promise<string> {
@@ -17,8 +18,11 @@ async function writeJson(filePath: string, data: unknown): Promise<void> {
 
 describe("whoop service", () => {
   const dirs: string[] = [];
+  const originalHome = process.env.HOME;
 
   afterEach(async () => {
+    process.env.HOME = originalHome;
+    resetAuthAlertsForTests();
     await Promise.all(
       dirs.map(async (dir) => {
         await fs.rm(dir, { recursive: true, force: true });
@@ -30,6 +34,7 @@ describe("whoop service", () => {
   it("dedupes workout records by normalized record id and reports quality metadata", async () => {
     const dir = await makeTempDir();
     dirs.push(dir);
+    process.env.HOME = dir;
     const tokenPath = path.join(dir, "tokens.json");
     const dataPath = path.join(dir, "whoop.json");
 
@@ -93,6 +98,7 @@ describe("whoop service", () => {
   it("stops when Whoop repeats next_token and records the loop in quality metadata", async () => {
     const dir = await makeTempDir();
     dirs.push(dir);
+    process.env.HOME = dir;
     const tokenPath = path.join(dir, "tokens.json");
     const dataPath = path.join(dir, "whoop.json");
 

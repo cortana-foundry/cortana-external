@@ -1,3 +1,5 @@
+import type { ProviderAuthAlertState } from "../lib/authalert.js";
+
 export interface TonalTokenData {
   id_token: string;
   refresh_token?: string;
@@ -25,9 +27,16 @@ export interface TonalDataResponse {
   last_updated: string;
 }
 
-export interface TonalHealthResponse {
+export interface TonalHealthResponse extends Record<string, unknown> {
   status: "healthy" | "unhealthy";
+  authenticated: boolean;
   user_id?: string;
+  expires_at: string | null;
+  expires_in_seconds: number | null;
+  is_expired: boolean;
+  needs_refresh: boolean;
+  refresh_token_present: boolean;
   error?: string;
   details?: string;
+  auth_alert: ProviderAuthAlertState;
 }

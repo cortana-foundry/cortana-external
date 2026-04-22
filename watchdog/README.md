@@ -13,8 +13,8 @@ Current location: `~/Developer/cortana-external/watchdog` · Status: **active** 
 | **Degraded Agents** | Alert when mission-control agents are degraded/offline or stale (`last_seen > 45m`) |
 | **Mission Control UI** | Probe `http://127.0.0.1:3000/api/heartbeat-status`; restart `com.cortana.mission-control` once, then alert if still down |
 | **gog (Gmail)** | Log failure |
-| **Tonal API** | Health probe + retry; Tonal service self-heals via refresh-token flow |
-| **Whoop API** | Log failure |
+| **Tonal API** | Probe strict `/tonal/health`; alert immediately on auth/readiness failures |
+| **Whoop API** | Probe strict `/whoop/health`; alert immediately on auth/readiness failures |
 | **Polymarket US** | Probe `/polymarket/health`; warn only on sustained degraded/rate-limit state; alert immediately on auth or unconfigured failures |
 | **Schwab market-data lane** | Probe `/market-data/ready`, `/market-data/ops`, and `SPY,QQQ` quote smoke test; restart local service once only when unreachable; warn only on sustained provider cooldown; alert for auth/operator action |
 | **Pre-open readiness artifact** | Consume `backtester/var/readiness/pre-open-canary-latest.json`; keep pure market-data warnings owned by the market-data lane; alert on higher-level trade-lane failures or sustained degraded readiness |
@@ -75,6 +75,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist
 ~/Developer/cortana-external/watchdog/tests/market-data-check-test.sh
 ~/Developer/cortana-external/watchdog/tests/pre-open-readiness-test.sh
 ~/Developer/cortana-external/watchdog/tests/mission-control-check-test.sh
+~/Developer/cortana-external/watchdog/tests/provider-auth-check-test.sh
 ```
 
 ## Check logs

@@ -63,6 +63,31 @@ describe("/health", () => {
     expect(body.status).toBe("degraded");
   });
 
+  it("returns degraded when whoop strict health is unhealthy", async () => {
+    const app = createApp(
+      createServices({
+        whoop: {
+          getAggregateHealth: async () => ({
+            status: "unhealthy",
+            authenticated: true,
+            auth_alert: {
+              active: true,
+              consecutive_failures: 3,
+              last_error: "refresh token endpoint returned status 400",
+              updated_at: "2026-04-22T12:51:56.655Z",
+            },
+          }),
+        } as unknown as ExternalServices["whoop"],
+      }),
+    );
+
+    const response = await app.request("/health");
+    const body = (await response.json()) as { status: string };
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe("degraded");
+  });
+
   it("returns 503 when all providers are unhealthy", async () => {
     const app = createApp(
       createServices({

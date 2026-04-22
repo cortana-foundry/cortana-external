@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { UnknownRecordSchema } from './common'
+import { ProviderAuthAlertSchema, UnknownRecordSchema } from './common'
 
 export const WhoopTokenResponseSchema = z.object({
   access_token: z.string(),
@@ -56,3 +56,21 @@ export const WhoopAuthUrlResponseSchema = z.object({
   url: z.string().url(),
 })
 export type WhoopAuthUrlResponse = z.infer<typeof WhoopAuthUrlResponseSchema>
+
+export const WhoopHealthResponseSchema = z.object({
+  status: z.enum(['healthy', 'unhealthy']),
+  authenticated: z.boolean(),
+  expires_at: z.string().datetime().nullable(),
+  expires_in_seconds: z.number().nullable(),
+  is_expired: z.boolean(),
+  needs_refresh: z.boolean(),
+  refresh_token_present: z.boolean(),
+  error: z.string().optional(),
+  details: z.string().optional(),
+  auth_alert: ProviderAuthAlertSchema,
+  stale_cache: z.object({
+    available: z.boolean(),
+    fetched_at: z.string().datetime().nullable(),
+  }),
+})
+export type WhoopHealthResponse = z.infer<typeof WhoopHealthResponseSchema>

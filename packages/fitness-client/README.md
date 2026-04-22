@@ -1,6 +1,6 @@
 # @cortana/fitness-client
 
-Typed HTTP client for the local Go fitness service (`http://127.0.0.1:3033`).
+Typed HTTP client for the local external fitness service (`http://127.0.0.1:3033`).
 
 ## Features
 
@@ -12,6 +12,7 @@ Typed HTTP client for the local Go fitness service (`http://127.0.0.1:3033`).
 ## Endpoints wrapped
 
 - `GET /whoop/data`
+- `GET /whoop/health`
 - `GET /tonal/data`
 - `GET /tonal/health`
 - `GET /auth/url`
@@ -29,6 +30,7 @@ const client = new FitnessClient({
 })
 
 const whoop = await client.getWhoopData()
+const whoopHealth = await client.getWhoopHealth()
 const tonal = await client.getTonalData()
 const health = await client.getHealth()
 ```

@@ -72,10 +72,59 @@ function toneFromExternalStatus(status: unknown): WorkspaceHealthTone {
   return "unknown";
 }
 
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 function readObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function readAuthAlert(value: unknown): Record<string, unknown> {
+  return readObject(readObject(value).auth_alert);
+}
+
+function hasActiveAuthAlert(value: unknown): boolean {
+  return readAuthAlert(value).active === true;
+}
+
+function providerTone(status: unknown, body: Record<string, unknown>): WorkspaceHealthTone {
+  if (hasActiveAuthAlert(body)) {
+    return "unhealthy";
+  }
+  return toneFromExternalStatus(status);
+}
+
+function providerDetail(body: Record<string, unknown>, fallback: string): string {
+  return readString(body.details)
+    ?? readString(readAuthAlert(body).last_error)
+    ?? readString(body.error)
+    ?? fallback;
+}
+
+function listFailingProviders(body: Record<string, unknown>): string[] {
+  const providers: Array<[string, string]> = [
+    ["whoop", "Whoop"],
+    ["tonal", "Tonal"],
+    ["alpaca", "Alpaca"],
+    ["appleHealth", "Apple Health"],
+    ["marketData", "Market data"],
+    ["polymarket", "Polymarket"],
+  ];
+
+  return providers.flatMap(([key, label]) => {
+    const entry = readObject(body[key]);
+    if (Object.keys(entry).length === 0) return [];
+    if (hasActiveAuthAlert(entry)) return [`${label} (auth alert)`];
+
+    const status = String(entry.status ?? "unknown");
+    if (status === "healthy" || status === "ok" || status === "unconfigured") {
+      return [];
+    }
+    return [`${label} (${status})`];
+  });
 }
 
 function buildUnknownHealth(id: string, label: string, detail: string, raw: unknown): WorkspaceHealthItem {
@@ -132,7 +181,12 @@ export async function getExternalHealth(baseUrl: string): Promise<WorkspaceHealt
     tone: toneFromExternalStatus(status),
     summary: status,
     detail: result.ok
-      ? "Aggregate health across Whoop, Tonal, Alpaca, and market data."
+      ? (() => {
+          const failingProviders = listFailingProviders(body);
+          return failingProviders.length > 0
+            ? `Failing providers: ${failingProviders.join(", ")}.`
+            : "Aggregate health across Whoop, Tonal, Alpaca, and market data.";
+        })()
       : result.error ?? "Health endpoint returned an error.",
     checkedAt: new Date().toISOString(),
     raw: body,
@@ -157,20 +211,27 @@ export async function getWhoopHealth(baseUrl: string): Promise<WorkspaceHealthIt
       authBody.refresh_token_present,
   );
   const tone = authenticated
-    ? toneFromExternalStatus(healthBody.status ?? "ok")
+    ? providerTone(healthBody.status ?? "unknown", healthBody)
     : healthResult.ok || authResult.ok
       ? "degraded"
       : "unknown";
+  const authAlertActive = hasActiveAuthAlert(healthBody) || hasActiveAuthAlert(authBody);
 
   return {
     id: "whoop",
     label: "Whoop",
     tone,
-    summary: authenticated ? "Authenticated" : "Needs OAuth",
-    detail:
-      typeof authBody.error === "string"
-        ? authBody.error
-        : "Recovery and sleep ingestion via the local Whoop integration.",
+    summary: tone === "healthy"
+      ? "Authenticated"
+      : authAlertActive
+        ? "Auth alert active"
+        : authenticated
+          ? "Authentication failed"
+          : "Needs OAuth",
+    detail: providerDetail(
+      healthBody,
+      readString(authBody.error) ?? "Recovery and sleep ingestion via the local Whoop integration.",
+    ),
     checkedAt: new Date().toISOString(),
     raw: {
       health: healthBody,
@@ -183,18 +244,15 @@ export async function getTonalHealth(baseUrl: string): Promise<WorkspaceHealthIt
   const result = await fetchJson(`${baseUrl}/tonal/health`);
   const body = readObject(result.body);
   const status = String(body.status ?? (result.ok ? "ok" : "unknown"));
+  const tone = providerTone(status, body);
+  const authAlertActive = hasActiveAuthAlert(body);
 
   return {
     id: "tonal",
     label: "Tonal",
-    tone: toneFromExternalStatus(status),
-    summary: status === "healthy" ? "Authenticated" : status,
-    detail:
-      typeof body.details === "string"
-        ? body.details
-        : typeof body.error === "string"
-          ? body.error
-          : "Tonal profile and strength-score ingestion.",
+    tone,
+    summary: tone === "healthy" ? "Authenticated" : authAlertActive ? "Auth alert active" : status,
+    detail: providerDetail(body, "Tonal profile and strength-score ingestion."),
     checkedAt: new Date().toISOString(),
     raw: body,
   };

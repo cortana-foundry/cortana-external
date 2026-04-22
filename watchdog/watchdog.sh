@@ -410,6 +410,65 @@ probe_json_endpoint() {
   fi
 }
 
+provider_health_detail() {
+  local body_path="$1"
+  local detail=""
+  detail=$(jq -r '.auth_alert.last_error // .details // .error // empty' "$body_path" 2>/dev/null || true)
+  printf '%s' "$detail"
+}
+
+check_provider_auth_health() {
+  local check_name="$1"
+  local label="$2"
+  local health_url="$3"
+  local body
+  body="$(mktemp)"
+  trap 'rm -f "${body:-}"' RETURN
+
+  local code
+  code=$(probe_json_endpoint "$health_url" "$body")
+
+  if [[ "$code" == "000" ]]; then
+    log "info" "${label} health endpoint is unreachable (${health_url}); external-service reachability is owned by market-data health"
+    return
+  fi
+
+  local status auth_alert_active detail
+  status=$(jq -r '.status // empty' "$body" 2>/dev/null || true)
+  auth_alert_active=$(jq -r '.auth_alert.active // false' "$body" 2>/dev/null || true)
+  detail=$(provider_health_detail "$body")
+
+  if [[ "$auth_alert_active" == "true" || "$status" == "unhealthy" ]]; then
+    if [[ -n "$detail" ]]; then
+      alert "${label} auth/readiness is unhealthy. ${detail}" "$check_name" "critical"
+    else
+      alert "${label} auth/readiness is unhealthy." "$check_name" "critical"
+    fi
+    return
+  fi
+
+  case "$status" in
+    healthy|ok)
+      recovery_alert "$check_name" "${label} recovered and is healthy"
+      log "info" "${label}: OK"
+      ;;
+    degraded)
+      if [[ -n "$detail" ]]; then
+        alert "${label} auth/readiness is degraded. ${detail}" "$check_name" "warning"
+      else
+        alert "${label} auth/readiness is degraded." "$check_name" "warning"
+      fi
+      ;;
+    *)
+      if [[ -n "$detail" ]]; then
+        alert "${label} health returned unexpected status (${status:-unknown}). ${detail}" "$check_name" "warning"
+      else
+        alert "${label} health returned unexpected status (${status:-unknown})." "$check_name" "warning"
+      fi
+      ;;
+  esac
+}
+
 market_data_body_indicates_cooldown() {
   local body_path="$1"
   [[ -f "$body_path" ]] || return 1
@@ -1178,33 +1237,8 @@ check_tools() {
     log "info" "gog: OK"
   fi
 
-  # Tonal - this is the main target for suppression
-  local tonal_check_name="tonal"
-  local tonal_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$FITNESS_BASE_URL/tonal/health" 2>/dev/null || echo "000")
-  if [[ "$tonal_code" != "200" ]]; then
-    log "warning" "Tonal health check failed (HTTP ${tonal_code}), waiting for in-service refresh self-heal"
-    sleep 5
-    tonal_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$FITNESS_BASE_URL/tonal/health" 2>/dev/null || echo "000")
-    if [[ "$tonal_code" != "200" ]]; then
-      alert "Tonal still down after in-service self-heal (HTTP ${tonal_code})" "$tonal_check_name" "warning"
-    else
-      recovery_alert "$tonal_check_name" "Tonal self-healed successfully"
-      log "info" "Tonal self-healed successfully"
-    fi
-  else
-    recovery_alert "$tonal_check_name" "Tonal recovered and is healthy"
-    log "info" "Tonal: OK"
-  fi
-
-  # Whoop
-  local whoop_check_name="whoop"
-  local whoop_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$FITNESS_BASE_URL/whoop/data" 2>/dev/null || echo "000")
-  if [[ "$whoop_code" != "200" ]]; then
-    alert "Whoop health check failed (HTTP ${whoop_code})" "$whoop_check_name" "warning"
-  else
-    recovery_alert "$whoop_check_name" "Whoop recovered and is healthy"
-    log "info" "Whoop: OK"
-  fi
+  check_provider_auth_health "tonal" "Tonal" "${FITNESS_BASE_URL}/tonal/health"
+  check_provider_auth_health "whoop" "Whoop" "${FITNESS_BASE_URL}/whoop/health"
 
   # Polymarket
   check_polymarket_health

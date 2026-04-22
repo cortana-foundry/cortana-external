@@ -5,6 +5,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { resetAuthAlertsForTests } from "../lib/authalert.js";
 import { registerTonalRoutes } from "../tonal/index.js";
 import { TonalService } from "../tonal/service.js";
 
@@ -18,8 +19,11 @@ async function writeJson(filePath: string, data: unknown): Promise<void> {
 
 describe("tonal service routes", () => {
   const dirs: string[] = [];
+  const originalHome = process.env.HOME;
 
   afterEach(async () => {
+    process.env.HOME = originalHome;
+    resetAuthAlertsForTests();
     await Promise.all(
       dirs.map(async (dir) => {
         await fs.rm(dir, { recursive: true, force: true });
@@ -71,6 +75,54 @@ describe("tonal service routes", () => {
     expect(response.status).toBe(200);
     expect(body.status).toBe("healthy");
     expect(body.user_id).toBe("user-1");
+  });
+
+  it("returns unhealthy health with auth-alert metadata after repeated auth failures", async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    process.env.HOME = dir;
+    const tokenPath = path.join(dir, "tonal_tokens.json");
+    const dataPath = path.join(dir, "tonal_data.json");
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/oauth/token")) {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    };
+
+    const service = new TonalService({
+      email: "",
+      password: "",
+      tokenPath,
+      dataPath,
+      requestDelayMs: 0,
+      fetchImpl,
+    });
+
+    const app = new Hono();
+    registerTonalRoutes(app, service);
+
+    let response: Response = new Response();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await app.request("/tonal/health");
+    }
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as {
+      status: string;
+      authenticated: boolean;
+      auth_alert: { active: boolean; consecutive_failures: number };
+    };
+
+    expect(body.status).toBe("unhealthy");
+    expect(body.authenticated).toBe(false);
+    expect(body.auth_alert.active).toBe(true);
+    expect(body.auth_alert.consecutive_failures).toBeGreaterThanOrEqual(3);
   });
 
   it("coerces numeric workout ids to string keys on /tonal/data", async () => {
