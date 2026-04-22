@@ -315,6 +315,7 @@ export class WhoopService {
       refresh_token: refreshToken,
       client_id: this.clientId,
       client_secret: this.clientSecret,
+      redirect_uri: this.redirectUrl,
     });
 
     const response = await this.fetchImpl(WHOOP_TOKEN_URL, {
@@ -333,7 +334,10 @@ export class WhoopService {
 
   private isNonRetriableRefreshError(error: unknown): boolean {
     const text = String(error).toLowerCase();
-    return text.includes("invalid_grant") || text.includes("invalid_client") || text.includes("unauthorized_client");
+    return text.includes("invalid_grant")
+      || text.includes("invalid_client")
+      || text.includes("invalid_request")
+      || text.includes("unauthorized_client");
   }
 
   private async fetchAllWhoopData(accessToken: string): Promise<WhoopData> {
