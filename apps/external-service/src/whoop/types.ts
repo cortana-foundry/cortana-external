@@ -1,3 +1,5 @@
+import type { ProviderAuthAlertState } from "../lib/authalert.js";
+
 export interface WhoopTokenData {
   access_token: string;
   refresh_token: string;
@@ -54,4 +56,21 @@ export interface WhoopFactoryConfig {
   WHOOP_REDIRECT_URL: string;
   WHOOP_TOKEN_PATH: string;
   WHOOP_DATA_PATH: string;
+}
+
+export interface WhoopHealthResponse extends Record<string, unknown> {
+  status: "healthy" | "unhealthy";
+  authenticated: boolean;
+  expires_at: string | null;
+  expires_in_seconds: number | null;
+  is_expired: boolean;
+  needs_refresh: boolean;
+  refresh_token_present: boolean;
+  error?: string;
+  details?: string;
+  auth_alert: ProviderAuthAlertState;
+  stale_cache: {
+    available: boolean;
+    fetched_at: string | null;
+  };
 }

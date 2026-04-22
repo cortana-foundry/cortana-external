@@ -7,6 +7,7 @@ import {
   TonalHealthResponseSchema,
   WhoopAuthUrlResponseSchema,
   WhoopDataSchema,
+  WhoopHealthResponseSchema,
 } from '@cortana/fitness-types'
 
 export interface FitnessClientOptions {
@@ -40,6 +41,10 @@ export class FitnessClient {
 
   getWhoopData() {
     return this.request('/whoop/data', WhoopDataSchema)
+  }
+
+  getWhoopHealth() {
+    return this.request('/whoop/health', WhoopHealthResponseSchema)
   }
 
   getTonalData() {

@@ -1,8 +1,8 @@
-import { markFailure, markSuccess } from "../lib/authalert.js";
+import { markFailure, markSuccess, readAuthAlert } from "../lib/authalert.js";
 import { createLogger } from "../lib/logger.js";
 import { isZeroOrInvalidDate } from "../lib/time.js";
 import { loadWhoopData, loadWhoopTokens, saveWhoopData, saveWhoopTokens, type NormalizedWhoopToken } from "./store.js";
-import type { WhoopCollectionResponse, WhoopData, WhoopQuality, WhoopServiceOptions, WhoopTokenResponse } from "./types.js";
+import type { WhoopCollectionResponse, WhoopData, WhoopHealthResponse, WhoopQuality, WhoopServiceOptions, WhoopTokenResponse } from "./types.js";
 import crypto from "node:crypto";
 
 const WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
@@ -20,6 +20,11 @@ type WhoopCollectionFetchResult = {
   pageCount: number;
   nextTokens: string[];
   repeatedNextTokenDetected: boolean;
+};
+
+type WhoopHealthResult = {
+  status: 200 | 503;
+  body: WhoopHealthResponse;
 };
 
 export class WhoopService {
@@ -85,21 +90,21 @@ export class WhoopService {
   }
 
   async getAuthStatus(): Promise<Record<string, unknown>> {
+    const authAlert = await readAuthAlert("whoop");
     try {
       const tokens = await loadWhoopTokens(this.tokenPath);
-      const now = new Date();
-      const expiresAt = tokens.expiresAt;
-      const expiresInSeconds = expiresAt && !isZeroOrInvalidDate(expiresAt) ? Math.trunc((expiresAt.getTime() - now.getTime()) / 1000) : 0;
+      const tokenState = this.describeToken(tokens);
 
       return {
         has_token: true,
         token_path: this.tokenPath,
-        expires_at: expiresAt ? expiresAt.toISOString() : null,
-        expires_in_seconds: expiresInSeconds,
-        is_expired: expiresAt ? now.getTime() > expiresAt.getTime() : false,
-        needs_refresh: this.tokenNeedsRefresh(tokens),
+        expires_at: tokenState.expires_at,
+        expires_in_seconds: tokenState.expires_in_seconds,
+        is_expired: tokenState.is_expired,
+        needs_refresh: tokenState.needs_refresh,
         last_refresh_at: tokens.lastRefreshAt ? tokens.lastRefreshAt.toISOString() : null,
-        refresh_token_present: tokens.refreshToken !== "",
+        refresh_token_present: tokenState.refresh_token_present,
+        auth_alert: authAlert,
       };
     } catch (error) {
       return {
@@ -107,69 +112,17 @@ export class WhoopService {
         token_path: this.tokenPath,
         error: error instanceof Error ? error.message : String(error),
         refresh_token_present: false,
+        auth_alert: authAlert,
       };
     }
   }
 
-  async getHealth(): Promise<Record<string, unknown>> {
-    try {
-      const tokens = await loadWhoopTokens(this.tokenPath);
-      const now = new Date();
-      const expiresAt = tokens.expiresAt;
-      const expiresInSeconds =
-        expiresAt && !isZeroOrInvalidDate(expiresAt) ? Math.trunc((expiresAt.getTime() - now.getTime()) / 1000) : 0;
-
-      return {
-        status: "ok",
-        authenticated: true,
-        token_path: this.tokenPath,
-        expires_at: expiresAt ? expiresAt.toISOString() : null,
-        expires_in_seconds: expiresInSeconds,
-        is_expired: expiresAt ? now.getTime() > expiresAt.getTime() : false,
-        needs_refresh: this.tokenNeedsRefresh(tokens),
-        refresh_token_present: tokens.refreshToken !== "",
-      };
-    } catch (error) {
-      return {
-        status: "ok",
-        authenticated: false,
-        token_path: this.tokenPath,
-        refresh_token_present: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+  async getHealth(): Promise<WhoopHealthResult> {
+    return this.buildHealthResult();
   }
 
   async getAggregateHealth(): Promise<Record<string, unknown>> {
-    try {
-      const tokens = await loadWhoopTokens(this.tokenPath);
-      try {
-        await this.proactiveRefreshIfExpiring(0);
-      } catch (error) {
-        return {
-          status: "unhealthy",
-          authenticated: true,
-          error: error instanceof Error ? error.message : String(error),
-          expires_at: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
-          refresh_token_present: tokens.refreshToken !== "",
-        };
-      }
-
-      const now = new Date();
-      return {
-        status: "healthy",
-        authenticated: true,
-        expires_at: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
-        expires_in_seconds: tokens.expiresAt ? Math.trunc((tokens.expiresAt.getTime() - now.getTime()) / 1000) : 0,
-        refresh_token_present: tokens.refreshToken !== "",
-      };
-    } catch (error) {
-      return {
-        status: "unhealthy",
-        authenticated: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return (await this.buildHealthResult()).body;
   }
 
   async warmup(): Promise<void> {
@@ -232,7 +185,7 @@ export class WhoopService {
 
   private async ensureValidToken(tokens: NormalizedWhoopToken): Promise<NormalizedWhoopToken> {
     if (!this.tokenNeedsRefresh(tokens)) {
-      markSuccess("whoop");
+      await markSuccess("whoop");
       return tokens;
     }
 
@@ -244,11 +197,112 @@ export class WhoopService {
 
     try {
       const refreshed = await this.refreshInFlight;
-      markSuccess("whoop");
+      await markSuccess("whoop");
       return refreshed.token;
     } catch (error) {
       await markFailure("whoop", error);
       throw error;
+    }
+  }
+
+  private describeToken(tokens: NormalizedWhoopToken | null): {
+    expires_at: string | null;
+    expires_in_seconds: number | null;
+    is_expired: boolean;
+    needs_refresh: boolean;
+    refresh_token_present: boolean;
+  } {
+    const expiresAt = tokens?.expiresAt && !isZeroOrInvalidDate(tokens.expiresAt) ? tokens.expiresAt : null;
+    const now = Date.now();
+
+    return {
+      expires_at: expiresAt ? expiresAt.toISOString() : null,
+      expires_in_seconds: expiresAt ? Math.trunc((expiresAt.getTime() - now) / 1000) : null,
+      is_expired: expiresAt ? now > expiresAt.getTime() : true,
+      needs_refresh: this.tokenNeedsRefresh(tokens),
+      refresh_token_present: Boolean(tokens?.refreshToken),
+    };
+  }
+
+  private extractStaleCacheFetchedAt(data: WhoopData | null): string | null {
+    const fetchedAt = data?.quality?.fetched_at;
+    return typeof fetchedAt === "string" && fetchedAt.trim().length > 0 ? fetchedAt : null;
+  }
+
+  private async getStaleCacheState(): Promise<{ available: boolean; fetched_at: string | null }> {
+    if (this.cachedData) {
+      return {
+        available: true,
+        fetched_at: this.extractStaleCacheFetchedAt(this.cachedData),
+      };
+    }
+
+    try {
+      const cached = await loadWhoopData(this.dataPath);
+      return {
+        available: true,
+        fetched_at: this.extractStaleCacheFetchedAt(cached),
+      };
+    } catch {
+      return {
+        available: false,
+        fetched_at: null,
+      };
+    }
+  }
+
+  private async buildHealthResult(): Promise<WhoopHealthResult> {
+    const authAlert = await readAuthAlert("whoop");
+    const staleCache = await this.getStaleCacheState();
+    let tokens: NormalizedWhoopToken | null = null;
+    let loadError: Error | null = null;
+
+    try {
+      tokens = await loadWhoopTokens(this.tokenPath);
+    } catch (error) {
+      loadError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (!tokens) {
+      return {
+        status: 503,
+        body: {
+          status: "unhealthy",
+          authenticated: false,
+          ...this.describeToken(null),
+          error: "authentication failed",
+          details: loadError ? loadError.message : "Whoop token file is missing or unreadable.",
+          auth_alert: authAlert,
+          stale_cache: staleCache,
+        },
+      };
+    }
+
+    try {
+      const validTokens = await this.ensureValidToken(tokens);
+      return {
+        status: 200,
+        body: {
+          status: "healthy",
+          authenticated: true,
+          ...this.describeToken(validTokens),
+          auth_alert: await readAuthAlert("whoop"),
+          stale_cache: staleCache,
+        },
+      };
+    } catch (error) {
+      return {
+        status: 503,
+        body: {
+          status: "unhealthy",
+          authenticated: true,
+          ...this.describeToken(tokens),
+          error: "authentication failed",
+          details: error instanceof Error ? error.message : String(error),
+          auth_alert: await readAuthAlert("whoop"),
+          stale_cache: staleCache,
+        },
+      };
     }
   }
 

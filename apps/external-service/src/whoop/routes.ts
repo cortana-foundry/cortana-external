@@ -35,7 +35,10 @@ export function createWhoopRouter(service: WhoopService): Hono {
 
   router.get("/auth/status", async (c) => c.json(await service.getAuthStatus()));
 
-  router.get("/whoop/health", async (c) => c.json(await service.getHealth()));
+  router.get("/whoop/health", async (c) => {
+    const result = await service.getHealth();
+    return c.json(result.body, result.status as never);
+  });
 
   router.get("/whoop/data", async (c) => {
     const forceFresh = c.req.query("fresh") === "true";

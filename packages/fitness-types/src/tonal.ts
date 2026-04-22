@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { UnknownRecordSchema } from './common'
+import { ProviderAuthAlertSchema, UnknownRecordSchema } from './common'
 
 export const TonalAuthResponseSchema = z.object({
   id_token: z.string(),
@@ -56,9 +56,16 @@ export type TonalCache = z.infer<typeof TonalCacheSchema>
 
 export const TonalHealthResponseSchema = z.object({
   status: z.enum(['healthy', 'unhealthy']),
+  authenticated: z.boolean(),
   user_id: z.string().optional(),
+  expires_at: z.string().datetime().nullable(),
+  expires_in_seconds: z.number().nullable(),
+  is_expired: z.boolean(),
+  needs_refresh: z.boolean(),
+  refresh_token_present: z.boolean(),
   error: z.string().optional(),
   details: z.string().optional(),
+  auth_alert: ProviderAuthAlertSchema,
 })
 export type TonalHealthResponse = z.infer<typeof TonalHealthResponseSchema>
 

@@ -200,8 +200,9 @@ pnpm --filter @cortana/external-service typecheck
   - `ok` when Whoop, Tonal, and Alpaca are all healthy
   - `degraded` when at least one provider is healthy and at least one is unhealthy
   - `unhealthy` with HTTP `503` only when all providers are unhealthy
-- `/whoop/health` is intentionally lenient and can still report an operationally usable `200` shape even when auth is not ready.
-- `/tonal/health` is stricter and returns unhealthy when auth is broken.
+- `/whoop/health` and `/tonal/health` are strict provider auth/readiness signals.
+- stale cached Whoop data may still be served from `/whoop/data`, but that never counts as healthy auth.
+- provider auth failures also write `~/.cortana/auth-alerts/<provider>.json`, which is consumed by health responses and operator surfaces.
 
 ### Whoop behavior notes
 - OAuth redirect defaults to `http://localhost:3033/auth/callback`.

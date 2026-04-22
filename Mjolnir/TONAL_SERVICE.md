@@ -43,7 +43,10 @@ Paths can be overridden with:
 - Built-in auth self-heal:
   - on `401/403`, token state is reset and re-auth is attempted once
   - the failed request is retried once after recovery
-- `/tonal/health` returns `200` when healthy and `503` on auth failure.
+- `/tonal/health` is the strict auth/readiness signal:
+  - `200` when healthy
+  - `503` on auth failure
+  - includes `auth_alert` metadata from `~/.cortana/auth-alerts/tonal.json`
 
 ## Verification
 

@@ -39,4 +39,22 @@ describe("GET /api/services/actions/[action]", () => {
 
     expect(response.status).toBe(200);
   });
+
+  it("returns the Schwab streamer OAuth URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { url: "https://schwab.test/streamer" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+    const { GET } = await import("@/app/api/services/actions/[action]/route");
+    const response = await GET(
+      new Request("http://localhost:3000/api/services/actions/schwab-streamer-auth-url"),
+      { params: Promise.resolve({ action: "schwab-streamer-auth-url" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4040/auth/schwab/streamer/url", { cache: "no-store" });
+  });
 });

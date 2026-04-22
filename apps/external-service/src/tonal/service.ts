@@ -1,5 +1,5 @@
 import { createLogger, type AppLogger } from "../lib/logger.js";
-import { markFailure, markSuccess } from "../lib/authalert.js";
+import { markFailure, markSuccess, readAuthAlert } from "../lib/authalert.js";
 import { isAbortError } from "../lib/http.js";
 import { loadCache, loadTokens, saveCache, saveTokens, type ParsedTonalCache, type ParsedTonalToken } from "./store.js";
 import type { StrengthScoreData, TonalDataResponse, TonalHealthResponse } from "./types.js";
@@ -71,21 +71,11 @@ export class TonalService {
   }
 
   async handleHealth(request: Request): Promise<{ status: number; body: TonalHealthResponse }> {
-    try {
-      const token = await this.getValidToken(request.signal);
-      const userId = await this.getUserInfo(request.signal, token);
-      return { status: 200, body: { status: "healthy", user_id: userId } };
-    } catch (error) {
-      this.logger.printf("health check failed - auth error: %v", error instanceof Error ? error.message : String(error));
-      return {
-        status: 503,
-        body: {
-          status: "unhealthy",
-          error: "authentication failed",
-          details: error instanceof Error ? error.message : String(error),
-        },
-      };
+    const result = await this.buildHealthResponse(request.signal, true);
+    if (result.status !== 200) {
+      this.logger.printf("health check failed - auth error: %v", result.body.details ?? result.body.error ?? "unknown");
     }
+    return result;
   }
 
   async handleData(request: Request, forceFresh: boolean): Promise<{ status: number; body: unknown }> {
@@ -232,8 +222,35 @@ export class TonalService {
   }
 
   async getAggregateHealth(signal: AbortSignal): Promise<Record<string, unknown>> {
+    return (await this.buildHealthResponse(signal, false)).body;
+  }
+
+  private describeToken(tokens: ParsedTonalToken | null): {
+    expires_at: string | null;
+    expires_in_seconds: number | null;
+    is_expired: boolean;
+    needs_refresh: boolean;
+    refresh_token_present: boolean;
+  } {
+    const expiresAt = tokens?.expiresAt ?? null;
+    const now = Date.now();
+
+    return {
+      expires_at: expiresAt ? expiresAt.toISOString() : null,
+      expires_in_seconds: expiresAt ? Math.trunc((expiresAt.getTime() - now) / 1000) : null,
+      is_expired: expiresAt ? now >= expiresAt.getTime() : true,
+      needs_refresh: expiresAt ? now >= expiresAt.getTime() - 60_000 : true,
+      refresh_token_present: Boolean(tokens?.refreshToken),
+    };
+  }
+
+  private async buildHealthResponse(
+    signal: AbortSignal,
+    includeUserId: boolean,
+  ): Promise<{ status: number; body: TonalHealthResponse }> {
     let tokens: ParsedTonalToken | null = null;
     let loadError: Error | null = null;
+
     try {
       tokens = await loadTokens(this.tokenPath);
     } catch (error) {
@@ -241,24 +258,33 @@ export class TonalService {
     }
 
     try {
-      await this.warmup(signal);
-    } catch (error) {
-      const body: Record<string, unknown> = {
-        status: "unhealthy",
-        error: error instanceof Error ? error.message : String(error),
-      };
-      if (!loadError && tokens) {
-        body.expires_at = tokens.expiresAt.toISOString();
-      }
-      return body;
-    }
+      const token = await this.getValidToken(signal);
+      const currentTokens = await loadTokens(this.tokenPath).catch(() => tokens);
+      const userId = includeUserId ? await this.getUserInfo(signal, token) : undefined;
 
-    const body: Record<string, unknown> = { status: "healthy" };
-    if (!loadError && tokens) {
-      body.expires_at = tokens.expiresAt.toISOString();
-      body.expires_in_seconds = Math.trunc((tokens.expiresAt.getTime() - Date.now()) / 1000);
+      return {
+        status: 200,
+        body: {
+          status: "healthy",
+          authenticated: true,
+          user_id: userId,
+          ...this.describeToken(currentTokens),
+          auth_alert: await readAuthAlert("tonal"),
+        },
+      };
+    } catch (error) {
+      return {
+        status: 503,
+        body: {
+          status: "unhealthy",
+          authenticated: tokens != null,
+          ...this.describeToken(tokens),
+          error: "authentication failed",
+          details: error instanceof Error ? error.message : loadError ? loadError.message : String(error),
+          auth_alert: await readAuthAlert("tonal"),
+        },
+      };
     }
-    return body;
   }
 
   private async withMutationLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -310,7 +336,7 @@ export class TonalService {
     try {
       const tokens = await loadTokens(this.tokenPath);
       if (Date.now() < tokens.expiresAt.getTime() - 60_000) {
-        markSuccess("tonal");
+        await markSuccess("tonal");
         return tokens.idToken;
       }
 
@@ -319,7 +345,7 @@ export class TonalService {
         try {
           const refreshed = await this.refreshAuthentication(signal, tokens.refreshToken);
           await saveTokens(this.tokenPath, refreshed);
-          markSuccess("tonal");
+          await markSuccess("tonal");
           return refreshed.idToken;
         } catch (refreshError) {
           this.logger.printf(
@@ -350,7 +376,7 @@ export class TonalService {
     try {
       const tokens = await this.authenticate(signal);
       await saveTokens(this.tokenPath, tokens);
-      markSuccess("tonal");
+      await markSuccess("tonal");
       return tokens.idToken;
     } catch (error) {
       if (this.isAuthFailureError(error) || error instanceof TonalUnauthorizedError) {
@@ -385,7 +411,7 @@ export class TonalService {
 
     const tokens = await this.authenticate(signal);
     await saveTokens(this.tokenPath, tokens);
-    markSuccess("tonal");
+    await markSuccess("tonal");
     return tokens.idToken;
   }
 
@@ -495,7 +521,7 @@ export class TonalService {
     for (let attempt = 0; ; attempt++) {
       try {
         await operation(signal, token);
-        markSuccess("tonal");
+        await markSuccess("tonal");
         return;
       } catch (error) {
         if (error instanceof TonalUnauthorizedError) {
@@ -526,7 +552,7 @@ export class TonalService {
             throw retryError;
           }
 
-          markSuccess("tonal");
+          await markSuccess("tonal");
           this.logger.log("TONAL SELF-HEAL: recovery succeeded after token reset");
           return;
         }

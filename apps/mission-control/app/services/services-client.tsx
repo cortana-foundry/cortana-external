@@ -62,7 +62,9 @@ async function requestWorkspace(init?: RequestInit): Promise<WorkspaceData> {
   return payload.data;
 }
 
-async function requestActionUrl(action: "whoop-auth-url" | "schwab-auth-url") {
+type ServicesAction = "whoop-auth-url" | "schwab-auth-url" | "schwab-streamer-auth-url";
+
+async function requestActionUrl(action: ServicesAction) {
   const response = await fetch(`/api/services/actions/${action}`, { cache: "no-store" });
   const payload = (await response.json()) as { status: "ok"; url: string } | { status: "error"; message: string };
   if (!response.ok || payload.status !== "ok") throw new Error(payload.status === "error" ? payload.message : "Action failed");
@@ -116,7 +118,7 @@ export default function ServicesClient() {
   const [notice, setNotice] = React.useState<string | null>(null);
   const [isSaving, startSaving] = React.useTransition();
   const [isRefreshing, startRefreshing] = React.useTransition();
-  const [authAction, setAuthAction] = React.useState<"whoop-auth-url" | "schwab-auth-url" | null>(null);
+  const [authAction, setAuthAction] = React.useState<ServicesAction | null>(null);
   const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
 
   const loadWorkspace = React.useCallback(async (options?: { preserveDrafts?: boolean }) => {
@@ -185,13 +187,19 @@ export default function ServicesClient() {
       .finally(() => setManualRefreshing(false));
   };
 
-  const handleAuth = (action: "whoop-auth-url" | "schwab-auth-url") => {
+  const handleAuth = (action: ServicesAction) => {
     setAuthAction(action); setError(null); setNotice(null);
     void (async () => {
       try {
         const url = await requestActionUrl(action);
         window.open(url, "_blank", "noopener,noreferrer");
-        setNotice(action === "whoop-auth-url" ? "Opened Whoop OAuth flow in a new tab." : "Opened Schwab OAuth flow in a new tab.");
+        setNotice(
+          action === "whoop-auth-url"
+            ? "Opened Whoop OAuth flow in a new tab."
+            : action === "schwab-streamer-auth-url"
+              ? "Opened Schwab streamer OAuth flow in a new tab."
+              : "Opened Schwab OAuth flow in a new tab.",
+        );
       } catch (e) { setError(e instanceof Error ? e.message : "Failed to launch auth flow."); }
       finally { setAuthAction(null); }
     })();
@@ -231,7 +239,10 @@ export default function ServicesClient() {
       {/* ── OAuth quick actions ── */}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={() => handleAuth("schwab-auth-url")} disabled={authAction != null || isLoading}>
-          <ExternalLink className="h-3.5 w-3.5" /> Schwab OAuth
+          <ExternalLink className="h-3.5 w-3.5" /> Schwab REST OAuth
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => handleAuth("schwab-streamer-auth-url")} disabled={authAction != null || isLoading}>
+          <ExternalLink className="h-3.5 w-3.5" /> Schwab Streamer OAuth
         </Button>
         <Button variant="outline" size="sm" onClick={() => handleAuth("whoop-auth-url")} disabled={authAction != null || isLoading}>
           <ExternalLink className="h-3.5 w-3.5" /> Whoop OAuth
@@ -239,9 +250,9 @@ export default function ServicesClient() {
       </div>
 
       {/* ── Health strip ── */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+          Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="rounded-lg border border-border/50 bg-card/40 p-3 animate-pulse">
               <div className="h-3 w-24 rounded bg-muted/50" />
               <div className="mt-2 h-4 w-32 rounded bg-muted/50" />
@@ -249,25 +260,11 @@ export default function ServicesClient() {
             </div>
           ))
         ) : data ? (
-          data.health.slice(0, 4).map((item) => (
+          data.health.map((item) => (
             <HealthCard key={item.id} item={item} />
           ))
         ) : null}
       </div>
-
-      {/* ── Additional health (collapsible) ── */}
-      {data && data.health.length > 4 && (
-        <details className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-            {(data?.health.length ?? 0) - 4} more health checks
-          </summary>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {data?.health.slice(4).map((item) => (
-              <HealthCard key={item.id} item={item} />
-            ))}
-          </div>
-        </details>
-      )}
 
       {/* ── Config sections (collapsible) ── */}
       {isLoading && (
@@ -372,7 +369,14 @@ export default function ServicesClient() {
 
 function HealthCard({ item }: { item: WorkspaceHealthItem }) {
   const tone = toneStyles[item.tone];
-  const Icon = item.id === "openclaw-gateway" ? ShieldCheck : item.id === "external-service" ? Activity : item.id === "market-data" ? Database : KeyRound;
+  const Icon =
+    item.id === "openclaw-gateway"
+      ? ShieldCheck
+      : item.id === "external-service" || item.id === "polymarket"
+        ? Activity
+        : item.id === "market-data" || item.id.startsWith("schwab")
+          ? Database
+          : KeyRound;
 
   return (
     <div className={cn("rounded-lg border border-border/50 bg-card/40 p-3 border-l-[3px]", tone.border)}>
@@ -472,4 +476,3 @@ function GuideItem({ icon: Icon, title, body }: { icon: React.ComponentType<{ cl
     </div>
   );
 }
-

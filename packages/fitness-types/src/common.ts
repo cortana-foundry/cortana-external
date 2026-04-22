@@ -32,3 +32,11 @@ export const HealthStatusSchema = z.object({
   details: z.string().optional(),
 })
 export type HealthStatus = z.infer<typeof HealthStatusSchema>
+
+export const ProviderAuthAlertSchema = z.object({
+  active: z.boolean(),
+  consecutive_failures: z.number().int().nonnegative(),
+  last_error: z.string().nullable(),
+  updated_at: z.string().datetime().nullable(),
+})
+export type ProviderAuthAlert = z.infer<typeof ProviderAuthAlertSchema>

@@ -72,10 +72,77 @@ function toneFromExternalStatus(status: unknown): WorkspaceHealthTone {
   return "unknown";
 }
 
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function readObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function readAuthAlert(value: unknown): Record<string, unknown> {
+  return readObject(readObject(value).auth_alert);
+}
+
+function hasActiveAuthAlert(value: unknown): boolean {
+  return readAuthAlert(value).active === true;
+}
+
+function providerTone(status: unknown, body: Record<string, unknown>): WorkspaceHealthTone {
+  if (hasActiveAuthAlert(body)) {
+    return "unhealthy";
+  }
+  return toneFromExternalStatus(status);
+}
+
+function providerDetail(body: Record<string, unknown>, fallback: string): string {
+  return readString(body.details)
+    ?? readString(readAuthAlert(body).last_error)
+    ?? readString(body.error)
+    ?? fallback;
+}
+
+function humanizeStatus(value: string | null | undefined): string {
+  if (!value) return "Unknown";
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function toneFromSchwabOperatorState(state: string | null | undefined): WorkspaceHealthTone {
+  if (!state || state === "unknown") return "degraded";
+  if (state === "healthy") return "healthy";
+  if (state === "human_action_required") return "unhealthy";
+  return "degraded";
+}
+
+function listFailingProviders(body: Record<string, unknown>): string[] {
+  const providers: Array<[string, string]> = [
+    ["whoop", "Whoop"],
+    ["tonal", "Tonal"],
+    ["alpaca", "Alpaca"],
+    ["appleHealth", "Apple Health"],
+    ["marketData", "Market data"],
+    ["polymarket", "Polymarket"],
+  ];
+
+  return providers.flatMap(([key, label]) => {
+    const entry = readObject(body[key]);
+    if (Object.keys(entry).length === 0) return [];
+    if (hasActiveAuthAlert(entry)) return [`${label} (auth alert)`];
+
+    const status = String(entry.status ?? "unknown");
+    if (status === "healthy" || status === "ok" || status === "unconfigured") {
+      return [];
+    }
+    return [`${label} (${status})`];
+  });
 }
 
 function buildUnknownHealth(id: string, label: string, detail: string, raw: unknown): WorkspaceHealthItem {
@@ -132,7 +199,12 @@ export async function getExternalHealth(baseUrl: string): Promise<WorkspaceHealt
     tone: toneFromExternalStatus(status),
     summary: status,
     detail: result.ok
-      ? "Aggregate health across Whoop, Tonal, Alpaca, and market data."
+      ? (() => {
+          const failingProviders = listFailingProviders(body);
+          return failingProviders.length > 0
+            ? `Failing providers: ${failingProviders.join(", ")}.`
+            : "Aggregate health across Whoop, Tonal, Alpaca, and market data.";
+        })()
       : result.error ?? "Health endpoint returned an error.",
     checkedAt: new Date().toISOString(),
     raw: body,
@@ -157,20 +229,27 @@ export async function getWhoopHealth(baseUrl: string): Promise<WorkspaceHealthIt
       authBody.refresh_token_present,
   );
   const tone = authenticated
-    ? toneFromExternalStatus(healthBody.status ?? "ok")
+    ? providerTone(healthBody.status ?? "unknown", healthBody)
     : healthResult.ok || authResult.ok
       ? "degraded"
       : "unknown";
+  const authAlertActive = hasActiveAuthAlert(healthBody) || hasActiveAuthAlert(authBody);
 
   return {
     id: "whoop",
     label: "Whoop",
     tone,
-    summary: authenticated ? "Authenticated" : "Needs OAuth",
-    detail:
-      typeof authBody.error === "string"
-        ? authBody.error
-        : "Recovery and sleep ingestion via the local Whoop integration.",
+    summary: tone === "healthy"
+      ? "Authenticated"
+      : authAlertActive
+        ? "Auth alert active"
+        : authenticated
+          ? "Authentication failed"
+          : "Needs OAuth",
+    detail: providerDetail(
+      healthBody,
+      readString(authBody.error) ?? "Recovery and sleep ingestion via the local Whoop integration.",
+    ),
     checkedAt: new Date().toISOString(),
     raw: {
       health: healthBody,
@@ -183,18 +262,15 @@ export async function getTonalHealth(baseUrl: string): Promise<WorkspaceHealthIt
   const result = await fetchJson(`${baseUrl}/tonal/health`);
   const body = readObject(result.body);
   const status = String(body.status ?? (result.ok ? "ok" : "unknown"));
+  const tone = providerTone(status, body);
+  const authAlertActive = hasActiveAuthAlert(body);
 
   return {
     id: "tonal",
     label: "Tonal",
-    tone: toneFromExternalStatus(status),
-    summary: status === "healthy" ? "Authenticated" : status,
-    detail:
-      typeof body.details === "string"
-        ? body.details
-        : typeof body.error === "string"
-          ? body.error
-          : "Tonal profile and strength-score ingestion.",
+    tone,
+    summary: tone === "healthy" ? "Authenticated" : authAlertActive ? "Auth alert active" : status,
+    detail: providerDetail(body, "Tonal profile and strength-score ingestion."),
     checkedAt: new Date().toISOString(),
     raw: body,
   };
@@ -243,6 +319,147 @@ export async function getMarketDataHealth(baseUrl: string): Promise<WorkspaceHea
   };
 }
 
+export async function getSchwabHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
+  const [authResult, readyResult, opsResult] = await Promise.all([
+    fetchJson(`${baseUrl}/auth/schwab/status`),
+    fetchJson(`${baseUrl}/market-data/ready`),
+    fetchJson(`${baseUrl}/market-data/ops`),
+  ]);
+
+  if (!authResult.ok && authResult.status === 0 && !readyResult.ok && readyResult.status === 0) {
+    return buildUnknownHealth("schwab-rest", "Schwab REST", authResult.error ?? "Request failed", null);
+  }
+
+  const authWrapper = readObject(authResult.body);
+  const authData = readObject(authWrapper.data);
+  const readyBody = readObject(readyResult.body);
+  const readyData = readObject(readyBody.data);
+  const opsWrapper = readObject(opsResult.body);
+  const opsData = readObject(opsWrapper.data);
+  const providerMetrics = readObject(opsData.providerMetrics);
+
+  const clientConfigured = readBoolean(authData.clientConfigured) === true;
+  const refreshTokenPresent = readBoolean(authData.refreshTokenPresent) === true;
+  const pendingStateIssuedAt = readString(authData.pendingStateIssuedAt);
+  const ready = readBoolean(readyData.ready) === true;
+  const tokenStatus = readString(providerMetrics.schwabTokenStatus);
+  const tokenReason = readString(providerMetrics.schwabTokenReason);
+  const operatorState =
+    readString(opsData.serviceOperatorState)
+    ?? readString(readyData.operatorState)
+    ?? (pendingStateIssuedAt ? "pending" : "unknown");
+  const operatorAction =
+    readString(opsData.serviceOperatorAction)
+    ?? readString(readyData.operatorAction)
+    ?? tokenReason;
+
+  let tone: WorkspaceHealthTone;
+  let summary: string;
+
+  if (!clientConfigured) {
+    tone = "degraded";
+    summary = "Not configured";
+  } else if (pendingStateIssuedAt) {
+    tone = "degraded";
+    summary = "Pending OAuth";
+  } else if (tokenStatus === "human_action_required") {
+    tone = "unhealthy";
+    summary = "Re-auth required";
+  } else if (ready) {
+    tone = "healthy";
+    summary = "Authenticated";
+  } else if (refreshTokenPresent) {
+    tone = toneFromSchwabOperatorState(operatorState);
+    summary = humanizeStatus(operatorState);
+  } else {
+    tone = "unhealthy";
+    summary = "Needs OAuth";
+  }
+
+  return {
+    id: "schwab-rest",
+    label: "Schwab REST",
+    tone,
+    summary,
+    detail:
+      tokenReason
+      ?? operatorAction
+      ?? "Primary Schwab REST auth and quote/history readiness.",
+    checkedAt: new Date().toISOString(),
+    raw: {
+      auth: authWrapper,
+      ready: readyBody,
+      ops: opsData,
+    },
+  };
+}
+
+export async function getSchwabStreamerHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
+  const [authResult, opsResult] = await Promise.all([
+    fetchJson(`${baseUrl}/auth/schwab/streamer/status`),
+    fetchJson(`${baseUrl}/market-data/ops`),
+  ]);
+
+  if (!authResult.ok && authResult.status === 0 && !opsResult.ok && opsResult.status === 0) {
+    return buildUnknownHealth("schwab-streamer", "Schwab Streamer", authResult.error ?? "Request failed", null);
+  }
+
+  const authWrapper = readObject(authResult.body);
+  const authData = readObject(authWrapper.data);
+  const opsWrapper = readObject(opsResult.body);
+  const opsData = readObject(opsWrapper.data);
+  const healthProviders = readObject(readObject(opsData.health).providers);
+  const streamerMeta = readObject(healthProviders.schwabStreamerMeta);
+
+  const clientConfigured = readBoolean(authData.clientConfigured) === true;
+  const refreshTokenPresent = readBoolean(authData.refreshTokenPresent) === true;
+  const pendingStateIssuedAt = readString(authData.pendingStateIssuedAt);
+  const connected = readBoolean(streamerMeta.connected) === true;
+  const operatorState = readString(streamerMeta.operatorState) ?? (pendingStateIssuedAt ? "pending" : "unknown");
+  const operatorAction = readString(streamerMeta.operatorAction);
+
+  let tone: WorkspaceHealthTone;
+  let summary: string;
+
+  if (!clientConfigured) {
+    tone = "degraded";
+    summary = "Not configured";
+  } else if (pendingStateIssuedAt) {
+    tone = "degraded";
+    summary = "Pending OAuth";
+  } else if (!refreshTokenPresent) {
+    tone = "unhealthy";
+    summary = "Needs OAuth";
+  } else if (operatorState === "human_action_required") {
+    tone = "unhealthy";
+    summary = "Re-auth required";
+  } else if (connected && operatorState === "healthy") {
+    tone = "healthy";
+    summary = "Connected";
+  } else if (operatorState === "healthy") {
+    tone = "healthy";
+    summary = "Authenticated";
+  } else {
+    tone = toneFromSchwabOperatorState(operatorState);
+    summary = humanizeStatus(operatorState);
+  }
+
+  return {
+    id: "schwab-streamer",
+    label: "Schwab Streamer",
+    tone,
+    summary,
+    detail:
+      operatorAction
+      ?? "Shared Schwab streamer auth and live-session readiness.",
+    checkedAt: new Date().toISOString(),
+    raw: {
+      auth: authWrapper,
+      ops: opsData,
+    },
+  };
+}
+
 export async function getAlpacaHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
   const result = await fetchJson(`${baseUrl}/alpaca/health`);
   const body = readObject(result.body);
@@ -265,13 +482,40 @@ export async function getAlpacaHealth(baseUrl: string): Promise<WorkspaceHealthI
   };
 }
 
+export async function getPolymarketHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
+  const result = await fetchJson(`${baseUrl}/polymarket/health`);
+  const body = readObject(result.body);
+  const status = String(body.status ?? (result.ok ? "unknown" : "unknown"));
+  const tone = status === "unconfigured" ? "degraded" : toneFromExternalStatus(status);
+
+  return {
+    id: "polymarket",
+    label: "Polymarket",
+    tone,
+    summary:
+      status === "healthy"
+        ? "Authenticated"
+        : status === "unconfigured"
+          ? "Not configured"
+          : humanizeStatus(status),
+    detail:
+      readString(body.error)
+      ?? "Key-backed Polymarket account reachability and live-trading health.",
+    checkedAt: new Date().toISOString(),
+    raw: body,
+  };
+}
+
 export async function getAllHealthItems(baseUrl: string): Promise<WorkspaceHealthItem[]> {
   return Promise.all([
     getOpenClawHealth(),
     getExternalHealth(baseUrl),
     getMarketDataHealth(baseUrl),
+    getSchwabHealth(baseUrl),
+    getSchwabStreamerHealth(baseUrl),
     getWhoopHealth(baseUrl),
     getTonalHealth(baseUrl),
     getAlpacaHealth(baseUrl),
+    getPolymarketHealth(baseUrl),
   ]);
 }
