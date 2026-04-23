@@ -1,18 +1,11 @@
-import { NextResponse } from "next/server";
+import { jsonRoute } from "@/lib/api-route";
 import { getUsageAnalytics } from "@/lib/usage-analytics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-
-  try {
-    const usage = await getUsageAnalytics(searchParams.get("minutes"));
-    return NextResponse.json(usage);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to fetch usage analytics";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = jsonRoute({
+  errorMessage: "Failed to fetch usage analytics",
+  handler: ({ url }) => getUsageAnalytics(url.searchParams.get("minutes")),
+});

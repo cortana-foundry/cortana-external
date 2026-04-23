@@ -1,16 +1,14 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { LoadState } from "@/lib/trading-ops";
 import { getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { loadLatestTradingRunOverview, type TradingRunOverview } from "@/lib/trading-ops";
+import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
 
 const LIVE_OPS_TIMEOUT_MS = 6_000;
 const LIVE_TAPE_TIMEOUT_MS = 8_000;
 const LIVE_WATCHLIST_TIMEOUT_MS = 12_000;
 const LIVE_WATCHLIST_CHUNK_SIZE = 20;
 const AFTER_HOURS_WAITING_BADGE_WINDOW_MS = 2 * 60_000;
-const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
 const TAPE_ROWS = [
   { symbol: "SPY", label: "SPY", sourceSymbol: "SPY" },
@@ -226,21 +224,7 @@ export function getTradingOpsLiveRetainedQuoteKeysForTests(): string[] {
 }
 
 function resolveExternalServiceBaseUrl(): string {
-  const envValue = process.env.MISSION_CONTROL_EXTERNAL_SERVICE_URL?.trim();
-  if (envValue) {
-    return envValue.replace(/\/+$/, "");
-  }
-
-  const root = findWorkspaceRoot();
-  const envPath = path.join(root, ".env");
-  if (!fs.existsSync(envPath)) {
-    return `http://127.0.0.1:${DEFAULT_EXTERNAL_SERVICE_PORT}`;
-  }
-
-  const content = fs.readFileSync(envPath, "utf8");
-  const match = content.match(/^\s*PORT\s*=\s*(.+)\s*$/m);
-  const port = (match?.[1]?.trim() ?? DEFAULT_EXTERNAL_SERVICE_PORT).replace(/^['"]|['"]$/g, "") || DEFAULT_EXTERNAL_SERVICE_PORT;
-  return `http://127.0.0.1:${port}`;
+  return resolveTradingOpsExternalServiceBaseUrl({ findWorkspaceRoot });
 }
 
 async function fetchJson(

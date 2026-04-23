@@ -1,10 +1,9 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import type { TradingOpsPolymarketLiveData } from "@/lib/trading-ops-contract";
 import { getBacktesterRepoPath } from "@/lib/runtime-paths";
+import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
 
-const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const REQUEST_TIMEOUT_MS = 4_000;
 
 type FetchLike = typeof fetch;
@@ -101,20 +100,7 @@ export async function loadTradingOpsPolymarketLiveData(
 }
 
 function resolveExternalServiceBaseUrl(repoRoot: string): string {
-  const explicit = process.env.MISSION_CONTROL_EXTERNAL_SERVICE_URL?.trim();
-  if (explicit) {
-    return explicit.replace(/\/+$/u, "");
-  }
-
-  const envPath = path.join(repoRoot, ".env");
-  if (!fs.existsSync(envPath)) {
-    return `http://127.0.0.1:${DEFAULT_EXTERNAL_SERVICE_PORT}`;
-  }
-
-  const content = fs.readFileSync(envPath, "utf8");
-  const match = content.match(/^\s*PORT\s*=\s*(.+)\s*$/m);
-  const port = (match?.[1]?.trim() ?? DEFAULT_EXTERNAL_SERVICE_PORT).replace(/^['"]|['"]$/gu, "") || DEFAULT_EXTERNAL_SERVICE_PORT;
-  return `http://127.0.0.1:${port}`;
+  return resolveTradingOpsExternalServiceBaseUrl({ repoRoot });
 }
 
 async function fetchJson(url: string, fetchImpl: FetchLike): Promise<FetchResult> {
