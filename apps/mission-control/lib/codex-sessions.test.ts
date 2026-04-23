@@ -12,6 +12,7 @@ import {
   archiveCodexSession,
   deleteCodexSession,
   getCodexSessionDetail,
+  listCodexSessions,
   parseCodexSessionIndex,
   parseCodexTranscriptEvents,
   parseCodexTranscriptMetadata,
@@ -321,6 +322,85 @@ describe("getCodexSessionDetail", () => {
         role: "assistant",
         text: "I’m reading the PRD.",
       }),
+    ]);
+  });
+});
+
+describe("listCodexSessions", () => {
+  it("reads only transcript headers for sidebar metadata", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-sidebar-test-"));
+    tempDirs.push(tempDir);
+
+    const sessionIndexPath = path.join(tempDir, "session_index.jsonl");
+    const sessionsRoot = path.join(tempDir, "sessions");
+    const archivedRoot = path.join(tempDir, "archived_sessions");
+    const stateDbPath = path.join(tempDir, "state_5.sqlite");
+    const transcriptDir = path.join(sessionsRoot, "2026", "04", "23");
+    const transcriptPath = path.join(
+      transcriptDir,
+      "rollout-2026-04-23T13-00-00-019dbeef-c678-7eb3-9c2a-8f7b0a2ee4ce.jsonl",
+    );
+
+    await fs.mkdir(transcriptDir, { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      `${JSON.stringify({
+        id: "019dbeef-c678-7eb3-9c2a-8f7b0a2ee4ce",
+        thread_name: "Investigate missing Codex chat",
+        updated_at: "2026-04-23T13:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      transcriptPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            cwd: "/Users/hd/Developer/cortana-external",
+            source: "vscode",
+            cli_version: "0.122.0",
+          },
+        }),
+        JSON.stringify({
+          type: "turn_context",
+          payload: {
+            model: "gpt-5.4",
+          },
+        }),
+        " ".repeat(70_000),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: "This preview lives beyond the sidebar header budget.",
+          },
+        }),
+      ].join("\n"),
+      "utf8",
+    );
+
+    const sessions = await listCodexSessions({
+      limit: 1,
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+      stateDbPath,
+    });
+
+    expect(sessions).toEqual([
+      {
+        sessionId: "019dbeef-c678-7eb3-9c2a-8f7b0a2ee4ce",
+        threadName: "Investigate missing Codex chat",
+        updatedAt: Date.parse("2026-04-23T13:00:00.000Z"),
+        cwd: "/Users/hd/Developer/cortana-external",
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: null,
+        transcriptPath,
+      },
     ]);
   });
 });

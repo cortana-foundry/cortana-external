@@ -1,15 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const codexMocks = vi.hoisted(() => ({
-  listUnindexedCodexSessions: vi.fn(),
-}));
-
 const codexSessionAccessMocks = vi.hoisted(() => ({
   listVisibleCodexSessions: vi.fn(),
-}));
-
-const codexMirrorMocks = vi.hoisted(() => ({
-  upsertCodexMirrorThread: vi.fn(),
 }));
 
 const codexRunMocks = vi.hoisted(() => ({
@@ -25,10 +17,6 @@ const codexRunMocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/codex-sessions", () => ({
-  listUnindexedCodexSessions: codexMocks.listUnindexedCodexSessions,
-}));
-
 vi.mock("@/lib/codex-session-access", () => ({
   listVisibleCodexSessions: codexSessionAccessMocks.listVisibleCodexSessions,
 }));
@@ -37,10 +25,6 @@ vi.mock("@/lib/codex-runs", () => ({
   getActiveCodexSessionIds: codexRunMocks.getActiveCodexSessionIds,
   startCreateCodexRun: codexRunMocks.startCreateCodexRun,
   CodexRunError: codexRunMocks.CodexRunError,
-}));
-
-vi.mock("@/lib/codex-mirror", () => ({
-  upsertCodexMirrorThread: codexMirrorMocks.upsertCodexMirrorThread,
 }));
 
 import { GET, POST } from "@/app/api/codex/sessions/route";
@@ -54,7 +38,6 @@ describe("GET /api/codex/sessions", () => {
   });
 
   it("returns codex sessions with the default limit", async () => {
-    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
     codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
       sessions: [
         {
@@ -100,7 +83,6 @@ describe("GET /api/codex/sessions", () => {
     const response = await GET(makeRequest());
     const payload = await response.json();
 
-    expect(codexMocks.listUnindexedCodexSessions).toHaveBeenCalledWith({ limit: 20 });
     expect(codexSessionAccessMocks.listVisibleCodexSessions).toHaveBeenCalledWith(20);
     expect(response.status).toBe(200);
     expect(payload.sessions).toHaveLength(1);
@@ -115,7 +97,6 @@ describe("GET /api/codex/sessions", () => {
   });
 
   it("marks sessions with active runs", async () => {
-    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
     codexRunMocks.getActiveCodexSessionIds.mockReturnValue(new Set(["abc"]));
     codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
       sessions: [
@@ -145,7 +126,6 @@ describe("GET /api/codex/sessions", () => {
   });
 
   it("uses the supplied limit when present", async () => {
-    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
     codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
       sessions: [],
       groups: [],
@@ -161,7 +141,6 @@ describe("GET /api/codex/sessions", () => {
   });
 
   it("returns an error payload when discovery fails", async () => {
-    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([]);
     codexSessionAccessMocks.listVisibleCodexSessions.mockRejectedValueOnce(new Error("missing session index"));
 
     const response = await GET(makeRequest());
@@ -169,34 +148,6 @@ describe("GET /api/codex/sessions", () => {
 
     expect(response.status).toBe(500);
     expect(payload).toEqual({ error: "missing session index" });
-  });
-
-  it("mirrors missing thread names before listing sessions", async () => {
-    codexMocks.listUnindexedCodexSessions.mockResolvedValueOnce([
-      {
-        sessionId: "missing-thread",
-        threadName: "Recovered session name",
-        transcriptPath: "/tmp/missing-thread.jsonl",
-      },
-    ]);
-    codexSessionAccessMocks.listVisibleCodexSessions.mockResolvedValueOnce({
-      sessions: [],
-      groups: [],
-      latestUpdatedAt: null,
-      totalMatchedSessions: 0,
-      totalVisibleSessions: 0,
-    });
-
-    const response = await GET(makeRequest());
-
-    expect(response.status).toBe(200);
-    expect(codexMirrorMocks.upsertCodexMirrorThread).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: "missing-thread",
-        threadName: "Recovered session name",
-        transcriptPath: "/tmp/missing-thread.jsonl",
-      }),
-    );
   });
 });
 

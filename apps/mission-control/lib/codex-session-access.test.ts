@@ -259,6 +259,46 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["exec-session", "interactive-session"]);
   });
 
+  it("hides sessions whose transcript already lives in archived_sessions", () => {
+    const repoRoot = "/Users/hd/Developer/cortana-external";
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "archived-session",
+          threadName: "Already archived",
+          updatedAt: 500,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/Users/hd/.codex/archived_sessions/rollout-archived-session.jsonl",
+        },
+        {
+          sessionId: "visible-session",
+          threadName: "Still active",
+          updatedAt: 400,
+          cwd: repoRoot,
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.122.0",
+          lastMessagePreview: null,
+          transcriptPath: "/Users/hd/.codex/sessions/2026/04/23/rollout-visible-session.jsonl",
+        },
+      ],
+      [],
+      {
+        activeWorkspaceRoots: [repoRoot],
+        savedWorkspaceRoots: [],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["visible-session"]);
+    expect(result.totalMatchedSessions).toBe(1);
+  });
+
   it("hides synthetic named vscode threads that never captured a user message", () => {
     const repoRoot = "/Users/hd/Developer/cortana-external";
     const result = buildVisibleCodexSessionGroups(
@@ -328,7 +368,7 @@ describe("listVisibleCodexSessions", () => {
     codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValue([]);
   });
 
-  it("uses .codex-backed sessions and syncs the visible subset into the mirror", async () => {
+  it("uses .codex-backed sessions without syncing the sidebar list into the mirror", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
     codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
       {
@@ -362,7 +402,7 @@ describe("listVisibleCodexSessions", () => {
       },
     ]);
     expect(result.totalVisibleSessions).toBe(1);
-    expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
+    expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).not.toHaveBeenCalled();
   });
 
   it("keeps older valid sessions when they are present in .codex discovery", async () => {

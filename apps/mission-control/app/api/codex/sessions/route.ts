@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { upsertCodexMirrorThread } from "@/lib/codex-mirror";
 import { CodexRunError, getActiveCodexSessionIds, startCreateCodexRun } from "@/lib/codex-runs";
 import { listVisibleCodexSessions } from "@/lib/codex-session-access";
-import { listUnindexedCodexSessions } from "@/lib/codex-sessions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,21 +28,6 @@ export async function GET(request: Request) {
   const limit = parseLimit(searchParams.get("limit"));
 
   try {
-    const unindexedSessions = await listUnindexedCodexSessions({ limit });
-    await Promise.allSettled(
-      unindexedSessions.map((session) =>
-        upsertCodexMirrorThread({
-          sessionId: session.sessionId,
-          threadName: session.threadName,
-          transcriptPath: session.transcriptPath,
-          source: "exec",
-          status: "imported",
-          lastMessagePreview: session.threadName,
-          updatedAt: new Date(),
-        }),
-      ),
-    );
-
     const result = await listVisibleCodexSessions(limit);
     const activeSessionIds = getActiveCodexSessionIds();
 

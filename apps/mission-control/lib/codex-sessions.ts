@@ -11,6 +11,7 @@ const DEFAULT_ARCHIVED_ROOT = path.join(DEFAULT_CODEX_ROOT, "archived_sessions")
 const DEFAULT_CODEX_STATE_DB_PATH = path.join(DEFAULT_CODEX_ROOT, "state_5.sqlite");
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const SIDEBAR_METADATA_READ_BYTES = 64 * 1024;
 const execFileAsync = promisify(execFile);
 
 export type CodexSessionSummary = {
@@ -377,6 +378,28 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
   return metadata;
 }
 
+async function readCodexTranscriptMetadataForSidebar(transcriptPath: string): Promise<TranscriptMetadata> {
+  const file = await fs.open(transcriptPath, "r");
+
+  try {
+    const buffer = Buffer.alloc(SIDEBAR_METADATA_READ_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead <= 0) {
+      return {
+        cwd: null,
+        model: null,
+        source: null,
+        cliVersion: null,
+        lastMessagePreview: null,
+      };
+    }
+
+    return parseCodexTranscriptMetadata(buffer.toString("utf8", 0, bytesRead));
+  } finally {
+    await file.close();
+  }
+}
+
 export function parseCodexTranscriptEvents(raw: string): CodexSessionEvent[] {
   const events: CodexSessionEvent[] = [];
 
@@ -662,8 +685,7 @@ async function enrichSessionEntry(
     };
   }
 
-  const rawTranscript = await fs.readFile(transcriptPath, "utf8");
-  const metadata = parseCodexTranscriptMetadata(rawTranscript);
+  const metadata = await readCodexTranscriptMetadataForSidebar(transcriptPath);
 
   return {
     sessionId: entry.id,

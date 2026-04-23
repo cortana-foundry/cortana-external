@@ -178,6 +178,12 @@ function isMissionControlTestThread(row: CodexLocalThreadStateRow | null, sessio
   );
 }
 
+function isArchivedTranscriptSession(session: CodexSessionSummary) {
+  const transcriptPath = normalizePath(session.transcriptPath);
+  const archivedRoot = path.join(DEFAULT_CODEX_ROOT, "archived_sessions");
+  return isWithinRoot(transcriptPath, archivedRoot);
+}
+
 function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
   const source = (row?.source ?? session.source ?? "").trim();
   if (source === "vscode") return 0;
@@ -192,6 +198,7 @@ function shouldExposeSessionInSidebar(
 ) {
   const source = (stateRow?.source ?? session.source ?? "").trim();
   if (stateRow?.archived) return false;
+  if (isArchivedTranscriptSession(session)) return false;
   if (source.length > 0 && source !== "vscode" && source !== "exec") return false;
   if (isSubagentThread(stateRow?.source ?? session.source)) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
@@ -500,8 +507,6 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
   const visible = buildVisibleCodexSessionGroups(sessions, [], sidebarState, {
     limit: safeLimit,
   });
-
-  await Promise.allSettled(visible.sessions.map((session) => syncCodexMirrorThreadFromSession(session)));
   return visible;
 }
 
