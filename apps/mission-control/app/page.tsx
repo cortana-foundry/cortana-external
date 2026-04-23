@@ -140,7 +140,7 @@ export default async function Home() {
             value={String(openAlerts)}
             detail={`${data.metrics.alerts.total} total logged`}
             tone={openAlerts > 0 ? "red" : "emerald"}
-            href="/services"
+            href="/logs?view=logs&rangeHours=24&severity=alerts"
           />
           <MetricCard
             label="Failed (24h)"

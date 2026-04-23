@@ -51,4 +51,32 @@ describe("lib/logs", () => {
     expect(query).toContain("ILIKE '%Deploy%'");
     expect(query).toContain("LIMIT 20");
   });
+
+  it("supports the synthetic alerts severity filter", async () => {
+    const timestamp = new Date("2026-04-23T09:58:30.510Z");
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([
+      {
+        id: 77,
+        timestamp,
+        event_type: "subagent.reconciled_stale",
+        source: "openclaw-sync",
+        severity: "warning",
+        message: "Stale sub-agent state auto-reconciled",
+        metadata: {},
+      },
+    ]);
+
+    const result = await getLogEntries({
+      rangeHours: 24,
+      limit: 10,
+      severity: "alerts",
+    });
+
+    expect(result.logs).toHaveLength(1);
+    expect(result.logs[0]).toMatchObject({ severity: "warning" });
+
+    const query = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+    expect(query).toContain("lower(coalesce(severity, '')) IN ('warning', 'critical')");
+    expect(query).not.toContain("lower(severity) = 'alerts'");
+  });
 });
