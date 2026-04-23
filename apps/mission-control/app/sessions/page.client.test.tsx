@@ -358,7 +358,9 @@ describe("SessionsPage reply composer", () => {
     render(<SessionsPage />);
 
     expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
-    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+    await waitFor(() => {
+      expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Open thread Inspect AGENTS.md" }));
     expect(await screen.findByRole("heading", { name: "Inspect AGENTS.md" })).toBeInTheDocument();
@@ -506,7 +508,9 @@ describe("SessionsPage reply composer", () => {
     render(<SessionsPage />);
 
     expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
-    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+    await waitFor(() => {
+      expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+    });
 
     fireEvent.click(screen.getAllByRole("button", { name: "Delete thread" })[0]!);
     expect(await screen.findByRole("dialog", { name: "Delete thread?" })).toBeInTheDocument();
