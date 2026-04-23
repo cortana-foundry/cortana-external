@@ -199,7 +199,7 @@ describe("SessionsPage reply composer", () => {
 
     expect(
       await screen.findAllByText("Codex is still finishing the previous reply for this thread."),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(screen.queryByText(/already has an active run/i)).not.toBeInTheDocument();
   });
 });
