@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -28,9 +29,12 @@ import type {
 } from "./tabs/shared";
 
 /* ── lazy imports for heavy tab content ── */
-const ServicesClient = React.lazy(() => import("./services-client"));
-const CronClient = React.lazy(() =>
-  import("@/app/cron/cron-client").then((m) => ({ default: m.CronClient })),
+const ServicesClient = dynamic(() => import("./services-client"), {
+  loading: () => <TabLoading />,
+});
+const CronClient = dynamic(
+  () => import("@/app/cron/cron-client").then((m) => ({ default: m.CronClient })),
+  { loading: () => <TabLoading /> },
 );
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -261,24 +265,18 @@ export default function ServicesHub() {
         {activeTab === "overview" && (
           <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={selectTab} loading={dataLoading && !dataLoaded} error={dataError} onRefresh={refreshData} />
         )}
-        {activeTab === "config" && (
-          <React.Suspense fallback={<TabLoading />}>
-            <ServicesClient />
-          </React.Suspense>
-        )}
+        {activeTab === "config" && <ServicesClient />}
         {activeTab === "vacation" && <VacationOpsTab />}
         {activeTab === "agents" && (
           <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} loading={dataLoading} error={dataError} />
         )}
         {activeTab === "cron" && (
-          <React.Suspense fallback={<TabLoading />}>
-            <TabLayout
-              title="Cron Jobs"
-              subtitle="Review schedules, trigger runs, and adjust delivery settings"
-            >
-              <CronClient hideHeader />
-            </TabLayout>
-          </React.Suspense>
+          <TabLayout
+            title="Cron Jobs"
+            subtitle="Review schedules, trigger runs, and adjust delivery settings"
+          >
+            <CronClient hideHeader />
+          </TabLayout>
         )}
         {activeTab === "sessions" && (
           <SessionsTab
