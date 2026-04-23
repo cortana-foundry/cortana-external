@@ -12,6 +12,8 @@ import {
   type VacationTierRollup,
 } from "@/lib/vacation-ops-model";
 
+export type { VacationTierRollup } from "@/lib/vacation-ops-model";
+
 const execFileAsync = promisify(execFile);
 
 const CORTANA_ROOT = getCortanaSourceRepo();
