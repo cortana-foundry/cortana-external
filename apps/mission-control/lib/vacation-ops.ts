@@ -5,6 +5,12 @@ import { promisify } from "node:util";
 import prisma from "@/lib/prisma";
 import { getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { loadMissionControlScriptEnv } from "@/lib/script-env";
+import {
+  buildVacationTierRollup,
+  countVacationIncidents,
+  countVacationSystemsByTier,
+  type VacationTierRollup,
+} from "@/lib/vacation-ops-model";
 
 const execFileAsync = promisify(execFile);
 
@@ -211,15 +217,6 @@ export type VacationAction = {
   startedAt: string;
   completedAt: string | null;
   detail: JsonObject;
-};
-
-export type VacationTierRollup = {
-  tier: number;
-  total: number;
-  green: number;
-  yellow: number;
-  red: number;
-  other: number;
 };
 
 export type VacationOpsSnapshot = {
@@ -455,30 +452,6 @@ export function computeNextSummaryAt(summaryTimes: VacationConfig["summaryTimes"
   return candidates[0]?.toISOString() ?? null;
 }
 
-function buildTierRollup(checks: VacationCheck[]): VacationTierRollup[] {
-  const rollup = new Map<number, VacationTierRollup>();
-  for (const check of checks) {
-    if (!rollup.has(check.tier)) {
-      rollup.set(check.tier, { tier: check.tier, total: 0, green: 0, yellow: 0, red: 0, other: 0 });
-    }
-    const bucket = rollup.get(check.tier)!;
-    bucket.total += 1;
-    if (check.status === "green") bucket.green += 1;
-    else if (check.status === "yellow" || check.status === "warn") bucket.yellow += 1;
-    else if (check.status === "red" || check.status === "fail") bucket.red += 1;
-    else bucket.other += 1;
-  }
-  return Array.from(rollup.values()).sort((left, right) => left.tier - right.tier);
-}
-
-function countSystemsByTier(config: VacationConfig) {
-  return Object.values(config.systems).reduce<Record<string, number>>((acc, system) => {
-    const key = `tier${system.tier}`;
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
-}
-
 function extractPausedJobs(window: VacationWindow | null, mirror: JsonObject | null): number {
   const fromWindow = Array.isArray(window?.stateSnapshot?.paused_job_ids) ? window?.stateSnapshot?.paused_job_ids.length : 0;
   const fromMirror = Array.isArray(mirror?.pausedJobIds) ? mirror.pausedJobIds.length : 0;
@@ -561,9 +534,8 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
   const latestChecks = checkRows.map((row) => mapCheck(row, config));
   const recentIncidents = incidentRows.map(mapIncident);
   const recentActions = actionRows.map(mapAction);
-  const tierRollup = buildTierRollup(latestChecks);
-  const activeIncidents = recentIncidents.filter((incident) => incident.status !== "resolved");
-  const resolvedIncidents = recentIncidents.filter((incident) => incident.status === "resolved");
+  const tierRollup = buildVacationTierRollup(latestChecks);
+  const incidentCounts = countVacationIncidents(recentIncidents);
   const mode = deriveVacationDisplayMode(activeWindow, latestWindow);
   const pausedJobs = resolvePausedJobs(config, activeWindow ?? latestWindow, mirror);
 
@@ -577,7 +549,7 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
       remediationLadder: config.remediationLadder,
       systemCount: Object.keys(config.systems).length,
       systemKeys: Object.keys(config.systems),
-      tierCounts: countSystemsByTier(config),
+      tierCounts: countVacationSystemsByTier(config.systems),
     },
     recommendation: buildRecommendation(config.timezone),
     latestWindow,
@@ -591,11 +563,11 @@ export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
     recentActions,
     tierRollup,
     counts: {
-      activeIncidents: activeIncidents.length,
-      humanRequiredIncidents: activeIncidents.filter((incident) => incident.humanRequired).length,
-      resolvedIncidents: resolvedIncidents.length,
+      activeIncidents: incidentCounts.activeIncidents,
+      humanRequiredIncidents: incidentCounts.humanRequiredIncidents,
+      resolvedIncidents: incidentCounts.resolvedIncidents,
       pausedJobs: extractPausedJobs(activeWindow ?? latestWindow, mirror),
-      selfHeals: resolvedIncidents.filter((incident) => incident.resolutionReason === "remediated").length,
+      selfHeals: incidentCounts.selfHeals,
     },
     enableReadyWindowId:
       latestWindow?.status === "ready" && latestReadiness?.vacationWindowId === latestWindow.id
