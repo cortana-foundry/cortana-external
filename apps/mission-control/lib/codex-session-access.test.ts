@@ -14,9 +14,8 @@ const codexMirrorMocks = vi.hoisted(() => ({
 
 const codexSessionMocks = vi.hoisted(() => ({
   getCodexSessionDetail: vi.fn(),
+  listCodexSessions: vi.fn(),
   listCodexSessionIndexSummariesById: vi.fn(),
-  listCodexSessionIndexSummaries: vi.fn(),
-  listCodexStateThreadSummaries: vi.fn(),
 }));
 
 vi.mock("@/lib/codex-mirror", () => ({
@@ -29,9 +28,8 @@ vi.mock("@/lib/codex-mirror", () => ({
 
 vi.mock("@/lib/codex-sessions", () => ({
   getCodexSessionDetail: codexSessionMocks.getCodexSessionDetail,
+  listCodexSessions: codexSessionMocks.listCodexSessions,
   listCodexSessionIndexSummariesById: codexSessionMocks.listCodexSessionIndexSummariesById,
-  listCodexSessionIndexSummaries: codexSessionMocks.listCodexSessionIndexSummaries,
-  listCodexStateThreadSummaries: codexSessionMocks.listCodexStateThreadSummaries,
 }));
 
 import {
@@ -130,7 +128,7 @@ describe("buildVisibleCodexSessionGroups", () => {
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["visible"]);
   });
 
-  it("excludes sessions without any resolved workspace context", () => {
+  it("groups sessions without any resolved workspace context under Other", () => {
     const result = buildVisibleCodexSessionGroups(
       [
         {
@@ -186,9 +184,19 @@ describe("buildVisibleCodexSessionGroups", () => {
       { limit: 20, homeDir: "/Users/hd" },
     );
 
-    expect(result.totalMatchedSessions).toBe(1);
-    expect(result.totalVisibleSessions).toBe(1);
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context"]);
+    expect(result.totalMatchedSessions).toBe(2);
+    expect(result.totalVisibleSessions).toBe(2);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["known-context", "unknown-context"]);
+    expect(result.groups).toEqual([
+      expect.objectContaining({
+        id: "/Users/hd/Developer/cortana-external",
+        label: "cortana-external",
+      }),
+      expect.objectContaining({
+        id: "__unknown_codex_workspace__",
+        label: "Other",
+      }),
+    ]);
   });
 
   it("shows interactive and exec sessions in the project rail", () => {
@@ -315,28 +323,14 @@ describe("buildVisibleCodexSessionGroups", () => {
 describe("listVisibleCodexSessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValue([]);
     codexMirrorMocks.syncCodexMirrorThreadFromSession.mockResolvedValue(undefined);
-    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValue([]);
+    codexSessionMocks.listCodexSessions.mockResolvedValue([]);
     codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValue([]);
   });
 
-  it("uses file-backed codex sessions and syncs the visible subset into the mirror", async () => {
+  it("uses .codex-backed sessions and syncs the visible subset into the mirror", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
-    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
-      {
-        sessionId: "abc",
-        threadName: "Visible title",
-        updatedAt: 200,
-        cwd: null,
-        model: null,
-        source: null,
-        cliVersion: null,
-        lastMessagePreview: null,
-        transcriptPath: null,
-      },
-    ]);
-    codexMirrorMocks.listCodexMirroredSessions.mockResolvedValueOnce([
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
       {
         sessionId: "abc",
         threadName: "Visible title",
@@ -352,8 +346,8 @@ describe("listVisibleCodexSessions", () => {
 
     const result = await listVisibleCodexSessions(10);
 
-    expect(codexSessionMocks.listCodexSessionIndexSummaries).toHaveBeenCalledWith({ limit: 50 });
-    expect(codexSessionMocks.listCodexStateThreadSummaries).toHaveBeenCalledWith({ limit: 50 });
+    expect(codexSessionMocks.listCodexSessions).toHaveBeenCalledWith({ limit: 50 });
+    expect(codexMirrorMocks.listCodexMirroredSessions).not.toHaveBeenCalled();
     expect(result.sessions).toEqual([
       {
         sessionId: "abc",
@@ -371,13 +365,44 @@ describe("listVisibleCodexSessions", () => {
     expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(result.sessions[0]);
   });
 
-  it("prefers the indexed session title over state-backed long prompts", async () => {
+  it("keeps older valid sessions when they are present in .codex discovery", async () => {
     const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
-    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
       {
-        sessionId: "poly",
-        threadName: "Add Polymarket intelligence layer",
-        updatedAt: 200,
+        sessionId: "recent",
+        threadName: "Investigate missing Codex chat",
+        updatedAt: 300,
+        cwd: repoRoot,
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: "Newest visible session",
+        transcriptPath: "/tmp/recent.jsonl",
+      },
+      {
+        sessionId: "older",
+        threadName: "Check backtester cron firing",
+        updatedAt: 100,
+        cwd: path.join(os.homedir(), "Developer", "cortana"),
+        model: "gpt-5.4",
+        source: "vscode",
+        cliVersion: "0.122.0",
+        lastMessagePreview: "Older but still visible",
+        transcriptPath: "/tmp/older.jsonl",
+      },
+    ]);
+
+    const result = await listVisibleCodexSessions(10);
+
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["recent", "older"]);
+  });
+
+  it("shows sessions without workspace metadata under Other instead of dropping them", async () => {
+    codexSessionMocks.listCodexSessions.mockResolvedValueOnce([
+      {
+        sessionId: "unknown",
+        threadName: "Trace cooldown run branch",
+        updatedAt: 500,
         cwd: null,
         model: null,
         source: null,
@@ -385,103 +410,32 @@ describe("listVisibleCodexSessions", () => {
         lastMessagePreview: null,
         transcriptPath: null,
       },
-    ]);
-    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValueOnce([
       {
-        sessionId: "poly",
-        threadName: "Read this PRD first: /Users/hd/Developer/cortana/docs/prd-polymarket-market-intelligence.md",
-        updatedAt: 300,
-        cwd: repoRoot,
+        sessionId: "known",
+        threadName: "Inspect AGENTS.md",
+        updatedAt: 400,
+        cwd: path.join(os.homedir(), "Developer", "cortana"),
         model: "gpt-5.4",
         source: "vscode",
         cliVersion: "0.122.0",
         lastMessagePreview: null,
-        transcriptPath: "/tmp/poly.jsonl",
-      },
-    ]);
-    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([
-      {
-        sessionId: "poly",
-        threadName: "Add Polymarket intelligence layer",
-        updatedAt: 200,
-        cwd: repoRoot,
-        model: "gpt-5.4",
-        source: "vscode",
-        cliVersion: "0.122.0",
-        lastMessagePreview: null,
-        transcriptPath: "/tmp/poly-index.jsonl",
+        transcriptPath: "/tmp/known.jsonl",
       },
     ]);
 
     const result = await listVisibleCodexSessions(10);
 
-    expect(result.sessions[0]).toEqual(
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["known", "unknown"]);
+    expect(result.groups).toEqual([
       expect.objectContaining({
-        sessionId: "poly",
-        threadName: "Add Polymarket intelligence layer",
-        updatedAt: 300,
+        id: path.join(os.homedir(), "Developer", "cortana"),
+        label: "cortana",
       }),
-    );
-  });
-
-  it("includes active sessions that exist only in the Codex state database", async () => {
-    const repoRoot = path.join(os.homedir(), "Developer", "cortana-external");
-    codexSessionMocks.listCodexSessionIndexSummaries.mockResolvedValueOnce([
-      {
-        sessionId: "stale",
-        threadName: "Inspect Mission Control API health",
-        updatedAt: 100,
-        cwd: repoRoot,
-        model: null,
-        source: "exec",
-        cliVersion: null,
-        lastMessagePreview: null,
-        transcriptPath: null,
-      },
+      expect.objectContaining({
+        id: "__unknown_codex_workspace__",
+        label: "Other",
+      }),
     ]);
-    codexSessionMocks.listCodexStateThreadSummaries.mockResolvedValueOnce([
-      {
-        sessionId: "fresh",
-        threadName: "Locate backtester v8-v10 PRDs",
-        updatedAt: 500,
-        cwd: repoRoot,
-        model: "gpt-5.4",
-        source: "vscode",
-        cliVersion: "0.122.0",
-        lastMessagePreview: null,
-        transcriptPath: "/tmp/fresh.jsonl",
-      },
-      {
-        sessionId: "stale",
-        threadName: "Inspect Mission Control API health",
-        updatedAt: 100,
-        cwd: repoRoot,
-        model: "gpt-5.4",
-        source: "exec",
-        cliVersion: "0.122.0",
-        lastMessagePreview: "Inspect Mission Control API health",
-        transcriptPath: "/tmp/stale.jsonl",
-      },
-    ]);
-    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([]);
-
-    const result = await listVisibleCodexSessions(10);
-
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["fresh", "stale"]);
-    expect(result.sessions[0]).toEqual(
-      expect.objectContaining({
-        sessionId: "fresh",
-        threadName: "Locate backtester v8-v10 PRDs",
-        updatedAt: 500,
-      }),
-    );
-    expect(result.sessions[1]).toEqual(
-      expect.objectContaining({
-        sessionId: "stale",
-        threadName: "Inspect Mission Control API health",
-        updatedAt: 100,
-      }),
-    );
   });
 });
 
