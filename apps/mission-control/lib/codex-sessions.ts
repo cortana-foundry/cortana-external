@@ -700,21 +700,10 @@ async function enrichSessionEntry(
   sessionsRoot: string,
   archivedRoot: string,
   stateDbPath: string,
-): Promise<CodexSessionSummary> {
+): Promise<CodexSessionSummary | null> {
   const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot, stateDbPath);
   if (!transcriptPath || !(await fileExists(transcriptPath))) {
-    return {
-      sessionId: entry.id,
-      threadName: entry.threadName,
-      updatedAt: entry.updatedAt,
-      cwd: null,
-      model: null,
-      source: null,
-      isSubagent: false,
-      cliVersion: null,
-      lastMessagePreview: null,
-      transcriptPath: null,
-    };
+    return null;
   }
 
   const metadata = await readCodexTranscriptMetadataForSidebar(transcriptPath);
@@ -751,7 +740,8 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
     ? parsedEntries.filter((entry) => requestedIds.has(entry.id)).slice(0, limit)
     : parsedEntries.slice(0, limit);
 
-  return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath)));
+  const enriched = await Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath)));
+  return enriched.filter((entry): entry is CodexSessionSummary => entry !== null);
 }
 
 export async function getCodexSessionDetail(
@@ -867,7 +857,8 @@ export async function archiveCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
-    throw new Error(`Codex session ${sessionId} not found`);
+    await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
+    return;
   }
 
   const transcriptPath = await findTranscriptPath(
@@ -910,7 +901,8 @@ export async function deleteCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
-    throw new Error(`Codex session ${sessionId} not found`);
+    await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
+    return;
   }
 
   const transcriptPath = await findTranscriptPath(

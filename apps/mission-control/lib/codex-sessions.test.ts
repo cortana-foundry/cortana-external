@@ -439,6 +439,63 @@ describe("listCodexSessions", () => {
       },
     ]);
   });
+
+  it("skips indexed sessions that no longer have a resolvable transcript", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-sidebar-missing-test-"));
+    tempDirs.push(tempDir);
+
+    const sessionIndexPath = path.join(tempDir, "session_index.jsonl");
+    const sessionsRoot = path.join(tempDir, "sessions");
+    const archivedRoot = path.join(tempDir, "archived_sessions");
+    const stateDbPath = path.join(tempDir, "state_5.sqlite");
+
+    await fs.mkdir(sessionsRoot, { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      [
+        JSON.stringify({
+          id: "missing-session",
+          thread_name: "Ghost session",
+          updated_at: "2026-04-23T13:00:00.000Z",
+        }),
+        JSON.stringify({
+          id: "real-session",
+          thread_name: "Real session",
+          updated_at: "2026-04-23T12:00:00.000Z",
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const transcriptDir = path.join(sessionsRoot, "2026", "04", "23");
+    const transcriptPath = path.join(
+      transcriptDir,
+      "rollout-2026-04-23T12-00-00-real-session.jsonl",
+    );
+    await fs.mkdir(transcriptDir, { recursive: true });
+    await fs.writeFile(
+      transcriptPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          cwd: "/Users/hd/Developer/cortana",
+          source: "vscode",
+        },
+      }) + "\n",
+      "utf8",
+    );
+
+    const sessions = await listCodexSessions({
+      limit: 2,
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+      stateDbPath,
+    });
+
+    expect(sessions.map((session) => session.sessionId)).toEqual(["real-session"]);
+  });
 });
 
 describe("archiveCodexSession", () => {
@@ -601,5 +658,57 @@ describe("deleteCodexSession", () => {
     const [row] = JSON.parse(stdout) as Array<{ archived: number; archived_at: number | null }>;
     expect(row.archived).toBe(1);
     expect(row.archived_at).toBeTruthy();
+  });
+
+  it("removes a stale indexed session even when the state row is already gone", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-delete-stale-test-"));
+    tempDirs.push(tempDir);
+
+    const sessionIndexPath = path.join(tempDir, "session_index.jsonl");
+    const sessionsRoot = path.join(tempDir, "sessions");
+    const archivedRoot = path.join(tempDir, "archived_sessions");
+    const stateDbPath = path.join(tempDir, "state_5.sqlite");
+    const sessionId = "stale-session";
+
+    await fs.mkdir(sessionsRoot, { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      `${JSON.stringify({
+        id: sessionId,
+        thread_name: "Ghost session",
+        updated_at: "2026-04-21T21:03:51.000Z",
+      })}\n`,
+      "utf8",
+    );
+
+    await execFileAsync("sqlite3", [
+      stateDbPath,
+      `
+        CREATE TABLE threads (
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          cwd TEXT,
+          source TEXT,
+          cli_version TEXT,
+          model TEXT,
+          rollout_path TEXT,
+          archived INTEGER DEFAULT 0,
+          archived_at INTEGER,
+          updated_at_ms INTEGER,
+          updated_at INTEGER
+        );
+      `,
+    ]);
+
+    await deleteCodexSession(sessionId, {
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+      stateDbPath,
+    });
+
+    const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
+    expect(parseCodexSessionIndex(rawIndex)).toEqual([]);
   });
 });
