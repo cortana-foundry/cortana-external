@@ -154,11 +154,11 @@ export class SchwabAuthManager {
           this.recordSchwabRestSuccess();
           return accessToken;
         } catch (error) {
-          if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
+          if (this.isRejectedRefreshTokenError(error)) {
             this.providerMetrics.lastTokenRefreshFailureAt = new Date().toISOString();
             this.providerMetrics.schwabTokenStatus = "human_action_required";
             this.providerMetrics.schwabTokenReason = "Schwab refresh token was rejected. Re-authorize the developer app and update the refresh token.";
-            throw new Error("Schwab refresh token rejected (401/403). Manual re-authentication is required.");
+            throw new Error(`Schwab refresh token rejected (${error.status}). Manual re-authentication is required.`);
           }
           const retryDelayMs = SchwabAuthManager.TOKEN_REFRESH_RETRY_DELAYS_MS[attempt];
           if (retryDelayMs != null && this.isRetryableTokenRefreshError(error)) {
@@ -246,6 +246,19 @@ export class SchwabAuthManager {
     } catch (error) {
       this.logger.error("Unable to persist Schwab token cache", error);
     }
+  }
+
+  private isRejectedRefreshTokenError(error: unknown): error is HttpError {
+    if (!(error instanceof HttpError)) {
+      return false;
+    }
+    if (error.status === 401 || error.status === 403) {
+      return true;
+    }
+    if (error.status !== 400) {
+      return false;
+    }
+    return error.body.includes("refresh_token_authentication_error") || error.body.includes("unsupported_token_type");
   }
 
   private isRetryableTokenRefreshError(error: unknown): boolean {

@@ -1982,7 +1982,10 @@ describe("market-data routes", () => {
     expect(readyBody.data.operatorState).toBe("healthy");
   });
 
-  it("does not retry Schwab refresh token rejections", async () => {
+  it.each([
+    [401, { error: "invalid_grant" }],
+    [400, { error: "unsupported_token_type", error_description: "refresh_token_authentication_error" }],
+  ])("does not retry Schwab refresh token rejections with status %i", async (status, body) => {
     let refreshCalls = 0;
     const app = new Hono();
     const service = new MarketDataService({
@@ -1995,8 +1998,8 @@ describe("market-data routes", () => {
         const url = String(input);
         if (url.includes("/oauth/token")) {
           refreshCalls += 1;
-          return new Response(JSON.stringify({ error: "invalid_grant" }), {
-            status: 401,
+          return new Response(JSON.stringify(body), {
+            status,
             headers: { "content-type": "application/json" },
           });
         }
