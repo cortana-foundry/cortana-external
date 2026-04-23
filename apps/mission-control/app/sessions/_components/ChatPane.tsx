@@ -50,6 +50,7 @@ type ChatPaneProps = {
   pendingCodexUserEvent: CodexSessionEvent | null;
   streamedAssistantEvents: StreamingCodexEvent[];
   codexMutationError: string | null;
+  replyComposerError: string | null;
   replyPrompt: string;
   setReplyPrompt: (value: string) => void;
   onReplyToCodexSession: () => void;
@@ -159,6 +160,7 @@ export function ChatPane({
   pendingCodexUserEvent,
   streamedAssistantEvents,
   codexMutationError,
+  replyComposerError,
   replyPrompt,
   setReplyPrompt,
   onReplyToCodexSession,
@@ -672,7 +674,7 @@ export function ChatPane({
             {codexMutationError}
           </div>
         ) : null}
-        {activeSessionHasRunInProgress && !codexMutationError ? (
+        {activeSessionHasRunInProgress && !codexMutationError && !replyComposerError ? (
           <div className="mx-auto mb-2 max-w-none rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 md:max-w-3xl">
             Codex is still finishing the previous reply for this thread.
           </div>
@@ -724,7 +726,14 @@ export function ChatPane({
               })}
             </div>
           ) : null}
-          <div className="flex w-full items-end gap-2 rounded-3xl border border-border/60 bg-card px-3 py-2 shadow-sm transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+          <div
+            className={cn(
+              "flex w-full items-end gap-2 rounded-3xl border bg-card px-3 py-2 shadow-sm transition-colors",
+              replyComposerError
+                ? "border-destructive focus-within:border-destructive focus-within:ring-2 focus-within:ring-destructive/20"
+                : "border-border/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20",
+            )}
+          >
             <Textarea
               ref={replyTextareaRef}
               rows={1}
@@ -738,6 +747,7 @@ export function ChatPane({
                 selectedCodexSessionId ? "Message Codex…" : "Select a thread to reply"
               }
               disabled={!selectedCodexSessionId || replyLocked}
+              aria-invalid={replyComposerError ? true : undefined}
               aria-label="Reply message"
               className="min-h-[40px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-6 shadow-none focus-visible:outline-none focus-visible:ring-0"
             />
@@ -755,6 +765,11 @@ export function ChatPane({
               )}
             </Button>
           </div>
+          {replyComposerError ? (
+            <p className="mt-2 px-2 text-xs text-destructive" role="status">
+              {replyComposerError}
+            </p>
+          ) : null}
         </div>
 
         <p className="mx-auto mt-1 hidden max-w-none text-[11px] text-muted-foreground sm:block md:max-w-3xl">

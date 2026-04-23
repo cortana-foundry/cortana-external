@@ -76,14 +76,20 @@ function createDeferred<T>() {
 }
 
 function installFetchMock(options?: {
+  onSessionsGet?: (callCount: number) => Promise<Response> | Response;
   onReplyPost?: () => Promise<Response> | Response;
   onStream?: () => Promise<Response> | Response;
 }) {
-  return vi.spyOn(global, "fetch").mockImplementation(async (input, init) => {
+  let sessionsGetCalls = 0;
+  const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
 
     if (url === "/api/codex/sessions" && method === "GET") {
+      sessionsGetCalls += 1;
+      if (options?.onSessionsGet) {
+        return options.onSessionsGet(sessionsGetCalls);
+      }
       return jsonResponse({
         sessions: [baseSession],
         groups: [
@@ -139,6 +145,11 @@ function installFetchMock(options?: {
 
     return jsonResponse({ error: `Unhandled request: ${method} ${url}` }, 500);
   });
+
+  return {
+    fetchSpy,
+    getSessionsGetCalls: () => sessionsGetCalls,
+  };
 }
 
 describe("SessionsPage reply composer", () => {
@@ -178,10 +189,27 @@ describe("SessionsPage reply composer", () => {
   });
 
   it("restores the original prompt and shows a friendly message when the session is already busy", async () => {
-    installFetchMock({
+    const fetchState = installFetchMock({
+      onSessionsGet: (callCount) =>
+        jsonResponse({
+          sessions: [{ ...baseSession, activeRun: callCount > 1 }],
+          groups: [
+            {
+              id: CWD,
+              label: "cortana-external",
+              rootPath: CWD,
+              isActive: true,
+              isCollapsed: false,
+              sessions: [{ ...baseSession, activeRun: callCount > 1 }],
+            },
+          ],
+          latestUpdatedAt: updatedAt,
+          totalMatchedSessions: 1,
+          totalVisibleSessions: 1,
+        }),
       onReplyPost: () =>
         jsonResponse(
-          { error: "Codex session session-1 already has an active run" },
+          { error: "Codex session session-1 already has an active run", code: "conflict" },
           409,
         ),
     });
@@ -197,9 +225,46 @@ describe("SessionsPage reply composer", () => {
       expect(screen.getByLabelText("Reply message")).toHaveValue("That's okay keep going"),
     );
 
-    expect(
-      await screen.findAllByText("Codex is still finishing the previous reply for this thread."),
-    ).toHaveLength(2);
+    const replyMessage = "Codex is still finishing the previous reply for this thread.";
+    expect(await screen.findAllByText(replyMessage)).toHaveLength(1);
     expect(screen.queryByText(/already has an active run/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reply message")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Reply message")).toBeDisabled();
+    expect(fetchState.getSessionsGetCalls()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the composer cleared when the stream completes but the session refresh lags", async () => {
+    installFetchMock({
+      onSessionsGet: (callCount) =>
+        callCount === 1
+          ? jsonResponse({
+              sessions: [baseSession],
+              groups: [
+                {
+                  id: CWD,
+                  label: "cortana-external",
+                  rootPath: CWD,
+                  isActive: true,
+                  isCollapsed: false,
+                  sessions: [baseSession],
+                },
+              ],
+              latestUpdatedAt: updatedAt,
+              totalMatchedSessions: 1,
+              totalVisibleSessions: 1,
+            })
+          : jsonResponse({ error: "Failed to load Codex sessions" }, 500),
+    });
+
+    render(<SessionsPage />);
+
+    const textarea = (await screen.findByLabelText("Reply message")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Check the alert state" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(screen.getByText("Looking at it now.")).toBeInTheDocument());
+    expect(screen.getByLabelText("Reply message")).toHaveValue("");
+    expect(screen.getByLabelText("Reply message")).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByText("Failed to send message to Codex session")).not.toBeInTheDocument();
   });
 });

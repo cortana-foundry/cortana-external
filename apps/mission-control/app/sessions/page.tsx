@@ -10,6 +10,7 @@ import { SessionList } from "./_components/SessionList";
 import { Toaster, ToastProvider } from "./_components/Toast";
 import { useFocusTrap } from "./_components/useFocusTrap";
 import type {
+  CodexRunErrorCode,
   CodexRunStartResponse,
   CodexSession,
   CodexSessionDetail,
@@ -283,6 +284,8 @@ export function summarizeCodexSessions(sessions: CodexSession[]) {
   );
 }
 
+const ACTIVE_RUN_REPLY_MESSAGE = "Codex is still finishing the previous reply for this thread.";
+
 export function normalizeCodexMutationError(message: string | null | undefined) {
   const trimmed = message?.trim();
   if (!trimmed) {
@@ -290,10 +293,52 @@ export function normalizeCodexMutationError(message: string | null | undefined) 
   }
 
   if (/already has an active run/i.test(trimmed)) {
-    return "Codex is still finishing the previous reply for this thread.";
+    return ACTIVE_RUN_REPLY_MESSAGE;
   }
 
   return trimmed;
+}
+
+function normalizeReplyComposerError(
+  message: string | null | undefined,
+  code?: CodexRunErrorCode | null,
+) {
+  if (code === "conflict") {
+    return ACTIVE_RUN_REPLY_MESSAGE;
+  }
+
+  return normalizeCodexMutationError(message);
+}
+
+function getReplySendError(error: unknown) {
+  if (isRecord(error)) {
+    const message =
+      typeof error.message === "string"
+        ? error.message
+        : typeof error.error === "string"
+          ? error.error
+          : null;
+    const rawCode = error.code;
+    const code: CodexRunErrorCode | null =
+      rawCode === "invalid_request"
+      || rawCode === "conflict"
+      || rawCode === "not_found"
+      || rawCode === "prerequisite_failed"
+        ? rawCode
+        : null;
+    return { message, code };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : null,
+    code: null,
+  };
+}
+
+function createReplySendError(message: string, code?: CodexRunErrorCode | null) {
+  const error = new Error(message) as Error & { code?: CodexRunErrorCode | null };
+  error.code = code ?? null;
+  return error;
 }
 
 function mergeOlderCodexSessionEvents(
@@ -328,6 +373,7 @@ export default function SessionsPage() {
   const [newCodexPrompt, setNewCodexPrompt] = useState("");
   const [newCodexWorkspaceKey, setNewCodexWorkspaceKey] = useState<string>("cortana-external");
   const [replyPrompt, setReplyPrompt] = useState("");
+  const [replyComposerError, setReplyComposerError] = useState<string | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
   const [codexMutationPending, setCodexMutationPending] = useState<"create" | "reply" | "archive" | "delete" | null>(null);
   const [codexMutationError, setCodexMutationError] = useState<string | null>(null);
@@ -407,6 +453,7 @@ export default function SessionsPage() {
 
   const handleSelectCodexSession = useCallback((sessionId: string | null) => {
     setSelectedCodexSessionId(sessionId);
+    setReplyComposerError(null);
     if (sessionId) {
       setLastOpenedAt((current) => {
         const next = { ...current, [sessionId]: Date.now() };
@@ -673,12 +720,14 @@ export default function SessionsPage() {
       setSelectedCodexPagination(null);
       setPendingCodexUserEvent(null);
       setStreamedAssistantEvents([]);
+      setReplyComposerError(null);
       return;
     }
 
     setPendingCodexUserEvent(null);
     setStreamedAssistantEvents([]);
     setSelectedCodexPagination(null);
+    setReplyComposerError(null);
     void loadCodexSessionDetail(selectedCodexSessionId);
   }, [selectedCodexSessionId]);
 
@@ -994,13 +1043,17 @@ export default function SessionsPage() {
 
   async function handleReplyToCodexSession() {
     if (!selectedCodexSessionId || codexMutationPending === "reply") return;
+    const submittedSessionId = selectedCodexSessionId;
     const submittedPrompt = replyPrompt;
     const prompt = submittedPrompt.trim();
     if (!prompt) return;
+    let replyAccepted = false;
+    let streamCompleted = false;
 
     transcriptScrollActionRef.current = "bottom";
     setCodexMutationPending("reply");
     setCodexMutationError(null);
+    setReplyComposerError(null);
     setReplyPrompt("");
     setStreamedAssistantEvents([]);
     setPendingCodexUserEvent({
@@ -1012,7 +1065,7 @@ export default function SessionsPage() {
       rawType: "user.pending",
     });
     try {
-      const startResponse = await fetch(`/api/codex/sessions/${selectedCodexSessionId}/messages`, {
+      const startResponse = await fetch(`/api/codex/sessions/${submittedSessionId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1022,9 +1075,12 @@ export default function SessionsPage() {
 
       const startPayload = (await startResponse.json()) as CodexRunStartResponse;
       if (!startResponse.ok || !startPayload.streamId) {
-        const payload = startPayload as CodexSessionDetailResponse & CodexRunStartResponse;
-        throw new Error(payload.error ?? "Failed to send message to Codex session");
+        throw createReplySendError(
+          startPayload.error ?? "Failed to send message to Codex session",
+          startPayload.code ?? null,
+        );
       }
+      replyAccepted = true;
 
       const response = await fetch(`/api/codex/streams/${startPayload.streamId}`, {
         headers: {
@@ -1034,12 +1090,15 @@ export default function SessionsPage() {
 
       if (!response.ok) {
         const payload = (await response.json()) as CodexRunStartResponse;
-        throw new Error(payload.error ?? "Failed to attach to Codex stream");
+        throw createReplySendError(
+          payload.error ?? "Failed to attach to Codex stream",
+          payload.code ?? null,
+        );
       }
 
       await consumeCodexStream(response, async (session) => {
+        streamCompleted = true;
         transcriptScrollActionRef.current = "bottom";
-        await refreshCodexSessions(session.sessionId, session);
         setSelectedCodexSession(session);
         setSelectedCodexPagination({
           totalEvents: session.events.length,
@@ -1051,20 +1110,44 @@ export default function SessionsPage() {
         });
         setPendingCodexUserEvent(null);
         setStreamedAssistantEvents([]);
+        setReplyComposerError(null);
+        await refreshCodexSessions(session.sessionId, session);
       });
     } catch (err) {
-      setPendingCodexUserEvent(null);
-      setReplyPrompt(submittedPrompt);
-      setStreamedAssistantEvents([]);
-      setCodexMutationError(
-        normalizeCodexMutationError(
-          err instanceof Error ? err.message : "Failed to send message to Codex session",
-        ),
+      if (streamCompleted) {
+        return;
+      }
+
+      const { message, code } = getReplySendError(err);
+      const normalizedMessage = normalizeReplyComposerError(
+        message ?? "Failed to send message to Codex session",
+        code,
       );
+
+      if (!replyAccepted) {
+        setPendingCodexUserEvent(null);
+        setReplyPrompt(submittedPrompt);
+        setStreamedAssistantEvents([]);
+        setReplyComposerError(normalizedMessage);
+
+        if (code === "conflict") {
+          await refreshCodexSessions(submittedSessionId).catch(() => undefined);
+        }
+        return;
+      }
+
+      setCodexMutationError(normalizedMessage);
     } finally {
       setCodexMutationPending(null);
     }
   }
+
+  const handleReplyPromptChange = useCallback((value: string) => {
+    setReplyPrompt(value);
+    if (replyComposerError) {
+      setReplyComposerError(null);
+    }
+  }, [replyComposerError]);
 
   async function handleCopySessionId() {
     const sessionId = activeCodexSession?.sessionId;
@@ -1285,8 +1368,9 @@ export default function SessionsPage() {
           pendingCodexUserEvent={pendingCodexUserEvent}
           streamedAssistantEvents={streamedAssistantEvents}
           codexMutationError={codexMutationError}
+          replyComposerError={replyComposerError}
           replyPrompt={replyPrompt}
-          setReplyPrompt={setReplyPrompt}
+          setReplyPrompt={handleReplyPromptChange}
           onReplyToCodexSession={() => void handleReplyToCodexSession()}
           formatTimestamp={formatTimestamp}
           formatRelativeTimestamp={formatRelativeTimestamp}

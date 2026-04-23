@@ -45,7 +45,7 @@ export async function POST(
               : error.code === "prerequisite_failed"
                 ? 412
                 : 500;
-      return NextResponse.json({ error: error.message }, { status });
+      return NextResponse.json({ error: error.message, code: error.code }, { status });
     }
 
     const message = error instanceof Error ? error.message : "Failed to resume Codex session";

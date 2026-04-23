@@ -63,7 +63,17 @@ export type CodexSessionDetailResponse = {
   error?: string;
 };
 
-export type CodexRunStartResponse = { streamId?: string; error?: string };
+export type CodexRunErrorCode =
+  | "invalid_request"
+  | "conflict"
+  | "not_found"
+  | "prerequisite_failed";
+
+export type CodexRunStartResponse = {
+  streamId?: string;
+  error?: string;
+  code?: CodexRunErrorCode;
+};
 
 export type CodexStreamEnvelope = {
   event: string;
