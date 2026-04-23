@@ -84,7 +84,7 @@ export function getMissionControlLaunchAgentEnvironment(
     PORT: merged.PORT?.trim() || DEFAULT_MISSION_CONTROL_PORT,
   };
 
-  for (const key of ["CORTANA_SOURCE_REPO", "BACKTESTER_REPO_PATH", "DOCS_PATH", "RESEARCH_PATH", "KNOWLEDGE_PATH"]) {
+  for (const key of ["CORTANA_SOURCE_REPO", "BACKTESTER_REPO_PATH", "DOCS_PATH", "RESEARCH_PATH", "KNOWLEDGE_PATH", "HEARTBEAT_STATE_PATH"]) {
     const value = merged[key]?.trim();
     if (value) {
       environmentVariables[key] = value;
