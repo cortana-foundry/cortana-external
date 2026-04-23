@@ -12,6 +12,11 @@ import {
 } from "./streamer.js";
 import { parseSharedStateNotification, readJsonFile } from "./universe-utils.js";
 import type { MarketDataQuote } from "./types.js";
+import {
+  initialActiveStreamerRole,
+  shouldDemoteStreamerLeader,
+  shouldStartLeaderStreamer,
+} from "./streamer-runtime-state.js";
 
 interface ProviderMetricsLike {
   lastSharedStateNotificationAt: string | null;
@@ -62,7 +67,7 @@ export class SchwabStreamerRuntime {
     this.websocketFactory = config.websocketFactory;
     this.streamerPgLockKey = this.config.SCHWAB_STREAMER_PG_LOCK_KEY;
     this.configuredRole = this.config.SCHWAB_STREAMER_ROLE;
-    this.activeRole = this.configuredRole === "auto" ? "follower" : this.configuredRole;
+    this.activeRole = initialActiveStreamerRole(this.configuredRole);
     this.sharedStateBackend = this.config.SCHWAB_STREAMER_SHARED_STATE_BACKEND;
     this.sharedStatePath = this.config.SCHWAB_STREAMER_SHARED_STATE_PATH;
     this.streamerEnabled = !["0", "false", "no", "off"].includes(
@@ -125,7 +130,12 @@ export class SchwabStreamerRuntime {
         const acquired = await this.tryAcquireLeadership();
         this.activeRole = acquired ? "leader" : "follower";
       }
-      if (this.streamerEnabled && this.activeRole === "leader" && !this.streamer && this.credentialsConfigured()) {
+      if (shouldStartLeaderStreamer({
+        enabled: this.streamerEnabled,
+        activeRole: this.activeRole,
+        hasStreamer: Boolean(this.streamer),
+        credentialsConfigured: this.credentialsConfigured(),
+      })) {
         this.streamer = this.createStreamer();
       }
     })();
@@ -179,7 +189,7 @@ export class SchwabStreamerRuntime {
     if (!health) {
       return;
     }
-    if (health.failurePolicy !== "max_connections_exceeded" || this.activeRole !== "leader") {
+    if (!shouldDemoteStreamerLeader({ activeRole: this.activeRole, failurePolicy: health.failurePolicy })) {
       return;
     }
     this.logger.error("Demoting Schwab streamer leader after CLOSE_CONNECTION / max connection policy");

@@ -1,3 +1,4 @@
+import { providerLaneResult, type ProviderLaneMetadata } from "./provider-lane.js";
 import { buildUnavailableCompare } from "./route-utils.js";
 import { extractCoinMarketCapSymbol } from "./coinmarketcap-client.js";
 import type { CoinMarketCapService } from "./coinmarketcap-service.js";
@@ -15,15 +16,7 @@ import type {
   MarketDataStatus,
 } from "./types.js";
 
-interface ServiceMetadata {
-  source: string;
-  status: MarketDataStatus;
-  degradedReason?: string | null;
-  stalenessSeconds: number | null;
-  providerMode: MarketDataProviderMode;
-  fallbackEngaged: boolean;
-  providerModeReason?: string | null;
-}
+interface ServiceMetadata extends ProviderLaneMetadata {}
 
 export interface HistoryFetchResult extends ServiceMetadata {
   rows: MarketDataHistoryPoint[];
@@ -81,42 +74,39 @@ export class ProviderChain {
         throw new Error("CoinMarketCap API key is not configured");
       }
       const rows = await this.coinMarketCap.fetchHistory(symbol, period, interval);
-      return {
+      return providerLaneResult({
         source: "coinmarketcap",
         status: "ok",
         stalenessSeconds: 0,
         providerMode: "coinmarketcap_primary",
         fallbackEngaged: false,
         providerModeReason: "Crypto history stayed on the CoinMarketCap primary lane.",
-        rows,
-      };
+      }, { rows });
     }
     if (provider === "schwab") {
       if (!this.schwabRestClient.isConfigured()) {
         throw new Error("Schwab credentials are not configured");
       }
       const rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
-      return {
+      return providerLaneResult({
         source: "schwab",
         status: "ok",
         stalenessSeconds: 0,
         providerMode: "schwab_primary",
         fallbackEngaged: false,
         providerModeReason: "History stayed on the explicit Schwab primary lane.",
-        rows,
-      };
+      }, { rows });
     }
     if (provider === "alpaca") {
       const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
-      return {
+      return providerLaneResult({
         source: "alpaca",
         status: "ok",
         stalenessSeconds: 0,
         providerMode: "alpaca_fallback",
         fallbackEngaged: true,
         providerModeReason: "History used the explicit Alpaca fallback lane.",
-        rows,
-      };
+      }, { rows });
     }
     if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
       return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);

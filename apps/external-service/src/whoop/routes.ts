@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { jsonErrorResponse } from "../lib/cached-connector.js";
 import { WhoopService } from "./service.js";
 
 const STALE_WARNING = '110 - "Serving stale Whoop cache after token refresh failure"';
@@ -49,11 +50,7 @@ export function createWhoopRouter(service: WhoopService): Hono {
       }
       return c.json(data);
     } catch (error) {
-      const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : 500;
-      return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
-        status: statusCode,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonErrorResponse(error);
     }
   });
 
@@ -66,11 +63,7 @@ export function createWhoopRouter(service: WhoopService): Hono {
       }
       return c.json({ recovery: data.recovery });
     } catch (error) {
-      const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : 500;
-      return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
-        status: statusCode,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonErrorResponse(error);
     }
   });
 
@@ -86,11 +79,7 @@ export function createWhoopRouter(service: WhoopService): Hono {
       }
       return c.json(data.recovery[0]);
     } catch (error) {
-      const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : 500;
-      return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
-        status: statusCode,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonErrorResponse(error);
     }
   });
 
