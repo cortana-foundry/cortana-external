@@ -35,6 +35,7 @@ describe("launch agent helpers", () => {
     const env = getMissionControlLaunchAgentEnvironment("/tmp/missing-app", {
       DATABASE_URL: "postgresql://override",
       HOST: "127.0.0.1",
+      HEARTBEAT_STATE_PATH: "/srv/runtime/heartbeat-state.json",
       MISSION_CONTROL_API_TOKEN: "token-123",
       MISSION_CONTROL_PATH: "/custom/bin:/usr/bin:/bin",
       MISSION_CONTROL_URL: "http://100.120.198.12:3000",
@@ -47,6 +48,7 @@ describe("launch agent helpers", () => {
       CORTANA_SOURCE_REPO: "/srv/cortana",
       DATABASE_URL: "postgresql://override",
       HOST: "127.0.0.1",
+      HEARTBEAT_STATE_PATH: "/srv/runtime/heartbeat-state.json",
       MISSION_CONTROL_API_TOKEN: "token-123",
       MISSION_CONTROL_URL: "http://100.120.198.12:3000",
       NODE_ENV: "production",

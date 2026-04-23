@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getBacktesterRepoPath,
@@ -22,6 +23,7 @@ describe("lib/runtime-paths", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (originalHome == null) {
       delete process.env.HOME;
     } else {
@@ -29,7 +31,14 @@ describe("lib/runtime-paths", () => {
     }
   });
 
-  it("uses canonical Cortana defaults when overrides are unset", () => {
+  it("falls back to the repo heartbeat snapshot when runtime state is missing", () => {
+    vi.spyOn(fs, "existsSync").mockImplementation((candidate) => {
+      const value = String(candidate);
+      if (value === "/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json") return false;
+      if (value === "/Users/hd/Developer/cortana/memory/heartbeat-state.json") return true;
+      return value.includes("/backtester");
+    });
+
     expect(getCortanaSourceRepo()).toBe("/Users/hd/Developer/cortana");
     expect(getBacktesterRepoPath()).toContain("/backtester");
     expect(getDocsPath()).toBe("/Users/hd/Developer/cortana/docs");
@@ -54,6 +63,17 @@ describe("lib/runtime-paths", () => {
     expect(getAgentModelsPath()).toBe("/srv/custom-models.json");
     expect(getHeartbeatStatePath()).toBe("/srv/runtime/heartbeat-state.json");
     expect(getTelegramUsageHandlerPath()).toBe("/srv/tools/telegram-usage.ts");
+  });
+
+  it("prefers the live OpenClaw heartbeat state when it exists", () => {
+    vi.spyOn(fs, "existsSync").mockImplementation((candidate) => {
+      const value = String(candidate);
+      if (value === "/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json") return true;
+      if (value === "/Users/hd/Developer/cortana/memory/heartbeat-state.json") return true;
+      return value.includes("/backtester");
+    });
+
+    expect(getHeartbeatStatePath()).toBe("/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json");
   });
 
   it("resolves the repo-level backtester path from the mission-control app cwd", () => {
