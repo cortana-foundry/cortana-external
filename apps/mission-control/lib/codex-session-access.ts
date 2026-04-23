@@ -73,9 +73,15 @@ function normalizePath(value: string | null | undefined) {
   return path.resolve(trimmed);
 }
 
+function comparablePath(value: string | null | undefined) {
+  const normalized = normalizePath(value);
+  if (!normalized) return null;
+  return process.platform === "darwin" ? normalized.toLowerCase() : normalized;
+}
+
 function isWithinRoot(targetPath: string | null | undefined, rootPath: string | null | undefined) {
-  const normalizedTarget = normalizePath(targetPath);
-  const normalizedRoot = normalizePath(rootPath);
+  const normalizedTarget = comparablePath(targetPath);
+  const normalizedRoot = comparablePath(rootPath);
   if (!normalizedTarget || !normalizedRoot) return false;
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`);
 }
@@ -112,7 +118,7 @@ function deriveFallbackWorkspaceRoot(cwd: string | null | undefined, homeDir = o
     return null;
   }
 
-  if (segments[0] === "Developer" && segments[1]) {
+  if (segments[0]?.toLowerCase() === "developer" && segments[1]) {
     return path.join(normalizedHome, "Developer", segments[1]);
   }
 
@@ -197,10 +203,10 @@ function shouldExposeSessionInSidebar(
   stateRow: CodexLocalThreadStateRow | null,
 ) {
   const source = (stateRow?.source ?? session.source ?? "").trim();
+  const isSubagent = session.isSubagent || isSubagentThread(stateRow?.source ?? session.source);
   if (stateRow?.archived) return false;
   if (isArchivedTranscriptSession(session)) return false;
-  if (source.length > 0 && source !== "vscode" && source !== "exec") return false;
-  if (isSubagentThread(stateRow?.source ?? session.source)) return false;
+  if (source.length > 0 && source !== "vscode" && source !== "exec" && !isSubagent) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
   if (isSyntheticNamedThread(stateRow, session)) return false;
   if (isMissionControlTestThread(stateRow, session)) return false;
@@ -437,6 +443,7 @@ function mergeSessionSummary(
     cwd: overlay.cwd ?? base.cwd,
     model: overlay.model ?? base.model,
     source: overlay.source ?? base.source,
+    isSubagent: overlay.isSubagent ?? base.isSubagent ?? false,
     cliVersion: overlay.cliVersion ?? base.cliVersion,
     lastMessagePreview: overlay.lastMessagePreview ?? base.lastMessagePreview,
     transcriptPath: overlay.transcriptPath ?? base.transcriptPath,

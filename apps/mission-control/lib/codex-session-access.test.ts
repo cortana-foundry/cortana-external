@@ -39,7 +39,7 @@ import {
 } from "@/lib/codex-session-access";
 
 describe("buildVisibleCodexSessionGroups", () => {
-  it("filters spawned worker threads and groups visible sessions by workspace root", () => {
+  it("keeps spawned worker threads visible and groups sessions by workspace root", () => {
     const result = buildVisibleCodexSessionGroups(
       [
         {
@@ -116,8 +116,8 @@ describe("buildVisibleCodexSessionGroups", () => {
       { limit: 20, homeDir: "/Users/hd" },
     );
 
-    expect(result.totalMatchedSessions).toBe(1);
-    expect(result.totalVisibleSessions).toBe(1);
+    expect(result.totalMatchedSessions).toBe(2);
+    expect(result.totalVisibleSessions).toBe(2);
     expect(result.groups).toEqual([
       expect.objectContaining({
         id: "/Users/hd/Developer/cortana-external",
@@ -125,7 +125,7 @@ describe("buildVisibleCodexSessionGroups", () => {
         isActive: true,
       }),
     ]);
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["visible"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["visible", "spawned"]);
   });
 
   it("groups sessions without any resolved workspace context under Other", () => {
@@ -257,6 +257,39 @@ describe("buildVisibleCodexSessionGroups", () => {
     );
 
     expect(result.sessions.map((session) => session.sessionId)).toEqual(["exec-session", "interactive-session"]);
+  });
+
+  it("matches workspace roots case-insensitively on macOS paths", () => {
+    const result = buildVisibleCodexSessionGroups(
+      [
+        {
+          sessionId: "cortana-session",
+          threadName: "Check backtester cron firing",
+          updatedAt: 500,
+          cwd: "/users/hd/developer/cortana",
+          model: "gpt-5.4",
+          source: "vscode",
+          cliVersion: "0.116.0",
+          lastMessagePreview: "I found the OpenClaw cron source.",
+          transcriptPath: "/Users/hd/.codex/sessions/2026/04/07/rollout-cortana-session.jsonl",
+        },
+      ],
+      [],
+      {
+        activeWorkspaceRoots: ["/Users/hd/Developer/cortana-external"],
+        savedWorkspaceRoots: ["/Users/hd/Developer/cortana"],
+        collapsedGroups: [],
+      },
+      { limit: 20, homeDir: "/Users/hd" },
+    );
+
+    expect(result.groups).toEqual([
+      expect.objectContaining({
+        id: "/Users/hd/Developer/cortana",
+        label: "cortana",
+      }),
+    ]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual(["cortana-session"]);
   });
 
   it("hides sessions whose transcript already lives in archived_sessions", () => {
@@ -548,6 +581,7 @@ describe("getVisibleCodexSessionDetail", () => {
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
       source: "vscode",
+      isSubagent: false,
       cliVersion: "0.121.0",
       lastMessagePreview: "mirror preview",
       transcriptPath: "/tmp/mirror.jsonl",

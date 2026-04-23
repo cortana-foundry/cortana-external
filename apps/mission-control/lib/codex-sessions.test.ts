@@ -179,8 +179,43 @@ describe("parseCodexTranscriptMetadata", () => {
       cwd: "/Users/hd/Developer/cortana-external",
       model: "gpt-5.4",
       source: "exec",
+      isSubagent: false,
       cliVersion: "0.121.0",
       lastMessagePreview: "Latest answer from Codex",
+    });
+  });
+
+  it("marks spawned subagent sessions from object source metadata", () => {
+    const raw = [
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          cwd: "/Users/hd",
+          source: {
+            subagent: {
+              thread_spawn: {
+                parent_thread_id: "root",
+              },
+            },
+          },
+          cli_version: "0.121.0",
+        },
+      }),
+    ].join("\n");
+
+    expect(parseCodexTranscriptMetadata(raw)).toEqual({
+      cwd: "/Users/hd",
+      model: null,
+      source: JSON.stringify({
+        subagent: {
+          thread_spawn: {
+            parent_thread_id: "root",
+          },
+        },
+      }),
+      isSubagent: true,
+      cliVersion: "0.121.0",
+      lastMessagePreview: null,
     });
   });
 });
@@ -397,6 +432,7 @@ describe("listCodexSessions", () => {
         cwd: "/Users/hd/Developer/cortana-external",
         model: "gpt-5.4",
         source: "vscode",
+        isSubagent: false,
         cliVersion: "0.122.0",
         lastMessagePreview: null,
         transcriptPath,

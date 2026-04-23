@@ -5,6 +5,7 @@ export type CodexSession = {
   cwd: string | null;
   model: string | null;
   source: string | null;
+  isSubagent?: boolean;
   cliVersion: string | null;
   lastMessagePreview: string | null;
   transcriptPath: string | null;

@@ -21,6 +21,7 @@ export type CodexSessionSummary = {
   cwd: string | null;
   model: string | null;
   source: string | null;
+  isSubagent?: boolean;
   cliVersion: string | null;
   lastMessagePreview: string | null;
   transcriptPath: string | null;
@@ -49,6 +50,7 @@ type TranscriptMetadata = {
   cwd: string | null;
   model: string | null;
   source: string | null;
+  isSubagent: boolean;
   cliVersion: string | null;
   lastMessagePreview: string | null;
 };
@@ -100,6 +102,26 @@ function parseString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function stringifyJsonValue(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSubagentSourceValue(value: unknown): boolean {
+  if (!value) return false;
+  if (typeof value === "string") {
+    return value.includes("thread_spawn") || value.includes("\"subagent\"");
+  }
+
+  return stringifyJsonValue(value)?.includes("thread_spawn")
+    || stringifyJsonValue(value)?.includes("\"subagent\"")
+    || false;
 }
 
 function clampLimit(value: number | null | undefined): number {
@@ -228,6 +250,7 @@ export async function listCodexSessionIndexSummaries(
       cwd: null,
       model: null,
       source: null,
+      isSubagent: false,
       cliVersion: null,
       lastMessagePreview: null,
       transcriptPath: null,
@@ -259,6 +282,7 @@ export async function listCodexSessionIndexSummariesById(
       cwd: null,
       model: null,
       source: null,
+      isSubagent: false,
       cliVersion: null,
       lastMessagePreview: null,
       transcriptPath: null,
@@ -308,6 +332,7 @@ export async function listCodexStateThreadSummaries(
       cwd: parseString(row.cwd),
       model: parseString(row.model),
       source: parseString(row.source),
+      isSubagent: isSubagentSourceValue(row.source),
       cliVersion: parseString(row.cli_version),
       lastMessagePreview: null,
       transcriptPath: parseString(row.rollout_path),
@@ -322,6 +347,7 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
     cwd: null,
     model: null,
     source: null,
+    isSubagent: false,
     cliVersion: null,
     lastMessagePreview: null,
   };
@@ -337,8 +363,12 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
         metadata.cwd = parseString(typed.cwd) ?? metadata.cwd;
         metadata.source =
           parseString(typed.source) ??
+          stringifyJsonValue(typed.source) ??
           parseString(typed.originator) ??
           metadata.source;
+        metadata.isSubagent = metadata.isSubagent
+          || isSubagentSourceValue(typed.source)
+          || parseString(typed.forked_from_id) != null;
         metadata.cliVersion = parseString(typed.cli_version) ?? metadata.cliVersion;
         metadata.model = parseString(typed.model) ?? metadata.model;
       }
@@ -389,6 +419,7 @@ async function readCodexTranscriptMetadataForSidebar(transcriptPath: string): Pr
         cwd: null,
         model: null,
         source: null,
+        isSubagent: false,
         cliVersion: null,
         lastMessagePreview: null,
       };
@@ -679,6 +710,7 @@ async function enrichSessionEntry(
       cwd: null,
       model: null,
       source: null,
+      isSubagent: false,
       cliVersion: null,
       lastMessagePreview: null,
       transcriptPath: null,
@@ -694,6 +726,7 @@ async function enrichSessionEntry(
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
+    isSubagent: metadata.isSubagent,
     cliVersion: metadata.cliVersion,
     lastMessagePreview: metadata.lastMessagePreview,
     transcriptPath,
@@ -754,6 +787,7 @@ export async function getCodexSessionDetail(
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
+    isSubagent: metadata.isSubagent,
     cliVersion: metadata.cliVersion,
     lastMessagePreview: metadata.lastMessagePreview,
     transcriptPath,
