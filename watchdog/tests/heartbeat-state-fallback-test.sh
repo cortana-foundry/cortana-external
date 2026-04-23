@@ -10,9 +10,11 @@ mkdir -p "$TMP_ROOT/repo/tools/heartbeat"
 touch "$TMP_ROOT/repo/tools/heartbeat/check-heartbeat-health.ts"
 export CORTANA_SOURCE_REPO="$TMP_ROOT/repo"
 export STATE_FILE="$TMP_ROOT/watchdog-state.json"
-export HEARTBEAT_STATE_FILE="$TMP_ROOT/repo/memory/heartbeat-state.json"
-mkdir -p "$(dirname "$HEARTBEAT_STATE_FILE")"
-printf '%s\n' '{"version":2,"lastHeartbeat":0,"lastChecks":{},"lastRemediationAt":0,"subagentWatchdog":{"lastRun":0,"lastLogged":{}}}' > "$HEARTBEAT_STATE_FILE"
+unset HEARTBEAT_STATE_FILE
+export HOME="$TMP_ROOT/home"
+mkdir -p "$TMP_ROOT/repo/memory" "$HOME/.openclaw/memory"
+printf '%s\n' '{"version":2,"lastHeartbeat":0,"lastChecks":{},"lastRemediationAt":0,"subagentWatchdog":{"lastRun":0,"lastLogged":{}}}' > "$TMP_ROOT/repo/memory/heartbeat-state.json"
+printf '%s\n' '{"version":2,"lastHeartbeat":1,"lastChecks":{},"lastRemediationAt":1,"subagentWatchdog":{"lastRun":1,"lastLogged":{}}}' > "$HOME/.openclaw/memory/heartbeat-state.json"
 
 source "$ROOT_DIR/watchdog.sh"
 
@@ -37,6 +39,10 @@ pgrep() {
 }
 
 npx() {
+  if [[ "$*" != *"$HOME/.openclaw/memory/heartbeat-state.json"* ]]; then
+    echo "FAIL: expected watchdog to prefer runtime heartbeat state path, got: $*" >&2
+    return 1
+  fi
   cat <<'JSON'
 {"ok":true,"status":"healthy","lastHeartbeatAgeMs":600000,"summary":"canonical heartbeat state is fresh and valid"}
 JSON
