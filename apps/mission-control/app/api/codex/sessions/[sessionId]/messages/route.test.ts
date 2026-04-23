@@ -66,7 +66,30 @@ describe("POST /api/codex/sessions/[sessionId]/messages", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(409);
-    expect(payload).toEqual({ error: "Codex session abc already has an active run" });
+    expect(payload).toEqual({
+      error: "Codex session abc already has an active run",
+      code: "conflict",
+    });
+  });
+
+  it("returns structured codes for other codex run errors", async () => {
+    codexRunMocks.startReplyCodexRun.mockRejectedValueOnce(
+      new codexRunMocks.CodexRunError("invalid_request", "Prompt is required"),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/codex/sessions/abc/messages", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Resume this session" }),
+      }),
+      {
+        params: Promise.resolve({ sessionId: "abc" }),
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({ error: "Prompt is required", code: "invalid_request" });
   });
 
   it("rejects empty prompts", async () => {

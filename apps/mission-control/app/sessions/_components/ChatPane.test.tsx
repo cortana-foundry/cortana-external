@@ -64,6 +64,7 @@ describe("ChatPane", () => {
           pendingCodexUserEvent={null}
           streamedAssistantEvents={[]}
           codexMutationError={null}
+          replyComposerError={null}
           replyPrompt="Need a follow-up"
           setReplyPrompt={vi.fn()}
           onReplyToCodexSession={vi.fn()}
@@ -80,5 +81,58 @@ describe("ChatPane", () => {
     expect(screen.getByLabelText("Reply message")).toBeDisabled();
     expect(screen.getByTestId("codex-transcript-shell").className).toContain("max-w-none");
     expect(screen.getByTestId("codex-composer-shell").className).toContain("max-w-none");
+  });
+
+  it("marks the composer invalid and shows inline reply errors without the busy banner", () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const transcriptViewportRef = { current: null };
+
+    render(
+      <ToastProvider>
+        <ChatPane
+          transcriptViewportRef={transcriptViewportRef}
+          activeCodexSession={baseSession}
+          activeSessionHasRunInProgress
+          activeCodexTitle="Verify repo purpose"
+          activeCodexMessageCount="1"
+          codexMutationPending={null}
+          copiedSessionId={null}
+          onCopySessionId={vi.fn()}
+          onArchiveCodexSession={vi.fn()}
+          onDeleteCodexSession={vi.fn()}
+          selectedCodexSession={baseSession}
+          selectedCodexSessionId={baseSession.sessionId}
+          selectedCodexPagination={{
+            totalEvents: 1,
+            loadedEvents: 1,
+            hasMore: false,
+            nextBefore: null,
+            rangeStart: 0,
+            rangeEnd: 1,
+          }}
+          codexDetailLoading={false}
+          codexOlderLoading={false}
+          hasCodexTranscriptContent
+          pendingCodexUserEvent={null}
+          streamedAssistantEvents={[]}
+          codexMutationError={null}
+          replyComposerError="Codex is still finishing the previous reply for this thread."
+          replyPrompt="Need a follow-up"
+          setReplyPrompt={vi.fn()}
+          onReplyToCodexSession={vi.fn()}
+          formatTimestamp={(value) => (value ? new Date(value).toLocaleString() : "Unknown")}
+          formatRelativeTimestamp={() => "this minute"}
+          formatShortSessionId={(value) => value ?? "Unavailable"}
+        />
+      </ToastProvider>,
+    );
+
+    expect(screen.getByLabelText("Reply message")).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getAllByText("Codex is still finishing the previous reply for this thread."),
+    ).toHaveLength(1);
   });
 });
