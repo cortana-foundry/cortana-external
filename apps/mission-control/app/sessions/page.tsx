@@ -26,6 +26,7 @@ import type {
 
 const CODEX_RECONCILE_INTERVAL_MS = 4_000;
 const DEFAULT_CODEX_EVENT_PAGE_SIZE = 60;
+const CODEX_DETAIL_CACHE_FRESHNESS_MS = 15_000;
 const TRANSCRIPT_SCROLL_TOP_FETCH_THRESHOLD_PX = 72;
 const RAIL_COLLAPSED_STORAGE_KEY = "mc-rail-collapsed";
 const LAST_OPENED_STORAGE_KEY = "mc-session-last-opened";
@@ -352,10 +353,17 @@ function mergeOlderCodexSessionEvents(
   ];
 }
 
+type CachedCodexSessionDetail = {
+  session: CodexSessionDetail;
+  pagination: CodexSessionPagination | null;
+  loadedAt: number;
+};
+
 export default function SessionsPage() {
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const transcriptScrollActionRef = useRef<"bottom" | "preserve" | null>(null);
   const transcriptPrependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const selectedCodexSessionIdRef = useRef<string | null>(null);
   const [codexSessions, setCodexSessions] = useState<CodexSession[]>([]);
   const [codexSessionGroups, setCodexSessionGroups] = useState<CodexSessionGroup[]>([]);
   const [codexVisibleTotal, setCodexVisibleTotal] = useState(0);
@@ -364,9 +372,11 @@ export default function SessionsPage() {
   const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
   const [selectedCodexSession, setSelectedCodexSession] = useState<CodexSessionDetail | null>(null);
   const [selectedCodexPagination, setSelectedCodexPagination] = useState<CodexSessionPagination | null>(null);
+  const [codexSessionDetailCache, setCodexSessionDetailCache] = useState<Record<string, CachedCodexSessionDetail>>({});
   const [provisionalCodexSession, setProvisionalCodexSession] = useState<CodexSession | null>(null);
   const [streamedAssistantEvents, setStreamedAssistantEvents] = useState<StreamingCodexEvent[]>([]);
   const [pendingCodexUserEvent, setPendingCodexUserEvent] = useState<CodexSessionEvent | null>(null);
+  const [codexStreamingSessionId, setCodexStreamingSessionId] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [codexDetailLoading, setCodexDetailLoading] = useState(false);
   const [codexOlderLoading, setCodexOlderLoading] = useState(false);
@@ -454,6 +464,14 @@ export default function SessionsPage() {
   const handleSelectCodexSession = useCallback((sessionId: string | null) => {
     setSelectedCodexSessionId(sessionId);
     setReplyComposerError(null);
+    if (!sessionId) {
+      setSelectedCodexSession(null);
+      setSelectedCodexPagination(null);
+    } else {
+      const cached = codexSessionDetailCache[sessionId];
+      setSelectedCodexSession(cached?.session ?? null);
+      setSelectedCodexPagination(cached?.pagination ?? null);
+    }
     if (sessionId) {
       setLastOpenedAt((current) => {
         const next = { ...current, [sessionId]: Date.now() };
@@ -461,7 +479,11 @@ export default function SessionsPage() {
         return next;
       });
     }
-  }, []);
+  }, [codexSessionDetailCache]);
+
+  useEffect(() => {
+    selectedCodexSessionIdRef.current = selectedCodexSessionId;
+  }, [selectedCodexSessionId]);
 
   async function fetchCodexSessions() {
     const response = await fetch("/api/codex/sessions", { cache: "no-store" });
@@ -501,24 +523,43 @@ export default function SessionsPage() {
       }
 
       if (appendMode === "prepend") {
+        if (selectedCodexSessionIdRef.current !== sessionId) {
+          return;
+        }
+
+        const currentSession = selectedCodexSessionIdRef.current === sessionId
+          ? selectedCodexSession
+          : null;
+        const mergedSession = currentSession
+          ? {
+              ...payload.session,
+              events: mergeOlderCodexSessionEvents(currentSession.events, payload.session.events),
+            }
+          : payload.session;
+
+        storeCodexSessionDetail(mergedSession, payload.pagination ?? null);
         startTransition(() => {
-          setSelectedCodexSession((current) => {
-            if (!current) return payload.session ?? null;
-            return {
-              ...payload.session!,
-              events: mergeOlderCodexSessionEvents(current.events, payload.session!.events),
-            };
-          });
+          setSelectedCodexSession(mergedSession);
           setSelectedCodexPagination(payload.pagination ?? null);
         });
       } else {
+        storeCodexSessionDetail(payload.session, payload.pagination ?? null);
+        if (selectedCodexSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         transcriptScrollActionRef.current = "bottom";
         setSelectedCodexSession(payload.session);
         setSelectedCodexPagination(payload.pagination ?? null);
       }
       setCodexMutationError(null);
     } catch (err) {
-      if (appendMode === "replace") {
+      if (appendMode === "prepend") {
+        if (selectedCodexSessionIdRef.current === sessionId) {
+          transcriptPrependAnchorRef.current = null;
+          transcriptScrollActionRef.current = null;
+        }
+      } else if (selectedCodexSessionIdRef.current === sessionId) {
         setSelectedCodexSession(null);
         setSelectedCodexPagination(null);
       } else {
@@ -534,6 +575,20 @@ export default function SessionsPage() {
       }
     }
   }
+
+  const storeCodexSessionDetail = useCallback((
+    session: CodexSessionDetail,
+    pagination: CodexSessionPagination | null,
+  ) => {
+    setCodexSessionDetailCache((current) => ({
+      ...current,
+      [session.sessionId]: {
+        session,
+        pagination,
+        loadedAt: Date.now(),
+      },
+    }));
+  }, []);
 
   async function refreshCodexSessions(
     preferredSessionId?: string | null,
@@ -714,22 +769,35 @@ export default function SessionsPage() {
     };
   }, []);
 
+  const selectedCodexSessionCacheEntry =
+    selectedCodexSessionId ? (codexSessionDetailCache[selectedCodexSessionId] ?? null) : null;
+
   useEffect(() => {
     if (!selectedCodexSessionId) {
       setSelectedCodexSession(null);
       setSelectedCodexPagination(null);
-      setPendingCodexUserEvent(null);
-      setStreamedAssistantEvents([]);
       setReplyComposerError(null);
       return;
     }
 
-    setPendingCodexUserEvent(null);
-    setStreamedAssistantEvents([]);
+    const cached = selectedCodexSessionCacheEntry;
+    if (cached) {
+      setSelectedCodexSession(cached.session);
+      setSelectedCodexPagination(cached.pagination);
+
+      if (Date.now() - cached.loadedAt <= CODEX_DETAIL_CACHE_FRESHNESS_MS) {
+        setCodexDetailLoading(false);
+        return;
+      }
+
+      void loadCodexSessionDetail(selectedCodexSessionId, { background: true });
+      return;
+    }
+
+    setSelectedCodexSession(null);
     setSelectedCodexPagination(null);
-    setReplyComposerError(null);
     void loadCodexSessionDetail(selectedCodexSessionId);
-  }, [selectedCodexSessionId]);
+  }, [selectedCodexSessionId, selectedCodexSessionCacheEntry]);
 
   useEffect(() => {
     if (selectedCodexSessionId) {
@@ -915,16 +983,23 @@ export default function SessionsPage() {
   );
   const codexSummary = useMemo(() => summarizeCodexSessions(visibleCodexSessions), [visibleCodexSessions]);
   const activeCodexThreadId = selectedCodexSessionId ?? provisionalCodexSession?.sessionId ?? null;
+  const activeCodexStreamingThread =
+    (selectedCodexSessionId && codexStreamingSessionId === selectedCodexSessionId)
+    || (codexMutationPending === "create" && selectedCodexSessionId == null);
+  const visiblePendingCodexUserEvent = activeCodexStreamingThread ? pendingCodexUserEvent : null;
+  const visibleStreamedAssistantEvents = activeCodexStreamingThread ? streamedAssistantEvents : [];
   const hasCodexTranscriptContent =
     Boolean(selectedCodexSession) ||
     Boolean(provisionalCodexSession) ||
-    Boolean(pendingCodexUserEvent) ||
-    streamedAssistantEvents.length > 0;
+    Boolean(visiblePendingCodexUserEvent) ||
+    visibleStreamedAssistantEvents.length > 0;
   const activeCodexSummary =
     activeCodexThreadId
       ? visibleCodexSessions.find((session) => session.sessionId === activeCodexThreadId) ?? null
       : provisionalCodexSession;
-  const activeSessionHasRunInProgress = Boolean(activeCodexSummary?.activeRun);
+  const activeSessionHasRunInProgress =
+    Boolean(activeCodexSummary?.activeRun)
+    || (codexMutationPending === "reply" && Boolean(selectedCodexSessionId && codexStreamingSessionId === selectedCodexSessionId));
   const activeCodexSession = selectedCodexSession ?? activeCodexSummary ?? provisionalCodexSession;
   const activeCodexTitle =
     selectedCodexSession?.threadName ??
@@ -964,6 +1039,7 @@ export default function SessionsPage() {
       phase: "submitted",
       rawType: "user.pending",
     });
+    setCodexStreamingSessionId(null);
     setStreamedAssistantEvents([]);
     setNewThreadOpen(false);
     try {
@@ -995,24 +1071,40 @@ export default function SessionsPage() {
       await consumeCodexStream(
         response,
         async (session) => {
-          transcriptScrollActionRef.current = "bottom";
-          setSelectedCodexSession(session);
-          setSelectedCodexPagination({
+          const pagination = {
             totalEvents: session.events.length,
             loadedEvents: session.events.length,
             hasMore: false,
             nextBefore: null,
             rangeStart: 0,
             rangeEnd: session.events.length,
-          });
-          const { selectedSessionId } = await refreshCodexSessions(session.sessionId, session);
+          };
+          const selectedSessionId = selectedCodexSessionIdRef.current;
+          const shouldRevealCompletedSession =
+            selectedSessionId == null || selectedSessionId === session.sessionId;
+
+          storeCodexSessionDetail(session, pagination);
+          transcriptScrollActionRef.current = "bottom";
+          if (shouldRevealCompletedSession) {
+            setSelectedCodexSession(session);
+            setSelectedCodexPagination(pagination);
+          }
+          const refreshTargetSessionId = shouldRevealCompletedSession ? session.sessionId : selectedSessionId;
+          const { selectedSessionId: nextSelectedSessionId } = await refreshCodexSessions(
+            refreshTargetSessionId,
+            shouldRevealCompletedSession ? session : null,
+          );
           setProvisionalCodexSession(null);
-          setSelectedCodexSessionId(selectedSessionId ?? session.sessionId);
+          if (shouldRevealCompletedSession) {
+            setSelectedCodexSessionId(nextSelectedSessionId ?? session.sessionId);
+          }
           setPendingCodexUserEvent(null);
+          setCodexStreamingSessionId(null);
           setStreamedAssistantEvents([]);
         },
         {
           onThreadStarted: (threadId) => {
+            setCodexStreamingSessionId(threadId);
             setProvisionalCodexSession((current) => {
               if (current?.sessionId === threadId) return current;
               return {
@@ -1034,6 +1126,7 @@ export default function SessionsPage() {
     } catch (err) {
       setProvisionalCodexSession(null);
       setPendingCodexUserEvent(null);
+      setCodexStreamingSessionId(null);
       setStreamedAssistantEvents([]);
       setCodexMutationError(err instanceof Error ? err.message : "Failed to create Codex session");
     } finally {
@@ -1064,6 +1157,7 @@ export default function SessionsPage() {
       phase: "submitted",
       rawType: "user.pending",
     });
+    setCodexStreamingSessionId(submittedSessionId);
     try {
       const startResponse = await fetch(`/api/codex/sessions/${submittedSessionId}/messages`, {
         method: "POST",
@@ -1098,20 +1192,33 @@ export default function SessionsPage() {
 
       await consumeCodexStream(response, async (session) => {
         streamCompleted = true;
-        transcriptScrollActionRef.current = "bottom";
-        setSelectedCodexSession(session);
-        setSelectedCodexPagination({
+        const pagination = {
           totalEvents: session.events.length,
           loadedEvents: session.events.length,
           hasMore: false,
           nextBefore: null,
           rangeStart: 0,
           rangeEnd: session.events.length,
-        });
+        };
+        const selectedSessionId = selectedCodexSessionIdRef.current;
+        const shouldRevealCompletedSession =
+          selectedSessionId == null || selectedSessionId === session.sessionId;
+
+        storeCodexSessionDetail(session, pagination);
+        transcriptScrollActionRef.current = "bottom";
+        if (shouldRevealCompletedSession) {
+          setSelectedCodexSession(session);
+          setSelectedCodexPagination(pagination);
+        }
         setPendingCodexUserEvent(null);
+        setCodexStreamingSessionId(null);
         setStreamedAssistantEvents([]);
         setReplyComposerError(null);
-        await refreshCodexSessions(session.sessionId, session);
+        const refreshTargetSessionId = shouldRevealCompletedSession ? session.sessionId : selectedSessionId;
+        await refreshCodexSessions(
+          refreshTargetSessionId,
+          shouldRevealCompletedSession ? session : null,
+        );
       });
     } catch (err) {
       if (streamCompleted) {
@@ -1126,6 +1233,7 @@ export default function SessionsPage() {
 
       if (!replyAccepted) {
         setPendingCodexUserEvent(null);
+        setCodexStreamingSessionId(null);
         setReplyPrompt(submittedPrompt);
         setStreamedAssistantEvents([]);
         setReplyComposerError(normalizedMessage);
@@ -1138,6 +1246,9 @@ export default function SessionsPage() {
 
       setCodexMutationError(normalizedMessage);
     } finally {
+      if (!streamCompleted) {
+        setCodexStreamingSessionId((current) => (current === submittedSessionId ? null : current));
+      }
       setCodexMutationPending(null);
     }
   }
@@ -1183,11 +1294,18 @@ export default function SessionsPage() {
       }
 
       if (sessionId === selectedCodexSessionId || sessionId === activeCodexSession?.sessionId) {
+        setSelectedCodexSessionId(null);
         setSelectedCodexSession(null);
         setSelectedCodexPagination(null);
         setPendingCodexUserEvent(null);
+        setCodexStreamingSessionId(null);
         setStreamedAssistantEvents([]);
       }
+      setCodexSessionDetailCache((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
       await refreshCodexSessions(null);
     } catch (err) {
       setCodexMutationError(err instanceof Error ? err.message : "Failed to archive Codex session");
@@ -1211,11 +1329,18 @@ export default function SessionsPage() {
       }
 
       if (sessionId === selectedCodexSessionId || sessionId === activeCodexSession?.sessionId) {
+        setSelectedCodexSessionId(null);
         setSelectedCodexSession(null);
         setSelectedCodexPagination(null);
         setPendingCodexUserEvent(null);
+        setCodexStreamingSessionId(null);
         setStreamedAssistantEvents([]);
       }
+      setCodexSessionDetailCache((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
       await refreshCodexSessions(null);
     } catch (err) {
       setCodexMutationError(err instanceof Error ? err.message : "Failed to delete Codex session");
@@ -1365,8 +1490,8 @@ export default function SessionsPage() {
           codexDetailLoading={codexDetailLoading}
           codexOlderLoading={codexOlderLoading}
           hasCodexTranscriptContent={hasCodexTranscriptContent}
-          pendingCodexUserEvent={pendingCodexUserEvent}
-          streamedAssistantEvents={streamedAssistantEvents}
+          pendingCodexUserEvent={visiblePendingCodexUserEvent}
+          streamedAssistantEvents={visibleStreamedAssistantEvents}
           codexMutationError={codexMutationError}
           replyComposerError={replyComposerError}
           replyPrompt={replyPrompt}

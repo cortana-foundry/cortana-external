@@ -1,12 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 import {
   getCodexMirroredSessionDetail,
-  listCodexMirroredSessions,
   reconcileCodexMirrorSession,
   syncCodexMirrorThreadFromSession,
 } from "@/lib/codex-mirror";
@@ -14,17 +11,15 @@ import type { CodexSessionDetail, CodexSessionEvent, CodexSessionSummary } from 
 import {
   getCodexSessionDetail,
   listCodexSessionIndexSummariesById,
-  listCodexSessionIndexSummaries,
-  listCodexStateThreadSummaries,
+  listCodexSessions,
   type CodexSessionEvent as FileCodexSessionEvent,
 } from "@/lib/codex-sessions";
 
 const DEFAULT_CODEX_ROOT = path.join(os.homedir(), ".codex");
 const DEFAULT_CODEX_GLOBAL_STATE_PATH = path.join(DEFAULT_CODEX_ROOT, ".codex-global-state.json");
-const DEFAULT_CODEX_STATE_DB_PATH = path.join(DEFAULT_CODEX_ROOT, "state_5.sqlite");
 const DEFAULT_VISIBLE_GROUP_SESSION_LIMIT = 5;
 const DEFAULT_DISCOVERY_LIMIT = 100;
-const execFileAsync = promisify(execFile);
+const UNKNOWN_WORKSPACE_GROUP_ID = "__unknown_codex_workspace__";
 
 type CodexDesktopSidebarState = {
   activeWorkspaceRoots: string[];
@@ -67,10 +62,6 @@ type SidebarGroupingInput = {
   rootPath: string;
 };
 
-function escapeSqlLiteral(value: string) {
-  return value.replaceAll("'", "''");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
@@ -82,9 +73,16 @@ function normalizePath(value: string | null | undefined) {
   return path.resolve(trimmed);
 }
 
+function comparablePath(value: string | null | undefined) {
+  const normalized = normalizePath(value);
+  if (!normalized) return null;
+  const usesMacUserRoot = normalized === "/Users" || normalized.startsWith("/Users/");
+  return process.platform === "darwin" || usesMacUserRoot ? normalized.toLowerCase() : normalized;
+}
+
 function isWithinRoot(targetPath: string | null | undefined, rootPath: string | null | undefined) {
-  const normalizedTarget = normalizePath(targetPath);
-  const normalizedRoot = normalizePath(rootPath);
+  const normalizedTarget = comparablePath(targetPath);
+  const normalizedRoot = comparablePath(rootPath);
   if (!normalizedTarget || !normalizedRoot) return false;
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`);
 }
@@ -96,6 +94,10 @@ function getRootMatchScore(rootPath: string, activeRoots: Set<string>, savedRoot
 }
 
 function getWorkspaceLabel(rootPath: string) {
+  if (rootPath === UNKNOWN_WORKSPACE_GROUP_ID) {
+    return "Other";
+  }
+
   const label = path.basename(rootPath);
   return label.trim().length > 0 ? label : rootPath;
 }
@@ -117,7 +119,7 @@ function deriveFallbackWorkspaceRoot(cwd: string | null | undefined, homeDir = o
     return null;
   }
 
-  if (segments[0] === "Developer" && segments[1]) {
+  if (segments[0]?.toLowerCase() === "developer" && segments[1]) {
     return path.join(normalizedHome, "Developer", segments[1]);
   }
 
@@ -183,6 +185,25 @@ function isMissionControlTestThread(row: CodexLocalThreadStateRow | null, sessio
   );
 }
 
+function isArchivedTranscriptSession(session: CodexSessionSummary) {
+  const transcriptPath = normalizePath(session.transcriptPath);
+  if (!transcriptPath) return false;
+
+  const archivedRoot = path.join(DEFAULT_CODEX_ROOT, "archived_sessions");
+  if (isWithinRoot(transcriptPath, archivedRoot)) {
+    return true;
+  }
+
+  const pathSegments = transcriptPath.split(path.sep).filter(Boolean);
+  for (let index = 0; index < pathSegments.length - 1; index += 1) {
+    if (pathSegments[index] === ".codex" && pathSegments[index + 1] === "archived_sessions") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
   const source = (row?.source ?? session.source ?? "").trim();
   if (source === "vscode") return 0;
@@ -196,9 +217,10 @@ function shouldExposeSessionInSidebar(
   stateRow: CodexLocalThreadStateRow | null,
 ) {
   const source = (stateRow?.source ?? session.source ?? "").trim();
+  const isSubagent = session.isSubagent || isSubagentThread(stateRow?.source ?? session.source);
   if (stateRow?.archived) return false;
-  if (source.length > 0 && source !== "vscode" && source !== "exec") return false;
-  if (isSubagentThread(stateRow?.source ?? session.source)) return false;
+  if (isArchivedTranscriptSession(session)) return false;
+  if (source.length > 0 && source !== "vscode" && source !== "exec" && !isSubagent) return false;
   if (isUtilityCliThread(stateRow, session)) return false;
   if (isSyntheticNamedThread(stateRow, session)) return false;
   if (isMissionControlTestThread(stateRow, session)) return false;
@@ -256,55 +278,6 @@ async function readCodexDesktopSidebarState(
   }
 }
 
-async function readCodexLocalThreadStateRows(
-  sessionIds: string[],
-  stateDbPath = DEFAULT_CODEX_STATE_DB_PATH,
-): Promise<CodexLocalThreadStateRow[]> {
-  if (sessionIds.length === 0) {
-    return [];
-  }
-
-  const safeSessionIds = [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
-  if (safeSessionIds.length === 0) {
-    return [];
-  }
-
-  const sessionIdList = safeSessionIds.map((sessionId) => `'${escapeSqlLiteral(sessionId)}'`).join(", ");
-
-  try {
-    const { stdout } = await execFileAsync(
-      "sqlite3",
-      [
-        "-json",
-        stateDbPath,
-        `
-          SELECT
-            id,
-            title,
-            cwd,
-            source,
-            first_user_message,
-            archived,
-            has_user_event,
-            COALESCE(updated_at_ms, updated_at * 1000) AS updated_at_ms
-          FROM threads
-          WHERE id IN (${sessionIdList})
-          ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC
-        `,
-      ],
-      { maxBuffer: 8 * 1024 * 1024 },
-    );
-
-    if (!stdout.trim()) {
-      return [];
-    }
-
-    return JSON.parse(stdout) as CodexLocalThreadStateRow[];
-  } catch {
-    return [];
-  }
-}
-
 export function buildVisibleCodexSessionGroups(
   sessions: CodexSessionSummary[],
   threadRows: CodexLocalThreadStateRow[],
@@ -350,10 +323,9 @@ export function buildVisibleCodexSessionGroups(
       continue;
     }
 
-    const rootPath = deriveWorkspaceRoot(stateRow?.cwd ?? session.cwd, preferredRoots, homeDir);
-    if (!rootPath) {
-      continue;
-    }
+    const rootPath =
+      deriveWorkspaceRoot(stateRow?.cwd ?? session.cwd, preferredRoots, homeDir)
+      ?? UNKNOWN_WORKSPACE_GROUP_ID;
 
     const current = grouped.get(rootPath) ?? [];
     current.push({ session, stateRow, rootPath });
@@ -380,6 +352,12 @@ export function buildVisibleCodexSessionGroups(
       };
     })
     .sort((left, right) => {
+      const leftIsUnknown = left.rootPath === UNKNOWN_WORKSPACE_GROUP_ID;
+      const rightIsUnknown = right.rootPath === UNKNOWN_WORKSPACE_GROUP_ID;
+      if (leftIsUnknown !== rightIsUnknown) {
+        return leftIsUnknown ? 1 : -1;
+      }
+
       const scoreDelta =
         getRootMatchScore(left.rootPath, activeRoots, savedRoots)
         - getRootMatchScore(right.rootPath, activeRoots, savedRoots);
@@ -485,6 +463,7 @@ function mergeSessionSummary(
     cwd: overlay.cwd ?? base.cwd,
     model: overlay.model ?? base.model,
     source: overlay.source ?? base.source,
+    isSubagent: overlay.isSubagent ?? base.isSubagent ?? false,
     cliVersion: overlay.cliVersion ?? base.cliVersion,
     lastMessagePreview: overlay.lastMessagePreview ?? base.lastMessagePreview,
     transcriptPath: overlay.transcriptPath ?? base.transcriptPath,
@@ -547,51 +526,20 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
     safeLimit,
     Math.min(DEFAULT_DISCOVERY_LIMIT, safeLimit * DEFAULT_VISIBLE_GROUP_SESSION_LIMIT),
   );
-  const [indexedSessions, mirroredSessions, stateSessions, sidebarState] = await Promise.all([
-    listCodexSessionIndexSummaries({ limit: discoveryLimit }),
-    listCodexMirroredSessions(discoveryLimit),
-    listCodexStateThreadSummaries({ limit: discoveryLimit }),
+  const [sessions, sidebarState] = await Promise.all([
+    listCodexSessions({ limit: discoveryLimit }),
     readCodexDesktopSidebarState(),
   ]);
-  const stateIndexedSessions = stateSessions.length > 0
-    ? await listCodexSessionIndexSummariesById(
-        stateSessions.map((session) => session.sessionId),
-      )
-    : [];
-  const stateIndexedById = new Map(stateIndexedSessions.map((session) => [session.sessionId, session] as const));
-  const merged = new Map(indexedSessions.map((session) => [session.sessionId, session] as const));
 
-  for (const session of mirroredSessions) {
-    merged.set(session.sessionId, mergeSessionSummary(merged.get(session.sessionId), session) ?? session);
-  }
-
-  for (const session of stateSessions) {
-    const preferredTitleSession = mergeSessionSummary(stateIndexedById.get(session.sessionId), session) ?? session;
-    merged.set(
-      session.sessionId,
-      mergeSessionSummary(merged.get(session.sessionId), preferredTitleSession) ?? preferredTitleSession,
-    );
-  }
-
-  const candidates = [...merged.values()]
-    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
-    .slice(0, discoveryLimit);
-
-  const threadRows = await readCodexLocalThreadStateRows(
-    candidates.map((session) => session.sessionId),
-  );
-
-  const visible = buildVisibleCodexSessionGroups(candidates, threadRows, sidebarState, {
+  const visible = buildVisibleCodexSessionGroups(sessions, [], sidebarState, {
     limit: safeLimit,
   });
-
-  await Promise.allSettled(visible.sessions.map((session) => syncCodexMirrorThreadFromSession(session)));
   return visible;
 }
 
 export async function getVisibleCodexSessionDetail(sessionId: string): Promise<CodexSessionDetail | null> {
   const lifecycleState = await reconcileCodexMirrorSession(sessionId);
-  if (lifecycleState !== "active") {
+  if (lifecycleState === "archived") {
     return null;
   }
 
@@ -608,6 +556,10 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
     : null;
 
   if (!mirrored && !fileBacked && !indexed) {
+    return null;
+  }
+
+  if (lifecycleState === "missing" && !fileBacked) {
     return null;
   }
 
@@ -629,6 +581,10 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
   }
 
   if (!fileBacked) {
+    if (lifecycleState === "missing") {
+      return null;
+    }
+
     const detail = mirrored
       ? {
           ...mergeSessionSummary(mirrored, indexed) ?? mirrored,

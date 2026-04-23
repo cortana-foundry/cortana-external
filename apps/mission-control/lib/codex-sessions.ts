@@ -11,6 +11,7 @@ const DEFAULT_ARCHIVED_ROOT = path.join(DEFAULT_CODEX_ROOT, "archived_sessions")
 const DEFAULT_CODEX_STATE_DB_PATH = path.join(DEFAULT_CODEX_ROOT, "state_5.sqlite");
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const SIDEBAR_METADATA_READ_BYTES = 64 * 1024;
 const execFileAsync = promisify(execFile);
 
 export type CodexSessionSummary = {
@@ -20,6 +21,7 @@ export type CodexSessionSummary = {
   cwd: string | null;
   model: string | null;
   source: string | null;
+  isSubagent?: boolean;
   cliVersion: string | null;
   lastMessagePreview: string | null;
   transcriptPath: string | null;
@@ -48,6 +50,7 @@ type TranscriptMetadata = {
   cwd: string | null;
   model: string | null;
   source: string | null;
+  isSubagent: boolean;
   cliVersion: string | null;
   lastMessagePreview: string | null;
 };
@@ -99,6 +102,26 @@ function parseString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function stringifyJsonValue(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSubagentSourceValue(value: unknown): boolean {
+  if (!value) return false;
+  if (typeof value === "string") {
+    return value.includes("thread_spawn") || value.includes("\"subagent\"");
+  }
+
+  return stringifyJsonValue(value)?.includes("thread_spawn")
+    || stringifyJsonValue(value)?.includes("\"subagent\"")
+    || false;
 }
 
 function clampLimit(value: number | null | undefined): number {
@@ -227,6 +250,7 @@ export async function listCodexSessionIndexSummaries(
       cwd: null,
       model: null,
       source: null,
+      isSubagent: false,
       cliVersion: null,
       lastMessagePreview: null,
       transcriptPath: null,
@@ -258,6 +282,7 @@ export async function listCodexSessionIndexSummariesById(
       cwd: null,
       model: null,
       source: null,
+      isSubagent: false,
       cliVersion: null,
       lastMessagePreview: null,
       transcriptPath: null,
@@ -307,6 +332,7 @@ export async function listCodexStateThreadSummaries(
       cwd: parseString(row.cwd),
       model: parseString(row.model),
       source: parseString(row.source),
+      isSubagent: isSubagentSourceValue(row.source),
       cliVersion: parseString(row.cli_version),
       lastMessagePreview: null,
       transcriptPath: parseString(row.rollout_path),
@@ -321,6 +347,7 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
     cwd: null,
     model: null,
     source: null,
+    isSubagent: false,
     cliVersion: null,
     lastMessagePreview: null,
   };
@@ -336,8 +363,12 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
         metadata.cwd = parseString(typed.cwd) ?? metadata.cwd;
         metadata.source =
           parseString(typed.source) ??
+          stringifyJsonValue(typed.source) ??
           parseString(typed.originator) ??
           metadata.source;
+        metadata.isSubagent = metadata.isSubagent
+          || isSubagentSourceValue(typed.source)
+          || parseString(typed.forked_from_id) != null;
         metadata.cliVersion = parseString(typed.cli_version) ?? metadata.cliVersion;
         metadata.model = parseString(typed.model) ?? metadata.model;
       }
@@ -375,6 +406,29 @@ export function parseCodexTranscriptMetadata(raw: string): TranscriptMetadata {
   }
 
   return metadata;
+}
+
+async function readCodexTranscriptMetadataForSidebar(transcriptPath: string): Promise<TranscriptMetadata> {
+  const file = await fs.open(transcriptPath, "r");
+
+  try {
+    const buffer = Buffer.alloc(SIDEBAR_METADATA_READ_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead <= 0) {
+      return {
+        cwd: null,
+        model: null,
+        source: null,
+        isSubagent: false,
+        cliVersion: null,
+        lastMessagePreview: null,
+      };
+    }
+
+    return parseCodexTranscriptMetadata(buffer.toString("utf8", 0, bytesRead));
+  } finally {
+    await file.close();
+  }
 }
 
 export function parseCodexTranscriptEvents(raw: string): CodexSessionEvent[] {
@@ -646,24 +700,13 @@ async function enrichSessionEntry(
   sessionsRoot: string,
   archivedRoot: string,
   stateDbPath: string,
-): Promise<CodexSessionSummary> {
+): Promise<CodexSessionSummary | null> {
   const transcriptPath = await findTranscriptPath(entry.id, entry.updatedAt, sessionsRoot, archivedRoot, stateDbPath);
   if (!transcriptPath || !(await fileExists(transcriptPath))) {
-    return {
-      sessionId: entry.id,
-      threadName: entry.threadName,
-      updatedAt: entry.updatedAt,
-      cwd: null,
-      model: null,
-      source: null,
-      cliVersion: null,
-      lastMessagePreview: null,
-      transcriptPath: null,
-    };
+    return null;
   }
 
-  const rawTranscript = await fs.readFile(transcriptPath, "utf8");
-  const metadata = parseCodexTranscriptMetadata(rawTranscript);
+  const metadata = await readCodexTranscriptMetadataForSidebar(transcriptPath);
 
   return {
     sessionId: entry.id,
@@ -672,6 +715,7 @@ async function enrichSessionEntry(
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
+    isSubagent: metadata.isSubagent,
     cliVersion: metadata.cliVersion,
     lastMessagePreview: metadata.lastMessagePreview,
     transcriptPath,
@@ -693,10 +737,22 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
   const raw = await fs.readFile(sessionIndexPath, "utf8");
   const parsedEntries = parseCodexSessionIndex(raw);
   const entries = requestedIds.size > 0
-    ? parsedEntries.filter((entry) => requestedIds.has(entry.id)).slice(0, limit)
-    : parsedEntries.slice(0, limit);
+    ? parsedEntries.filter((entry) => requestedIds.has(entry.id))
+    : parsedEntries;
 
-  return Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath)));
+  const sessions: CodexSessionSummary[] = [];
+  for (const entry of entries) {
+    if (sessions.length >= limit) {
+      break;
+    }
+
+    const enriched = await enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath);
+    if (enriched) {
+      sessions.push(enriched);
+    }
+  }
+
+  return sessions;
 }
 
 export async function getCodexSessionDetail(
@@ -732,6 +788,7 @@ export async function getCodexSessionDetail(
     cwd: metadata.cwd,
     model: metadata.model,
     source: metadata.source,
+    isSubagent: metadata.isSubagent,
     cliVersion: metadata.cliVersion,
     lastMessagePreview: metadata.lastMessagePreview,
     transcriptPath,
@@ -811,7 +868,19 @@ export async function archiveCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
-    throw new Error(`Codex session ${sessionId} not found`);
+    try {
+      const detail = await getCodexSessionDetail(sessionId, {
+        sessionIndexPath,
+        sessionsRoot,
+        archivedRoot,
+        stateDbPath,
+      });
+      await archiveCodexTranscriptFile(detail.transcriptPath, archivedRoot);
+    } catch {
+      // Fall through to index cleanup for index-only ghosts.
+    }
+    await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
+    return;
   }
 
   const transcriptPath = await findTranscriptPath(
@@ -854,7 +923,19 @@ export async function deleteCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
-    throw new Error(`Codex session ${sessionId} not found`);
+    try {
+      const detail = await getCodexSessionDetail(sessionId, {
+        sessionIndexPath,
+        sessionsRoot,
+        archivedRoot,
+        stateDbPath,
+      });
+      await deleteCodexTranscriptFile(detail.transcriptPath);
+    } catch {
+      // Fall through to index cleanup for index-only ghosts.
+    }
+    await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
+    return;
   }
 
   const transcriptPath = await findTranscriptPath(

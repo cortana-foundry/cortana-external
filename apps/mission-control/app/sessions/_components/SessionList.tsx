@@ -396,8 +396,15 @@ export function SessionList({
           {monogram}
         </span>
         <span className="pointer-events-none relative z-10 min-w-0 flex-1">
-          <span className="line-clamp-1 text-[13px] font-medium text-foreground">
-            {title}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] font-medium text-foreground">
+              {title}
+            </span>
+            {session.isSubagent ? (
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Subagent
+              </span>
+            ) : null}
           </span>
           <span className="line-clamp-1 text-xs text-muted-foreground">
             {preview}
