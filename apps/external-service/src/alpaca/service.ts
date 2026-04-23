@@ -9,6 +9,12 @@ import { Pool } from "pg";
 import { getConfig } from "../config.js";
 import { fetchWithTimeout, HttpError } from "../lib/http.js";
 import type { AppLogger } from "../lib/logger.js";
+import {
+  CREATE_TRADES_TABLE_SQL,
+  calculateExitPerformance,
+  mapTradeLedgerRow,
+  type TradeLedgerRow,
+} from "./trade-ledger.js";
 import type {
   Account,
   EarningsResult,
@@ -20,28 +26,6 @@ import type {
   TradeRecord,
   UpdateTradeRequest,
 } from "./types.js";
-
-const CREATE_TRADES_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS cortana_trades (
-  id SERIAL PRIMARY KEY,
-  timestamp TIMESTAMPTZ DEFAULT NOW(),
-  symbol TEXT NOT NULL,
-  side TEXT NOT NULL,
-  qty NUMERIC,
-  notional NUMERIC,
-  entry_price NUMERIC,
-  target_price NUMERIC,
-  stop_loss NUMERIC,
-  thesis TEXT,
-  signal_source TEXT,
-  status TEXT DEFAULT 'open',
-  exit_price NUMERIC,
-  exit_timestamp TIMESTAMPTZ,
-  pnl NUMERIC,
-  pnl_pct NUMERIC,
-  outcome TEXT,
-  metadata JSONB DEFAULT '{}'
-);`;
 
 function configuredAlpacaEnvironment(baseURL: string): string {
   if (baseURL.toLowerCase().includes("paper-api.alpaca.markets")) {
@@ -586,26 +570,7 @@ export class AlpacaService {
         LIMIT 200
       `);
 
-      const trades: TradeRecord[] = result.rows.map((row) => ({
-        id: row.id,
-        timestamp: row.timestamp?.toISOString(),
-        symbol: row.symbol,
-        side: row.side,
-        qty: row.qty,
-        notional: row.notional,
-        entry_price: row.entry_price,
-        target_price: row.target_price,
-        stop_loss: row.stop_loss,
-        thesis: row.thesis ?? "",
-        signal_source: row.signal_source ?? "",
-        status: row.status ?? "",
-        exit_price: row.exit_price,
-        exit_timestamp: row.exit_timestamp?.toISOString() ?? null,
-        pnl: row.pnl,
-        pnl_pct: row.pnl_pct,
-        outcome: row.outcome ?? "",
-        metadata: row.metadata,
-      }));
+      const trades: TradeRecord[] = result.rows.map((row) => mapTradeLedgerRow(row as TradeLedgerRow));
 
       return c.json({ trades });
     } catch (error) {
@@ -734,23 +699,18 @@ export class AlpacaService {
         args.push(request.exit_price);
         setParts.push("exit_timestamp = NOW()");
 
-        const entry = current.rows[0].entry_price;
-        const qty = current.rows[0].qty;
-        if (entry != null) {
-          let pnl = request.exit_price - entry;
-          if (qty != null) {
-            pnl *= qty;
-          }
+        const performance = calculateExitPerformance(
+          current.rows[0].entry_price,
+          current.rows[0].qty,
+          request.exit_price,
+        );
+        if (performance.pnl != null) {
           setParts.push(`pnl = $${arg++}`);
-          args.push(pnl);
-
-          if (entry !== 0) {
-            const pct = ((request.exit_price / entry) - 1) * 100;
-            if (Number.isFinite(pct)) {
-              setParts.push(`pnl_pct = $${arg++}`);
-              args.push(pct);
-            }
-          }
+          args.push(performance.pnl);
+        }
+        if (performance.pnlPct != null) {
+          setParts.push(`pnl_pct = $${arg++}`);
+          args.push(performance.pnlPct);
         }
       }
 

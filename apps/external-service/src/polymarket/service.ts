@@ -18,28 +18,17 @@ import {
 } from "./streamer.js";
 import { PolymarketPinsStore, type PinnedPolymarketMarket } from "./pins.js";
 import {
-  BOARD_CANDIDATE_LIMIT,
-  BOARD_DISCOVERY_TTL_MS,
-  BOARD_TOP_LIMIT,
-  getBoardTitleKey,
-  selectBoardRows,
-  toBoardMarketRow,
-} from "./board.js";
-import {
-  dedupeFocusMarkets,
   discoverEventFocusMarkets,
   discoverSportsFocusMarkets,
 } from "./focus.js";
 import { buildPinnedResults } from "./results.js";
+import { PolymarketBoardFacade } from "./board-facade.js";
 import type {
-  BoardDiscoverySnapshot,
-  CachedBoardDiscovery,
   PolymarketClient,
   ServiceResult,
   SportsFocusFilters,
 } from "./types.js";
 import {
-  compactStrings,
   normalizeGatewayBaseUrl,
   normalizeOptionalString,
   normalizeRootBaseUrl,
@@ -73,8 +62,7 @@ export class PolymarketService {
   private readonly clientFactory: (options: PolymarketUSOptions) => PolymarketClient;
   private readonly streamRuntime: PolymarketStreamRuntimeLike;
   private readonly pinsStore: PolymarketPinsStore;
-  private boardDiscoveryCache: CachedBoardDiscovery | null = null;
-  private boardDiscoveryPromise: Promise<BoardDiscoverySnapshot> | null = null;
+  private readonly boardFacade: PolymarketBoardFacade;
 
   constructor(options: PolymarketServiceOptions) {
     this.keyId = normalizeOptionalString(options.keyId);
@@ -94,6 +82,11 @@ export class PolymarketService {
         timeoutMs: this.timeoutMs,
         logger: this.logger,
       });
+    this.boardFacade = new PolymarketBoardFacade({
+      createClient: () => this.createClient(),
+      pinsStore: this.pinsStore,
+      streamRuntime: this.streamRuntime,
+    });
   }
 
   async checkHealth(): Promise<Record<string, unknown>> {
@@ -443,82 +436,8 @@ export class PolymarketService {
     }
 
     try {
-      const [discovery, pinned] = await Promise.all([
-        this.getBoardDiscoverySnapshot(),
-        this.pinsStore.list(),
-      ]);
-      const pinnedSlugs = new Set(pinned.map((entry) => entry.marketSlug));
-      const pinnedEventTitleKeys = new Set(
-        pinned
-          .filter((entry) => entry.bucket === "events")
-          .map((entry) => getBoardTitleKey({
-            bucket: "events",
-            title: entry.title,
-            eventTitle: entry.eventTitle,
-          })),
-      );
-      const pinnedSportsTitleKeys = new Set(
-        pinned
-          .filter((entry) => entry.bucket === "sports")
-          .map((entry) => getBoardTitleKey({
-            bucket: "sports",
-            title: entry.title,
-            eventTitle: entry.eventTitle,
-          })),
-      );
-
-      const candidatePool = dedupeFocusMarkets([
-        ...discovery.events,
-        ...discovery.sports,
-      ]);
-      const snapshot = await this.streamRuntime.getSnapshot([
-        ...pinned.map((entry) => entry.marketSlug),
-        ...candidatePool.map((entry) => entry.marketSlug),
-      ]);
-      const liveBySlug = new Map(snapshot.markets.map((entry) => [entry.marketSlug, entry]));
-
-      const pinnedRows = pinned.map((entry) => toBoardMarketRow({
-        slug: entry.marketSlug,
-        title: entry.title,
-        bucket: entry.bucket,
-        pinned: true,
-        pinnedAt: entry.pinnedAt,
-        eventTitle: entry.eventTitle,
-        league: entry.league,
-        live: liveBySlug.get(entry.marketSlug) ?? null,
-        liveStatus: snapshot.status,
-      }));
-
-      const eventRows = selectBoardRows({
-        candidates: discovery.events,
-        liveBySlug,
-        limit: BOARD_TOP_LIMIT,
-        excludeSlugs: pinnedSlugs,
-        excludeTitleKeys: pinnedEventTitleKeys,
-      });
-      const sportsRows = selectBoardRows({
-        candidates: discovery.sports,
-        liveBySlug,
-        limit: BOARD_TOP_LIMIT,
-        excludeSlugs: pinnedSlugs,
-        excludeTitleKeys: pinnedSportsTitleKeys,
-      });
-
-      return context.json(
-        {
-          generatedAt: new Date().toISOString(),
-          streamer: snapshot.streamer,
-          account: snapshot.account,
-          markets: [...pinnedRows, ...eventRows, ...sportsRows],
-          warnings: compactStrings([...discovery.warnings, ...snapshot.warnings]),
-          roster: {
-            generatedAt: discovery.generatedAt,
-            candidateEventsCount: discovery.events.length,
-            candidateSportsCount: discovery.sports.length,
-          },
-        },
-        snapshot.status === "error" ? (503 as never) : (200 as never),
-      );
+      const result = await this.boardFacade.getBoardLiveResult();
+      return context.json(result.body, result.status as never);
     } catch (error) {
       return this.toErrorResponse(context, error, "polymarket board live fetch failed");
     }
@@ -532,67 +451,6 @@ export class PolymarketService {
       apiBaseUrl: this.apiBaseUrl,
       timeout: this.timeoutMs,
     });
-  }
-
-  private async getBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
-    const now = Date.now();
-    if (this.boardDiscoveryCache && now - this.boardDiscoveryCache.fetchedAt < BOARD_DISCOVERY_TTL_MS) {
-      return this.boardDiscoveryCache.snapshot;
-    }
-
-    if (this.boardDiscoveryPromise) {
-      return this.boardDiscoveryPromise;
-    }
-
-    this.boardDiscoveryPromise = this.refreshBoardDiscoverySnapshot().finally(() => {
-      this.boardDiscoveryPromise = null;
-    });
-    return this.boardDiscoveryPromise;
-  }
-
-  private async refreshBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
-    const filters: SportsFocusFilters = {
-      limit: BOARD_CANDIDATE_LIMIT,
-      sort: "composite",
-      minLiquidity: null,
-      minVolume: null,
-      minOpenInterest: null,
-      maxStartHours: null,
-    };
-
-    try {
-      const client = this.createClient();
-      const [sports, events] = await Promise.all([
-        discoverSportsFocusMarkets(client, filters),
-        discoverEventFocusMarkets(client, filters),
-      ]);
-      const snapshot: BoardDiscoverySnapshot = {
-        generatedAt: new Date().toISOString(),
-        events,
-        sports,
-        warnings: compactStrings([
-          sports.length === 0 ? "no active sports focus markets discovered" : null,
-          events.length === 0 ? "no active event focus markets discovered" : null,
-        ]),
-      };
-      this.boardDiscoveryCache = {
-        fetchedAt: Date.now(),
-        snapshot,
-      };
-      return snapshot;
-    } catch (error) {
-      if (this.boardDiscoveryCache) {
-        const warning = error instanceof Error ? error.message : String(error);
-        return {
-          ...this.boardDiscoveryCache.snapshot,
-          warnings: compactStrings([
-            ...this.boardDiscoveryCache.snapshot.warnings,
-            `using cached board discovery: ${warning}`,
-          ]),
-        };
-      }
-      throw error;
-    }
   }
 
   private async buildPinnedResults(pinnedMarkets: PinnedPolymarketMarket[]): Promise<Array<Record<string, unknown>>> {

@@ -1,6 +1,7 @@
 import { createLogger, type AppLogger } from "../lib/logger.js";
 import { markFailure, markSuccess, readAuthAlert } from "../lib/authalert.js";
 import { isAbortError } from "../lib/http.js";
+import { isFreshCache } from "../lib/cached-connector.js";
 import { loadCache, loadTokens, saveCache, saveTokens, type ParsedTonalCache, type ParsedTonalToken } from "./store.js";
 import type { StrengthScoreData, TonalDataResponse, TonalHealthResponse } from "./types.js";
 
@@ -79,12 +80,12 @@ export class TonalService {
   }
 
   async handleData(request: Request, forceFresh: boolean): Promise<{ status: number; body: unknown }> {
-    if (!forceFresh && this.cache && Date.now() - this.cache.updatedAtMs <= DEFAULT_CACHE_TTL_MS) {
+    if (!forceFresh && this.cache && isFreshCache(this.cache.updatedAtMs, DEFAULT_CACHE_TTL_MS)) {
       return { status: 200, body: this.cache.data };
     }
 
     return this.withMutationLock(async () => {
-      if (!forceFresh && this.cache && Date.now() - this.cache.updatedAtMs <= DEFAULT_CACHE_TTL_MS) {
+      if (!forceFresh && this.cache && isFreshCache(this.cache.updatedAtMs, DEFAULT_CACHE_TTL_MS)) {
         return { status: 200, body: this.cache.data };
       }
 
