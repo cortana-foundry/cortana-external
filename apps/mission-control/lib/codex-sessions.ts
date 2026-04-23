@@ -737,11 +737,22 @@ export async function listCodexSessions(options: ListCodexSessionsOptions = {}):
   const raw = await fs.readFile(sessionIndexPath, "utf8");
   const parsedEntries = parseCodexSessionIndex(raw);
   const entries = requestedIds.size > 0
-    ? parsedEntries.filter((entry) => requestedIds.has(entry.id)).slice(0, limit)
-    : parsedEntries.slice(0, limit);
+    ? parsedEntries.filter((entry) => requestedIds.has(entry.id))
+    : parsedEntries;
 
-  const enriched = await Promise.all(entries.map((entry) => enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath)));
-  return enriched.filter((entry): entry is CodexSessionSummary => entry !== null);
+  const sessions: CodexSessionSummary[] = [];
+  for (const entry of entries) {
+    if (sessions.length >= limit) {
+      break;
+    }
+
+    const enriched = await enrichSessionEntry(entry, sessionsRoot, archivedRoot, stateDbPath);
+    if (enriched) {
+      sessions.push(enriched);
+    }
+  }
+
+  return sessions;
 }
 
 export async function getCodexSessionDetail(
@@ -857,6 +868,17 @@ export async function archiveCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
+    try {
+      const detail = await getCodexSessionDetail(sessionId, {
+        sessionIndexPath,
+        sessionsRoot,
+        archivedRoot,
+        stateDbPath,
+      });
+      await archiveCodexTranscriptFile(detail.transcriptPath, archivedRoot);
+    } catch {
+      // Fall through to index cleanup for index-only ghosts.
+    }
     await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
     return;
   }
@@ -901,6 +923,17 @@ export async function deleteCodexSession(
   const stateDbPath = options.stateDbPath ?? DEFAULT_CODEX_STATE_DB_PATH;
   const threadRow = await getCodexThreadStateRow(sessionId, stateDbPath);
   if (!threadRow) {
+    try {
+      const detail = await getCodexSessionDetail(sessionId, {
+        sessionIndexPath,
+        sessionsRoot,
+        archivedRoot,
+        stateDbPath,
+      });
+      await deleteCodexTranscriptFile(detail.transcriptPath);
+    } catch {
+      // Fall through to index cleanup for index-only ghosts.
+    }
     await removeCodexSessionIndexEntry(sessionId, { sessionIndexPath });
     return;
   }

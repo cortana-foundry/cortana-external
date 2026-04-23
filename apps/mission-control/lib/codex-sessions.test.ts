@@ -496,6 +496,80 @@ describe("listCodexSessions", () => {
 
     expect(sessions.map((session) => session.sessionId)).toEqual(["real-session"]);
   });
+
+  it("keeps scanning past stale index rows until it fills the requested limit", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-sidebar-fill-test-"));
+    tempDirs.push(tempDir);
+
+    const sessionIndexPath = path.join(tempDir, "session_index.jsonl");
+    const sessionsRoot = path.join(tempDir, "sessions");
+    const archivedRoot = path.join(tempDir, "archived_sessions");
+    const stateDbPath = path.join(tempDir, "state_5.sqlite");
+
+    await fs.mkdir(sessionsRoot, { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      [
+        JSON.stringify({
+          id: "ghost-a",
+          thread_name: "Ghost A",
+          updated_at: "2026-04-23T14:00:00.000Z",
+        }),
+        JSON.stringify({
+          id: "ghost-b",
+          thread_name: "Ghost B",
+          updated_at: "2026-04-23T13:59:00.000Z",
+        }),
+        JSON.stringify({
+          id: "real-a",
+          thread_name: "Real A",
+          updated_at: "2026-04-23T13:58:00.000Z",
+        }),
+        JSON.stringify({
+          id: "real-b",
+          thread_name: "Real B",
+          updated_at: "2026-04-23T13:57:00.000Z",
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const transcriptDir = path.join(sessionsRoot, "2026", "04", "23");
+    await fs.mkdir(transcriptDir, { recursive: true });
+    await fs.writeFile(
+      path.join(transcriptDir, "rollout-2026-04-23T13-58-00-real-a.jsonl"),
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          cwd: "/Users/hd/Developer/cortana-external",
+          source: "vscode",
+        },
+      }) + "\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(transcriptDir, "rollout-2026-04-23T13-57-00-real-b.jsonl"),
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          cwd: "/Users/hd/Developer/cortana",
+          source: "vscode",
+        },
+      }) + "\n",
+      "utf8",
+    );
+
+    const sessions = await listCodexSessions({
+      limit: 2,
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+      stateDbPath,
+    });
+
+    expect(sessions.map((session) => session.sessionId)).toEqual(["real-a", "real-b"]);
+  });
 });
 
 describe("archiveCodexSession", () => {
@@ -708,6 +782,65 @@ describe("deleteCodexSession", () => {
       stateDbPath,
     });
 
+    const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
+    expect(parseCodexSessionIndex(rawIndex)).toEqual([]);
+  });
+
+  it("deletes the transcript for an indexed session even when the state row is already gone", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-session-delete-orphan-test-"));
+    tempDirs.push(tempDir);
+
+    const sessionIndexPath = path.join(tempDir, "session_index.jsonl");
+    const sessionsRoot = path.join(tempDir, "sessions");
+    const archivedRoot = path.join(tempDir, "archived_sessions");
+    const stateDbPath = path.join(tempDir, "state_5.sqlite");
+    const sessionId = "orphan-session";
+    const transcriptDir = path.join(sessionsRoot, "2026", "04", "21");
+    const transcriptPath = path.join(
+      transcriptDir,
+      `rollout-2026-04-21T17-03-42-${sessionId}.jsonl`,
+    );
+
+    await fs.mkdir(transcriptDir, { recursive: true });
+    await fs.mkdir(archivedRoot, { recursive: true });
+    await fs.writeFile(
+      sessionIndexPath,
+      `${JSON.stringify({
+        id: sessionId,
+        thread_name: "Orphan session",
+        updated_at: "2026-04-21T21:03:51.000Z",
+      })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(transcriptPath, "{}\n", "utf8");
+
+    await execFileAsync("sqlite3", [
+      stateDbPath,
+      `
+        CREATE TABLE threads (
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          cwd TEXT,
+          source TEXT,
+          cli_version TEXT,
+          model TEXT,
+          rollout_path TEXT,
+          archived INTEGER DEFAULT 0,
+          archived_at INTEGER,
+          updated_at_ms INTEGER,
+          updated_at INTEGER
+        );
+      `,
+    ]);
+
+    await deleteCodexSession(sessionId, {
+      sessionIndexPath,
+      sessionsRoot,
+      archivedRoot,
+      stateDbPath,
+    });
+
+    expect(await fs.access(transcriptPath).then(() => true).catch(() => false)).toBe(false);
     const rawIndex = await fs.readFile(sessionIndexPath, "utf8");
     expect(parseCodexSessionIndex(rawIndex)).toEqual([]);
   });

@@ -519,7 +519,7 @@ export async function listVisibleCodexSessions(limit = 20): Promise<VisibleCodex
 
 export async function getVisibleCodexSessionDetail(sessionId: string): Promise<CodexSessionDetail | null> {
   const lifecycleState = await reconcileCodexMirrorSession(sessionId);
-  if (lifecycleState !== "active") {
+  if (lifecycleState === "archived") {
     return null;
   }
 
@@ -536,6 +536,10 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
     : null;
 
   if (!mirrored && !fileBacked && !indexed) {
+    return null;
+  }
+
+  if (lifecycleState === "missing" && !fileBacked) {
     return null;
   }
 
@@ -557,6 +561,10 @@ export async function getVisibleCodexSessionDetail(sessionId: string): Promise<C
   }
 
   if (!fileBacked) {
+    if (lifecycleState === "missing") {
+      return null;
+    }
+
     const detail = mirrored
       ? {
           ...mergeSessionSummary(mirrored, indexed) ?? mirrored,

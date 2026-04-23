@@ -527,6 +527,60 @@ describe("getVisibleCodexSessionDetail", () => {
     expect(codexSessionMocks.getCodexSessionDetail).not.toHaveBeenCalled();
   });
 
+  it("returns file-backed detail when the mirror lifecycle is missing but the transcript still exists", async () => {
+    codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("missing");
+    codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce(null);
+    codexSessionMocks.getCodexSessionDetail.mockResolvedValueOnce({
+      sessionId: "orphan-file-session",
+      threadName: "Recover orphan transcript",
+      updatedAt: 250,
+      cwd: "/Users/hd/Developer/cortana",
+      model: "gpt-5.4",
+      source: "vscode",
+      cliVersion: "0.122.0",
+      lastMessagePreview: "Recovered from transcript",
+      transcriptPath: "/Users/hd/.codex/sessions/2026/04/21/rollout-orphan-file-session.jsonl",
+      events: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          text: "Recovered from transcript",
+          timestamp: 250,
+          phase: null,
+          rawType: "assistant.message",
+        },
+      ],
+    });
+    codexSessionMocks.listCodexSessionIndexSummariesById.mockResolvedValueOnce([
+      {
+        sessionId: "orphan-file-session",
+        threadName: "Recover orphan transcript",
+        updatedAt: 250,
+        cwd: null,
+        model: null,
+        source: null,
+        isSubagent: false,
+        cliVersion: null,
+        lastMessagePreview: null,
+        transcriptPath: null,
+      },
+    ]);
+
+    const session = await getVisibleCodexSessionDetail("orphan-file-session");
+
+    expect(session).toEqual(
+      expect.objectContaining({
+        sessionId: "orphan-file-session",
+        threadName: "Recover orphan transcript",
+      }),
+    );
+    expect(codexMirrorMocks.syncCodexMirrorThreadFromSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "orphan-file-session",
+      }),
+    );
+  });
+
   it("merges mirrored and file-backed detail for active sessions", async () => {
     codexMirrorMocks.reconcileCodexMirrorSession.mockResolvedValueOnce("active");
     codexMirrorMocks.getCodexMirroredSessionDetail.mockResolvedValueOnce({
