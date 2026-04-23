@@ -68,7 +68,11 @@ export async function getLogEntries(filters: LogFilters = {}): Promise<{
 
   const severity = normalizeFilter(filters.severity);
   if (severity) {
-    conditions.push(`lower(severity) = '${escapeLiteral(severity.toLowerCase())}'`);
+    if (severity.toLowerCase() === "alerts") {
+      conditions.push(`lower(coalesce(severity, '')) IN ('warning', 'critical')`);
+    } else {
+      conditions.push(`lower(severity) = '${escapeLiteral(severity.toLowerCase())}'`);
+    }
   }
 
   const source = normalizeFilter(filters.source);

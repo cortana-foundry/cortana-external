@@ -36,7 +36,10 @@ const normalizeFilter = (value?: string) => {
   return trimmed;
 };
 
-const humanize = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+const humanize = (value: string) => {
+  if (value === "alerts") return "Alerts";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+};
 
 const severityVariant = (value: string) => {
   const normalized = value.toLowerCase();
@@ -150,6 +153,9 @@ export default async function LogsPage({
   const severityOptions = logsData?.facets.severities.length
     ? logsData.facets.severities
     : ["info", "warning", "error", "critical"];
+  const severityFilterOptions = logFilters.severity === "alerts"
+    ? ["alerts", ...severityOptions]
+    : severityOptions;
   const sourceOptions = logsData?.facets.sources ?? [];
 
   const speakerOptions = transcriptData?.facets.speakers ?? [];
@@ -214,7 +220,7 @@ export default async function LogsPage({
                 <Link href={buildHref(activeParams, { severity: "all" })}>
                   <Badge variant={!logFilters.severity ? "secondary" : "outline"}>All</Badge>
                 </Link>
-                {severityOptions.map((severity) => (
+                {severityFilterOptions.map((severity) => (
                   <Link key={severity} href={buildHref(activeParams, { severity })}>
                     <Badge variant={logFilters.severity === severity ? "secondary" : "outline"}>
                       {humanize(severity)}

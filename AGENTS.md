@@ -310,6 +310,9 @@ Reliable path:
 3. push with local git
 4. create PR with local `gh`
 
+Default publish rule:
+- when a task changes repo code, default to pushing a ready PR in the same work session unless Hamel explicitly says not to publish yet
+
 Use local Mac mini git and gh, not the GitHub connector, for PR creation in `cortana-foundry/cortana-external`.
 
 Preferred commands:
