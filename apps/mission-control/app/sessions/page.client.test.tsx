@@ -389,4 +389,58 @@ describe("SessionsPage reply composer", () => {
       expect(screen.queryByRole("heading", { name: "Inspect AGENTS.md" })).not.toBeInTheDocument();
     });
   });
+
+  it("hides the optimistic user bubble once the persisted user message is loaded", async () => {
+    let now = updatedAt;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    const replyDeferred = createDeferred<Response>();
+    const persistedReplyDetail: CodexSessionDetail = {
+      ...baseSessionDetail,
+      events: [
+        ...baseSessionDetail.events,
+        {
+          id: "user-2",
+          role: "user",
+          text: "Check the alert state",
+          timestamp: updatedAt + 1_000,
+          phase: null,
+          rawType: "user.message",
+        },
+      ],
+    };
+
+    installFetchMock({
+      onReplyPost: () => replyDeferred.promise,
+      onSessionDetailGet: (sessionId, callCount) => {
+        if (sessionId === "session-1" && callCount > 1) {
+          return jsonResponse({ session: persistedReplyDetail, pagination: { ...basePagination, totalEvents: 2, loadedEvents: 2, rangeEnd: 2 } });
+        }
+        const detail = sessionId === "session-2" ? secondSessionDetail : baseSessionDetail;
+        return jsonResponse({ session: detail, pagination: basePagination });
+      },
+    });
+
+    render(<SessionsPage />);
+
+    const textarea = (await screen.findByLabelText("Reply message")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Check the alert state" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByText("Codex is thinking…")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Inspect AGENTS.md" }));
+    expect(await screen.findByRole("heading", { name: "Inspect AGENTS.md" })).toBeInTheDocument();
+
+    now += 16_000;
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Verify repo purpose" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Check the alert state")).toHaveLength(1);
+    });
+
+    await act(async () => {
+      replyDeferred.resolve(jsonResponse({ streamId: "stream-1" }, 202));
+    });
+  });
 });

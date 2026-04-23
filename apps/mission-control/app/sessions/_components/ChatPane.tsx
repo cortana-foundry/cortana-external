@@ -140,6 +140,44 @@ function groupEvents(events: GroupableEvent[]): MessageGroup[] {
   return groups;
 }
 
+function hasPersistedPendingUserEvent(
+  selectedCodexSession: CodexSessionDetail | null,
+  pendingCodexUserEvent: CodexSessionEvent | null,
+) {
+  if (!selectedCodexSession || !pendingCodexUserEvent) {
+    return false;
+  }
+
+  const pendingText = pendingCodexUserEvent.text.trim();
+  if (!pendingText) {
+    return false;
+  }
+  const pendingTimestamp = pendingCodexUserEvent.timestamp;
+
+  for (let index = selectedCodexSession.events.length - 1; index >= 0; index -= 1) {
+    const event = selectedCodexSession.events[index];
+    if (!event.text || event.text.trim().length === 0) {
+      continue;
+    }
+
+    if (event.role !== "user") {
+      return false;
+    }
+
+    if (event.text.trim() !== pendingText) {
+      return false;
+    }
+
+    if (event.timestamp == null || pendingTimestamp == null) {
+      return true;
+    }
+
+    return Math.abs(event.timestamp - pendingTimestamp) <= 120_000;
+  }
+
+  return false;
+}
+
 export function ChatPane({
   transcriptViewportRef,
   activeCodexSession,
@@ -379,6 +417,10 @@ export function ChatPane({
   const canCopy = hasSession;
   const canAct = canCopy && codexMutationPending == null;
   const copiedActive = copiedSessionId != null && copiedSessionId === activeCodexSession?.sessionId;
+  const pendingUserEventPersisted = hasPersistedPendingUserEvent(
+    selectedCodexSession,
+    pendingCodexUserEvent,
+  );
 
   const renderedEvents: GroupableEvent[] = [];
   if (selectedCodexSession) {
@@ -392,7 +434,11 @@ export function ChatPane({
       });
     }
   }
-  if (pendingCodexUserEvent && pendingCodexUserEvent.text.trim().length > 0) {
+  if (
+    pendingCodexUserEvent
+    && pendingCodexUserEvent.text.trim().length > 0
+    && !pendingUserEventPersisted
+  ) {
     renderedEvents.push({
       id: pendingCodexUserEvent.id,
       role: "user",
