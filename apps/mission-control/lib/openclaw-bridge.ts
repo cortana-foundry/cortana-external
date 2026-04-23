@@ -1,11 +1,16 @@
 import prisma from "@/lib/prisma";
 import { resolveAssignedAgentId } from "@/lib/openclaw-assignment";
 import { deriveEvidenceGrade } from "@/lib/run-intelligence";
-
-type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-type Severity = "info" | "warning" | "critical";
-
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+import {
+  isTerminalLifecycleStatus,
+  launchPhaseFromLifecycle,
+  normalizeLifecycleStatus,
+  runStatusFromLifecycle,
+  severityFromLifecycle,
+  taskStatusFromLifecycle,
+  type JsonValue,
+  type OpenClawLifecycleEvent,
+} from "@/lib/openclaw-lifecycle";
 
 type CortanaTaskUpdateManyMutationInput = {
   status?: string;
@@ -13,62 +18,7 @@ type CortanaTaskUpdateManyMutationInput = {
   completedAt?: Date | null;
 };
 
-export type OpenClawLifecycleStatus =
-  | "queued"
-  | "running"
-  | "done"
-  | "failed"
-  | "timeout"
-  | "killed";
-
-export const normalizeLifecycleStatus = (status: string): OpenClawLifecycleStatus | null => {
-  const normalized = status.trim().toLowerCase();
-  if (["queued", "running", "done", "failed", "timeout", "killed"].includes(normalized)) {
-    return normalized as OpenClawLifecycleStatus;
-  }
-
-  if (["completed", "complete", "success", "succeeded", "ok"].includes(normalized)) {
-    return "done";
-  }
-
-  if (["cancelled", "canceled", "aborted", "abort"].includes(normalized)) {
-    return "killed";
-  }
-
-  if (["error", "errored"].includes(normalized)) {
-    return "failed";
-  }
-
-  return null;
-};
-
-export type OpenClawLifecycleEvent = {
-  runId: string;
-  status: string;
-  agentId?: string;
-  agentName?: string;
-  role?: string;
-  jobType?: string;
-  summary?: string;
-  taskId?: number;
-  taskStatus?: string;
-  metadata?: JsonValue;
-  timestamp?: string;
-};
-
-const runStatusFromLifecycle = (status: OpenClawLifecycleStatus): RunStatus => {
-  if (status === "done") return "completed";
-  if (status === "failed" || status === "timeout") return "failed";
-  if (status === "killed") return "cancelled";
-  if (status === "running") return "running";
-  return "queued";
-};
-
-const severityFromLifecycle = (status: OpenClawLifecycleStatus): Severity => {
-  if (status === "failed" || status === "timeout" || status === "killed") return "critical";
-  if (status === "running") return "info";
-  return "info";
-};
+export { normalizeLifecycleStatus, type OpenClawLifecycleEvent } from "@/lib/openclaw-lifecycle";
 
 export async function ingestOpenClawLifecycleEvent(event: OpenClawLifecycleEvent) {
   const normalizedStatus = normalizeLifecycleStatus(event.status);
@@ -109,16 +59,8 @@ export async function ingestOpenClawLifecycleEvent(event: OpenClawLifecycleEvent
   });
 
   const status = runStatusFromLifecycle(normalizedStatus);
-  const isTerminal = ["done", "failed", "timeout", "killed"].includes(normalizedStatus);
-
-  const launchPhase =
-    normalizedStatus === "queued"
-      ? "phase1_queued"
-      : normalizedStatus === "running"
-        ? existing?.externalStatus === "queued" || !existing
-          ? "phase2_running_confirmed"
-          : "phase2_running_unconfirmed"
-        : "terminal";
+  const isTerminal = isTerminalLifecycleStatus(normalizedStatus);
+  const launchPhase = launchPhaseFromLifecycle(normalizedStatus, existing?.externalStatus);
 
   const shouldUpdateRun =
     !existing ||
@@ -205,12 +147,9 @@ export async function ingestOpenClawLifecycleEvent(event: OpenClawLifecycleEvent
 
     if (event.taskStatus) {
       taskUpdate.status = event.taskStatus;
-    } else if (normalizedStatus === "running") {
-      taskUpdate.status = "in_progress";
-    } else if (normalizedStatus === "done") {
-      taskUpdate.status = "done";
-    } else if (["failed", "timeout", "killed"].includes(normalizedStatus)) {
-      taskUpdate.status = "failed";
+    } else {
+      const taskStatus = taskStatusFromLifecycle(normalizedStatus);
+      if (taskStatus) taskUpdate.status = taskStatus;
     }
 
     if (isTerminal) {

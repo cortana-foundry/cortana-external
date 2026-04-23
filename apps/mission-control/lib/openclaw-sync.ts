@@ -4,31 +4,13 @@ import path from "node:path";
 import {
   backfillOpenClawRunAssignments,
   ingestOpenClawLifecycleEvent,
-  OpenClawLifecycleStatus,
 } from "@/lib/openclaw-bridge";
+import {
+  isStoreRunActive,
+  lifecycleEventFromStoreRun,
+  type OpenClawRunStore,
+} from "@/lib/openclaw-lifecycle";
 import prisma from "@/lib/prisma";
-
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
-type OpenClawRunStoreRecord = {
-  runId: string;
-  label?: string;
-  createdAt?: number;
-  startedAt?: number;
-  endedAt?: number;
-  endedReason?: string;
-  childSessionKey?: string;
-  requesterSessionKey?: string;
-  outcome?: { status?: string };
-  task?: JsonValue;
-  agent?: string;
-  role?: string;
-  assigned_to?: string;
-};
-
-type OpenClawRunStore = {
-  runs?: Record<string, OpenClawRunStoreRecord>;
-};
 
 type StaleRunCandidate = {
   id: string;
@@ -44,22 +26,6 @@ export const STALE_RUNNING_TTL_MS = 1000 * 60 * 10;
 let lastSyncAt = 0;
 let lastMtimeMs = 0;
 let lastActiveRunIds = new Set<string>();
-
-const toIso = (timestamp?: number) =>
-  timestamp && Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
-
-const toLifecycleStatus = (run: OpenClawRunStoreRecord): OpenClawLifecycleStatus => {
-  if (!run.endedAt) {
-    return run.startedAt ? "running" : "queued";
-  }
-
-  const normalized = (run.outcome?.status || "").toLowerCase();
-  if (normalized === "ok" || normalized === "done" || normalized === "completed") return "done";
-  if (normalized === "timeout") return "timeout";
-  if (normalized === "killed" || normalized === "cancelled" || normalized === "canceled") return "killed";
-  if (normalized === "failed" || normalized === "error") return "failed";
-  return "done";
-};
 
 const reconcileStaleRunningRuns = async (activeRunIds: Set<string>) => {
   const staleBefore = new Date(Date.now() - STALE_RUNNING_TTL_MS);
@@ -171,7 +137,7 @@ export async function syncOpenClawRunsFromStore() {
   }
 
   const activeRunIds = new Set(
-    runRecords.filter((run) => !run.endedAt && !!run.runId).map((run) => run.runId)
+    runRecords.filter(isStoreRunActive).map((run) => run.runId)
   );
   lastActiveRunIds = activeRunIds;
 
@@ -179,42 +145,9 @@ export async function syncOpenClawRunsFromStore() {
 
   let synced = 0;
   for (const run of runRecords) {
-    if (!run.runId) continue;
-
-    const status = toLifecycleStatus(run);
-    const timestamp =
-      status === "done" || status === "failed" || status === "timeout" || status === "killed"
-        ? toIso(run.endedAt)
-        : toIso(run.startedAt || run.createdAt);
-
-    const summary =
-      status === "running"
-        ? `OpenClaw sub-agent ${run.runId} is running`
-        : status === "queued"
-          ? `OpenClaw sub-agent ${run.runId} queued`
-          : `OpenClaw sub-agent ${run.runId} ${status}${run.endedReason ? ` (${run.endedReason})` : ""}`;
-
-    await ingestOpenClawLifecycleEvent({
-      runId: run.runId,
-      status,
-      agentName: run.agent,
-      role: run.role,
-      jobType: run.label || "openclaw-subagent",
-      summary,
-      timestamp,
-      metadata: {
-        source: "openclaw-runs-store",
-        label: run.label ?? null,
-        assigned_to: run.assigned_to ?? null,
-        agent: run.agent ?? null,
-        role: run.role ?? null,
-        task: run.task ?? null,
-        childSessionKey: run.childSessionKey ?? null,
-        requesterSessionKey: run.requesterSessionKey ?? null,
-        outcome: run.outcome ? { status: run.outcome.status ?? null } : null,
-        endedReason: run.endedReason ?? null,
-      },
-    });
+    const event = lifecycleEventFromStoreRun(run);
+    if (!event) continue;
+    await ingestOpenClawLifecycleEvent(event);
     synced += 1;
   }
 
