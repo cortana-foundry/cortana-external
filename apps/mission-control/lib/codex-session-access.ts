@@ -76,7 +76,8 @@ function normalizePath(value: string | null | undefined) {
 function comparablePath(value: string | null | undefined) {
   const normalized = normalizePath(value);
   if (!normalized) return null;
-  return process.platform === "darwin" ? normalized.toLowerCase() : normalized;
+  const usesMacUserRoot = normalized === "/Users" || normalized.startsWith("/Users/");
+  return process.platform === "darwin" || usesMacUserRoot ? normalized.toLowerCase() : normalized;
 }
 
 function isWithinRoot(targetPath: string | null | undefined, rootPath: string | null | undefined) {
@@ -186,8 +187,21 @@ function isMissionControlTestThread(row: CodexLocalThreadStateRow | null, sessio
 
 function isArchivedTranscriptSession(session: CodexSessionSummary) {
   const transcriptPath = normalizePath(session.transcriptPath);
+  if (!transcriptPath) return false;
+
   const archivedRoot = path.join(DEFAULT_CODEX_ROOT, "archived_sessions");
-  return isWithinRoot(transcriptPath, archivedRoot);
+  if (isWithinRoot(transcriptPath, archivedRoot)) {
+    return true;
+  }
+
+  const pathSegments = transcriptPath.split(path.sep).filter(Boolean);
+  for (let index = 0; index < pathSegments.length - 1; index += 1) {
+    if (pathSegments[index] === ".codex" && pathSegments[index + 1] === "archived_sessions") {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function getSessionSourceRank(row: CodexLocalThreadStateRow | null, session: CodexSessionSummary) {
@@ -338,6 +352,12 @@ export function buildVisibleCodexSessionGroups(
       };
     })
     .sort((left, right) => {
+      const leftIsUnknown = left.rootPath === UNKNOWN_WORKSPACE_GROUP_ID;
+      const rightIsUnknown = right.rootPath === UNKNOWN_WORKSPACE_GROUP_ID;
+      if (leftIsUnknown !== rightIsUnknown) {
+        return leftIsUnknown ? 1 : -1;
+      }
+
       const scoreDelta =
         getRootMatchScore(left.rootPath, activeRoots, savedRoots)
         - getRootMatchScore(right.rootPath, activeRoots, savedRoots);
