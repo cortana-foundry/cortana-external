@@ -1294,6 +1294,7 @@ export default function SessionsPage() {
       }
 
       if (sessionId === selectedCodexSessionId || sessionId === activeCodexSession?.sessionId) {
+        setSelectedCodexSessionId(null);
         setSelectedCodexSession(null);
         setSelectedCodexPagination(null);
         setPendingCodexUserEvent(null);
@@ -1328,6 +1329,7 @@ export default function SessionsPage() {
       }
 
       if (sessionId === selectedCodexSessionId || sessionId === activeCodexSession?.sessionId) {
+        setSelectedCodexSessionId(null);
         setSelectedCodexSession(null);
         setSelectedCodexPagination(null);
         setPendingCodexUserEvent(null);

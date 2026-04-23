@@ -106,6 +106,7 @@ function installFetchMock(options?: {
   onSessionsGet?: (callCount: number) => Promise<Response> | Response;
   onSessionDetailGet?: (sessionId: string, callCount: number) => Promise<Response> | Response;
   onReplyPost?: () => Promise<Response> | Response;
+  onSessionDelete?: (sessionId: string) => Promise<Response> | Response;
   onStream?: () => Promise<Response> | Response;
 }) {
   let sessionsGetCalls = 0;
@@ -163,6 +164,14 @@ function installFetchMock(options?: {
     if (url === "/api/codex/sessions/session-1/messages" && method === "POST") {
       if (options?.onReplyPost) return options.onReplyPost();
       return jsonResponse({ streamId: "stream-1" }, 202);
+    }
+
+    if (url.startsWith("/api/codex/sessions/") && method === "DELETE") {
+      const sessionId = url.match(/\/api\/codex\/sessions\/([^?]+)/)?.[1] ?? null;
+      if (sessionId && options?.onSessionDelete) {
+        return options.onSessionDelete(sessionId);
+      }
+      return jsonResponse({ ok: true, sessionId, action: "delete" });
     }
 
     if (url === "/api/codex/streams/stream-1" && method === "GET") {
@@ -442,5 +451,69 @@ describe("SessionsPage reply composer", () => {
     await act(async () => {
       replyDeferred.resolve(jsonResponse({ streamId: "stream-1" }, 202));
     });
+  });
+
+  it("does not refetch a deleted active thread before switching to the next session", async () => {
+    const fetchState = installFetchMock({
+      onSessionsGet: (callCount) => {
+        if (callCount === 1) {
+          return jsonResponse({
+            sessions: [baseSession, secondSession],
+            groups: [
+              {
+                id: CWD,
+                label: "cortana-external",
+                rootPath: CWD,
+                isActive: true,
+                isCollapsed: false,
+                sessions: [baseSession],
+              },
+              {
+                id: secondSession.cwd,
+                label: "cortana",
+                rootPath: secondSession.cwd,
+                isActive: false,
+                isCollapsed: false,
+                sessions: [secondSession],
+              },
+            ],
+            latestUpdatedAt: updatedAt,
+            totalMatchedSessions: 2,
+            totalVisibleSessions: 2,
+          });
+        }
+
+        return jsonResponse({
+          sessions: [secondSession],
+          groups: [
+            {
+              id: secondSession.cwd,
+              label: "cortana",
+              rootPath: secondSession.cwd,
+              isActive: true,
+              isCollapsed: false,
+              sessions: [secondSession],
+            },
+          ],
+          latestUpdatedAt: secondSession.updatedAt,
+          totalMatchedSessions: 1,
+          totalVisibleSessions: 1,
+        });
+      },
+      onSessionDelete: (sessionId) => jsonResponse({ ok: true, sessionId, action: "delete" }),
+    });
+
+    render(<SessionsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete thread" })[0]!);
+    expect(await screen.findByRole("dialog", { name: "Delete thread?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByRole("heading", { name: "Inspect AGENTS.md" })).toBeInTheDocument();
+    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
   });
 });
