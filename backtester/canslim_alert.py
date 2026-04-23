@@ -5,17 +5,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import io
 import inspect
 import json
 import os
 from pathlib import Path
-import re
 import sys
 import time
-import warnings
 from collections import Counter, defaultdict
-from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -37,27 +33,20 @@ from evaluation.decision_review import render_decision_review
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
 from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
 from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
+from strategy_alert_pipeline import (
+    append_pipeline_contract_signals as _append_pipeline_contract_signals,
+    append_pipeline_contract_summary as _append_pipeline_contract_summary,
+    dedupe_reason as _dedupe_reason,
+    market_degraded_warning_line as _market_degraded_warning_line,
+    market_recovery_line as _market_recovery_line,
+    persist_strategy_predictions,
+    run_quiet as _run_quiet,
+    top_names as _top_names,
+    trade_quality_sort_key as _trade_quality_sort_key,
+)
 
 
 CANSLIM_ALERT_PRODUCER = "backtester.canslim_alert"
-
-
-def _trade_quality_sort_key(record: dict) -> tuple:
-    return (
-        TradingAdvisor._action_priority(record.get('action', 'NO_BUY')),
-        int(bool(record.get('abstain', False))),
-        -float(record.get('trade_quality_score', record.get('score', 0))),
-        -float(record.get('effective_confidence', 0)),
-        float(record.get('uncertainty_pct', 0)),
-        -float(record.get('score', 0)),
-        str(record.get('symbol', '')),
-    )
-
-
-def _run_quiet(fn, *args, **kwargs):
-    with warnings.catch_warnings(), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-        warnings.simplefilter("ignore")
-        return fn(*args, **kwargs)
 
 
 def _market_headline(market) -> str:
@@ -69,61 +58,14 @@ def _market_headline(market) -> str:
     return f"Market: {regime} — position sizing {market.position_sizing:.0%}"
 
 
-def _age_to_human(seconds: float) -> str:
-    seconds = max(float(seconds or 0.0), 0.0)
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    if seconds < 3600:
-        return f"{int(seconds // 60)}m"
-    return f"{seconds / 3600:.1f}h"
-
-
-def _market_degraded_warning_line(market) -> str:
-    if getattr(market, "status", "ok") != "degraded":
-        return ""
-    reason = _dedupe_reason(
-        getattr(market, "degraded_reason", "") or "Market regime inputs are degraded"
-    )
-    age_seconds = float(getattr(market, "snapshot_age_seconds", 0.0) or 0.0)
-    if age_seconds > 0:
-        reason += f" (snapshot age {_age_to_human(age_seconds)})"
-    return f"Warning: degraded market regime input — {reason}"
-
-
-def _market_recovery_line(market) -> str:
-    if getattr(market, "status", "ok") != "degraded":
-        return ""
-    next_action = _dedupe_reason(getattr(market, "next_action", "") or "")
-    if not next_action:
-        return ""
-    return f"Recovery: {next_action}"
-
-
-def _top_names(records: list[dict], limit: int = 3) -> str:
-    names = []
-    seen = set()
-    for rec in records:
-        sym = rec.get("symbol")
-        if sym and sym not in seen:
-            seen.add(sym)
-            names.append(sym)
-        if len(names) >= limit:
-            break
-    return ", ".join(names) if names else "none"
-
-
 def _persist_predictions(*, market: object, records: list[dict]) -> None:
-    if os.getenv("PREDICTION_ACCURACY_ENABLED", "1") == "0":
-        return
-    try:
-        persist_prediction_snapshot(
-            strategy="canslim",
-            market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
-            records=records,
-            producer=CANSLIM_ALERT_PRODUCER,
-        )
-    except Exception:
-        return
+    persist_strategy_predictions(
+        strategy="canslim",
+        market=market,
+        records=records,
+        producer=CANSLIM_ALERT_PRODUCER,
+        persist_fn=persist_prediction_snapshot,
+    )
 
 
 def _build_prediction_record(
@@ -201,11 +143,6 @@ def _build_prediction_record(
     }
 
 
-def _dedupe_reason(reason: str) -> str:
-    reason = re.sub(r"\s+", " ", (reason or "").strip())
-    return reason.rstrip(".")
-
-
 def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
     chunks = []
     for rec in records[:limit]:
@@ -235,37 +172,6 @@ def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
         chunks.append(" | ".join(parts))
 
     return f"Leader telemetry: {'; '.join(chunks)}" if chunks else ""
-
-
-def _append_pipeline_contract_summary(
-    lines: list[str],
-    *,
-    scanned: int,
-    evaluated: int,
-    threshold_passed: int,
-    buy_count: int,
-    watch_count: int,
-    no_buy_count: int,
-) -> None:
-    lines.append(
-        "Summary: "
-        f"scanned {scanned} | "
-        f"evaluated {evaluated} | "
-        f"threshold-passed {threshold_passed} | "
-        f"BUY {buy_count} | WATCH {watch_count} | NO_BUY {no_buy_count}"
-    )
-
-
-def _append_pipeline_contract_signals(lines: list[str], records: list[dict]) -> None:
-    for record in records:
-        symbol = str(record.get("symbol", "")).strip().upper()
-        if not symbol:
-            continue
-        score = int(record.get("score", 0) or 0)
-        action = str(record.get("action", "NO_BUY")).strip().upper()
-        reason = str(record.get("reason", "No reason provided.")).strip() or "No reason provided."
-        lines.append(f"• {symbol} ({score}/12) → {action}")
-        lines.append(reason)
 
 
 def _load_priority_symbols() -> list[str]:

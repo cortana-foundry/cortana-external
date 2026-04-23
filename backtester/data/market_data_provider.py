@@ -15,6 +15,8 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+from data.market_data_contract import normalize_provider_metadata, service_metadata_from_payload
+
 BACKTESTER_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MARKET_DATA_CACHE_DIR = BACKTESTER_ROOT / ".cache" / "market_data"
 
@@ -105,29 +107,17 @@ class MarketDataProvider:
                     subsystem=subsystem,
                 )
                 self._validate_frame(frame, symbol=symbol, provider=provider)
-                source = str(metadata.get("source") or provider)
-                status = str(metadata.get("status") or "ok")
-                degraded_reason = str(metadata.get("degraded_reason") or metadata.get("degradedReason") or "")
-                staleness_seconds = float(metadata.get("staleness_seconds") or metadata.get("stalenessSeconds") or 0.0)
-                provider_mode = str(metadata.get("provider_mode") or metadata.get("providerMode") or "unknown")
-                fallback_engaged = bool(metadata.get("fallback_engaged") or metadata.get("fallbackEngaged") or False)
-                provider_mode_reason = str(
-                    metadata.get("provider_mode_reason") or metadata.get("providerModeReason") or ""
-                )
-                if status not in {"ok", "degraded"}:
-                    status = "ok"
-                if source == "service":
-                    source = provider
-                self._write_cache(symbol, period, source, frame)
+                meta = normalize_provider_metadata(metadata, provider=provider)
+                self._write_cache(symbol, period, meta.source, frame)
                 return MarketHistoryResult(
                     frame=frame,
-                    source=source,
-                    status=status,
-                    degraded_reason=degraded_reason,
-                    staleness_seconds=staleness_seconds,
-                    provider_mode=provider_mode,
-                    fallback_engaged=fallback_engaged,
-                    provider_mode_reason=provider_mode_reason,
+                    source=meta.source,
+                    status=meta.status,
+                    degraded_reason=meta.degraded_reason,
+                    staleness_seconds=meta.staleness_seconds,
+                    provider_mode=meta.provider_mode,
+                    fallback_engaged=meta.fallback_engaged,
+                    provider_mode_reason=meta.provider_mode_reason,
                 )
             except MarketDataError as exc:
                 if exc.transient:
@@ -199,28 +189,16 @@ class MarketDataProvider:
             providers_tried.append(provider)
             try:
                 quote, metadata = self._fetch_quote_with_retries(provider, symbol, subsystem=subsystem)
-                source = str(metadata.get("source") or provider)
-                status = str(metadata.get("status") or "ok")
-                degraded_reason = str(metadata.get("degraded_reason") or metadata.get("degradedReason") or "")
-                staleness_seconds = float(metadata.get("staleness_seconds") or metadata.get("stalenessSeconds") or 0.0)
-                provider_mode = str(metadata.get("provider_mode") or metadata.get("providerMode") or "unknown")
-                fallback_engaged = bool(metadata.get("fallback_engaged") or metadata.get("fallbackEngaged") or False)
-                provider_mode_reason = str(
-                    metadata.get("provider_mode_reason") or metadata.get("providerModeReason") or ""
-                )
-                if status not in {"ok", "degraded"}:
-                    status = "ok"
-                if source == "service":
-                    source = provider
+                meta = normalize_provider_metadata(metadata, provider=provider)
                 return MarketQuoteResult(
                     quote=quote,
-                    source=source,
-                    status=status,
-                    degraded_reason=degraded_reason,
-                    staleness_seconds=staleness_seconds,
-                    provider_mode=provider_mode,
-                    fallback_engaged=fallback_engaged,
-                    provider_mode_reason=provider_mode_reason,
+                    source=meta.source,
+                    status=meta.status,
+                    degraded_reason=meta.degraded_reason,
+                    staleness_seconds=meta.staleness_seconds,
+                    provider_mode=meta.provider_mode,
+                    fallback_engaged=meta.fallback_engaged,
+                    provider_mode_reason=meta.provider_mode_reason,
                 )
             except MarketDataError as exc:
                 if exc.transient:
@@ -349,18 +327,7 @@ class MarketDataProvider:
             raise MarketDataError(f"market-data service returned invalid JSON: {exc}", transient=True) from exc
 
         frame = self._build_frame_from_service_payload(payload, symbol=symbol)
-        metadata = {
-            "source": str(payload.get("source") or "service"),
-            "status": str(payload.get("status") or "ok"),
-            "degradedReason": str(payload.get("degradedReason") or payload.get("degraded_reason") or ""),
-            "stalenessSeconds": float(payload.get("stalenessSeconds") or payload.get("staleness_seconds") or 0.0),
-            "providerMode": str(payload.get("providerMode") or payload.get("provider_mode") or "unknown"),
-            "fallbackEngaged": bool(payload.get("fallbackEngaged") or payload.get("fallback_engaged") or False),
-            "providerModeReason": str(payload.get("providerModeReason") or payload.get("provider_mode_reason") or ""),
-            "sourceData": payload.get("sourceData", {}),
-            "availability": payload.get("availability"),
-        }
-        return frame, metadata
+        return frame, service_metadata_from_payload(payload)
 
     def _fetch_service_quote(
         self,
@@ -401,16 +368,7 @@ class MarketDataProvider:
         data = payload.get("data")
         if not isinstance(data, dict):
             raise MarketDataError(f"market-data service returned invalid quote payload for {symbol}", transient=True)
-        metadata = {
-            "source": str(payload.get("source") or "service"),
-            "status": str(payload.get("status") or "ok"),
-            "degradedReason": str(payload.get("degradedReason") or payload.get("degraded_reason") or ""),
-            "stalenessSeconds": float(payload.get("stalenessSeconds") or payload.get("staleness_seconds") or 0.0),
-            "providerMode": str(payload.get("providerMode") or payload.get("provider_mode") or "unknown"),
-            "fallbackEngaged": bool(payload.get("fallbackEngaged") or payload.get("fallback_engaged") or False),
-            "providerModeReason": str(payload.get("providerModeReason") or payload.get("provider_mode_reason") or ""),
-        }
-        return data, metadata
+        return data, service_metadata_from_payload(payload)
 
     @staticmethod
     def _extract_service_error_reason(resp: requests.Response) -> str:

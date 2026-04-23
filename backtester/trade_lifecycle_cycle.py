@@ -28,6 +28,17 @@ from governance.autonomy_tiers import (
     save_autonomy_gate_artifact,
     save_review_window_artifact,
 )
+from lifecycle.cycle_inputs import (
+    build_review_notes,
+    collect_signal_map,
+    entry_candidates,
+    entry_fill_price,
+    normalize_timestamp,
+    optional_float,
+    signal_market,
+    signal_overlays,
+    signal_price,
+)
 from lifecycle.entry_plan import build_entry_plan_from_signal
 from lifecycle.execution_policy import build_execution_policy
 from lifecycle.exit_engine import evaluate_exit_decision, update_position_mark_to_market
@@ -51,12 +62,12 @@ def run_cycle(
     portfolio_drawdown_pct: float | None = None,
     supervised_live_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    generated_at = _normalize_timestamp(generated_at or datetime.now(timezone.utc).isoformat())
+    generated_at = normalize_timestamp(generated_at or datetime.now(timezone.utc).isoformat())
     store = LifecycleLedgerStore(root=root)
     authority_artifact = load_strategy_authority_tiers() if root is None else {}
 
     alerts = [_load_alert(path) for path in alert_paths if path.exists()]
-    signal_map = _collect_signal_map(alerts)
+    signal_map = collect_signal_map(alerts)
     open_positions = store.load_open_positions()
     closed_positions = store.load_closed_positions()
     all_closed_positions = list(closed_positions)
@@ -68,12 +79,12 @@ def run_cycle(
 
     for position in open_positions:
         signal = signal_map.get(position.symbol)
-        price = _signal_price(signal) if signal else position.entry_price
+        price = signal_price(signal) if signal else position.entry_price
         decision = evaluate_exit_decision(
             position=position,
             reviewed_at=generated_at,
             current_price=price,
-            market=_signal_market(signal, alerts),
+            market=signal_market(signal, alerts),
             signal=signal,
         )
         marked = update_position_mark_to_market(
@@ -81,7 +92,7 @@ def run_cycle(
             current_price=price,
             current_state="exit_candidate" if decision.action == "EXIT" else "hold",
         )
-        review_notes = _build_review_notes(signal=signal, decision=decision)
+        review_notes = build_review_notes(signal=signal, decision=decision)
         review = build_position_review(
             position=marked,
             decision=decision,
@@ -124,7 +135,7 @@ def run_cycle(
     portfolio_snapshot = None
     if not review_only:
         candidate_entries: list[dict[str, Any]] = []
-        for signal in _entry_candidates(alerts):
+        for signal in entry_candidates(alerts):
             symbol = str(signal.get("symbol") or "").strip().upper()
             if not symbol or symbol in existing_symbols:
                 continue
@@ -133,8 +144,8 @@ def run_cycle(
                 maybe_plan = build_entry_plan_from_signal(
                     strategy=str(signal.get("strategy") or ""),
                     signal=signal,
-                    market=_signal_market(signal, alerts),
-                    overlays=_signal_overlays(signal, alerts),
+                    market=signal_market(signal, alerts),
+                    overlays=signal_overlays(signal, alerts),
                     generated_at=generated_at,
                 )
                 if maybe_plan is None:
@@ -150,17 +161,17 @@ def run_cycle(
                     strategy=str(signal.get("strategy") or ""),
                     signal=signal,
                     entry_plan=entry_plan,
-                    overlays=_signal_overlays(signal, alerts),
+                    overlays=signal_overlays(signal, alerts),
                     generated_at=generated_at,
                 )
                 execution_policy = policy.to_dict()
             execution_policies.append(execution_policy)
-            entry_price = _entry_fill_price(signal=signal, entry_plan=entry_plan)
+            entry_price = entry_fill_price(signal=signal, entry_plan=entry_plan)
             if entry_price is None:
                 continue
             size_guidance = build_position_size_recommendation(
                 signal=signal,
-                risk_overlay=_signal_overlays(signal, alerts).get("risk"),
+                risk_overlay=signal_overlays(signal, alerts).get("risk"),
                 execution_policy=execution_policy,
                 data_quality_state=str(entry_plan.get("data_quality_state") or signal.get("data_quality_state") or "ok"),
             ).to_dict()
@@ -209,15 +220,15 @@ def run_cycle(
                 capital_allocated=float(candidate.get("capital_allocated") or 0.0),
                 entry_plan_ref=str(candidate.get("entry_plan_ref") or "") or None,
                 execution_policy_ref=str(candidate.get("execution_policy_ref") or "") or None,
-                stop_price=_optional_float((candidate.get("entry_plan") or {}).get("initial_stop_price")),
-                target_price_1=_optional_float((candidate.get("entry_plan") or {}).get("first_target_price")),
-                target_price_2=_optional_float((candidate.get("entry_plan") or {}).get("stretch_target_price")),
+                stop_price=optional_float((candidate.get("entry_plan") or {}).get("initial_stop_price")),
+                target_price_1=optional_float((candidate.get("entry_plan") or {}).get("first_target_price")),
+                target_price_2=optional_float((candidate.get("entry_plan") or {}).get("stretch_target_price")),
                 current_state="open",
                 portfolio_snapshot_ref=portfolio_snapshot.snapshot_id if portfolio_snapshot else None,
                 portfolio_posture_ref=(portfolio_snapshot.posture_snapshot or {}).get("posture_id") if portfolio_snapshot else None,
                 authority_tier=str(candidate.get("authority_tier") or "") or None,
                 autonomy_mode=str(candidate.get("autonomy_mode") or "") or None,
-                strategy_budget_amount=_optional_float(candidate.get("strategy_budget_amount")),
+                strategy_budget_amount=optional_float(candidate.get("strategy_budget_amount")),
                 sector=str(candidate.get("sector") or "") or None,
                 theme=str(candidate.get("theme") or "") or None,
             )
@@ -434,129 +445,6 @@ def _load_optional_json(value: str | None) -> dict[str, Any] | None:
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
     return dict(payload) if isinstance(payload, dict) else None
-
-
-def _collect_signal_map(alerts: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    out: dict[str, dict[str, Any]] = {}
-    for payload in alerts:
-        strategy = str(payload.get("strategy") or "").strip().lower()
-        for signal in payload.get("signals", []) or []:
-            if not isinstance(signal, dict):
-                continue
-            symbol = str(signal.get("symbol") or "").strip().upper()
-            if not symbol:
-                continue
-            copied = dict(signal)
-            copied["strategy"] = strategy
-            out[symbol] = copied
-    return out
-
-
-def _entry_candidates(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-    for payload in alerts:
-        strategy = str(payload.get("strategy") or "").strip().lower()
-        for signal in payload.get("signals", []) or []:
-            if not isinstance(signal, dict):
-                continue
-            if str(signal.get("action") or "").strip().upper() != "BUY":
-                continue
-            copied = dict(signal)
-            copied["strategy"] = strategy
-            candidates.append(copied)
-    candidates.sort(
-        key=lambda item: (
-            float(item.get("trade_quality_score") or 0.0),
-            float(item.get("effective_confidence") or 0.0),
-        ),
-        reverse=True,
-    )
-    return candidates
-
-
-def _signal_market(signal: dict[str, Any] | None, alerts: list[dict[str, Any]]) -> dict[str, Any]:
-    symbol = str((signal or {}).get("symbol") or "").strip().upper()
-    for payload in alerts:
-        if not isinstance(payload, dict):
-            continue
-        for item in payload.get("signals", []) or []:
-            if str(item.get("symbol") or "").strip().upper() == symbol:
-                market = payload.get("market")
-                if isinstance(market, dict):
-                    return market
-    return {}
-
-
-def _signal_overlays(signal: dict[str, Any] | None, alerts: list[dict[str, Any]]) -> dict[str, Any]:
-    symbol = str((signal or {}).get("symbol") or "").strip().upper()
-    for payload in alerts:
-        if not isinstance(payload, dict):
-            continue
-        for item in payload.get("signals", []) or []:
-            if str(item.get("symbol") or "").strip().upper() == symbol:
-                overlays = payload.get("overlays")
-                if isinstance(overlays, dict):
-                    return overlays
-    return {}
-
-
-def _signal_price(signal: dict[str, Any] | None) -> float | None:
-    if not isinstance(signal, dict):
-        return None
-    rec = signal.get("rec") if isinstance(signal.get("rec"), dict) else {}
-    for value in (signal.get("price"), rec.get("entry"), rec.get("price")):
-        parsed = _optional_float(value)
-        if parsed is not None:
-            return parsed
-    return None
-
-
-def _entry_fill_price(*, signal: dict[str, Any], entry_plan: dict[str, Any]) -> float | None:
-    price = _signal_price(signal)
-    ideal_min = _optional_float(entry_plan.get("entry_price_ideal_min"))
-    ideal_max = _optional_float(entry_plan.get("entry_price_ideal_max"))
-    if price is None and ideal_min is not None and ideal_max is not None:
-        return round((ideal_min + ideal_max) / 2.0, 4)
-    if price is None:
-        return ideal_max or ideal_min
-    if ideal_min is not None and price < ideal_min:
-        return ideal_min
-    if ideal_max is not None and price > ideal_max:
-        return ideal_max
-    return round(price, 4)
-
-
-def _build_review_notes(*, signal: dict[str, Any] | None, decision: Any) -> list[str]:
-    notes: list[str] = []
-    if isinstance(signal, dict):
-        action = str(signal.get("action") or "").strip().upper()
-        if action:
-            notes.append(f"latest signal action {action}")
-        reason = str(signal.get("reason") or "").strip()
-        if reason:
-            notes.append(reason)
-    if getattr(decision, "reason", ""):
-        notes.append(f"decision reason {decision.reason}")
-    return notes
-
-
-def _normalize_timestamp(value: str) -> str:
-    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat()
-
-
-def _optional_float(value: object) -> float | None:
-    try:
-        if value is None or value == "":
-            return None
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if numeric <= 0 or numeric != numeric:
-        return None
-    return round(numeric, 4)
 
 
 if __name__ == "__main__":
