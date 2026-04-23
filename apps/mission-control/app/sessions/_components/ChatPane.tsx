@@ -177,11 +177,15 @@ export function ChatPane({
   void _formatShortSessionId;
   const { showToast } = useToast();
   const replyTextareaRef = useAutosizeTextarea(replyPrompt);
-  const replyLocked = codexMutationPending === "reply" || activeSessionHasRunInProgress;
+  const replyLocked = activeSessionHasRunInProgress;
   const replyDisabled =
     !selectedCodexSessionId || !replyPrompt.trim() || replyLocked;
   const replyPending = replyLocked;
-  const streamingInProgress = codexMutationPending === "create" || codexMutationPending === "reply";
+  const streamingInProgress =
+    activeSessionHasRunInProgress
+    || pendingCodexUserEvent != null
+    || streamedAssistantEvents.length > 0
+    || (codexMutationPending === "create" && !selectedCodexSessionId && !activeCodexSession);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
   const [slashPaletteOpen, setSlashPaletteOpen] = useState(false);

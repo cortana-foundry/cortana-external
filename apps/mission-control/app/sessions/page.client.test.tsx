@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SessionsPage from "./page";
 import type { CodexSessionDetail } from "./_components/types";
@@ -20,6 +20,19 @@ const baseSession = {
   activeRun: false,
 };
 
+const secondSession = {
+  sessionId: "session-2",
+  threadName: "Inspect AGENTS.md",
+  updatedAt: updatedAt - 60_000,
+  cwd: "/Users/hd/Developer/cortana",
+  model: "gpt-5.4",
+  source: "vscode",
+  cliVersion: "0.122.0",
+  lastMessagePreview: "Docs first.",
+  transcriptPath: "/tmp/session-2.jsonl",
+  activeRun: false,
+};
+
 const baseSessionDetail: CodexSessionDetail = {
   ...baseSession,
   events: [
@@ -28,6 +41,20 @@ const baseSessionDetail: CodexSessionDetail = {
       role: "assistant" as const,
       text: "Ready when you are.",
       timestamp: updatedAt,
+      phase: null,
+      rawType: "assistant.message",
+    },
+  ],
+};
+
+const secondSessionDetail: CodexSessionDetail = {
+  ...secondSession,
+  events: [
+    {
+      id: "assistant-2-1",
+      role: "assistant" as const,
+      text: "Docs first.",
+      timestamp: updatedAt - 60_000,
       phase: null,
       rawType: "assistant.message",
     },
@@ -77,10 +104,12 @@ function createDeferred<T>() {
 
 function installFetchMock(options?: {
   onSessionsGet?: (callCount: number) => Promise<Response> | Response;
+  onSessionDetailGet?: (sessionId: string, callCount: number) => Promise<Response> | Response;
   onReplyPost?: () => Promise<Response> | Response;
   onStream?: () => Promise<Response> | Response;
 }) {
   let sessionsGetCalls = 0;
+  const sessionDetailGetCalls = new Map<string, number>();
   const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
@@ -91,7 +120,7 @@ function installFetchMock(options?: {
         return options.onSessionsGet(sessionsGetCalls);
       }
       return jsonResponse({
-        sessions: [baseSession],
+        sessions: [baseSession, secondSession],
         groups: [
           {
             id: CWD,
@@ -101,15 +130,34 @@ function installFetchMock(options?: {
             isCollapsed: false,
             sessions: [baseSession],
           },
+          {
+            id: secondSession.cwd,
+            label: "cortana",
+            rootPath: secondSession.cwd,
+            isActive: false,
+            isCollapsed: false,
+            sessions: [secondSession],
+          },
         ],
         latestUpdatedAt: updatedAt,
-        totalMatchedSessions: 1,
-        totalVisibleSessions: 1,
+        totalMatchedSessions: 2,
+        totalVisibleSessions: 2,
       });
     }
 
-    if (url.startsWith("/api/codex/sessions/session-1?") && method === "GET") {
-      return jsonResponse({ session: baseSessionDetail, pagination: basePagination });
+    if (url.startsWith("/api/codex/sessions/") && method === "GET") {
+      const sessionId = url.match(/\/api\/codex\/sessions\/([^?]+)/)?.[1] ?? null;
+      if (sessionId) {
+        const nextCount = (sessionDetailGetCalls.get(sessionId) ?? 0) + 1;
+        sessionDetailGetCalls.set(sessionId, nextCount);
+
+        if (options?.onSessionDetailGet) {
+          return options.onSessionDetailGet(sessionId, nextCount);
+        }
+
+        const detail = sessionId === "session-2" ? secondSessionDetail : baseSessionDetail;
+        return jsonResponse({ session: detail, pagination: basePagination });
+      }
     }
 
     if (url === "/api/codex/sessions/session-1/messages" && method === "POST") {
@@ -149,6 +197,7 @@ function installFetchMock(options?: {
   return {
     fetchSpy,
     getSessionsGetCalls: () => sessionsGetCalls,
+    getSessionDetailGetCalls: (sessionId: string) => sessionDetailGetCalls.get(sessionId) ?? 0,
   };
 }
 
@@ -266,5 +315,78 @@ describe("SessionsPage reply composer", () => {
     expect(screen.getByLabelText("Reply message")).toHaveValue("");
     expect(screen.getByLabelText("Reply message")).not.toHaveAttribute("aria-invalid");
     expect(screen.queryByText("Failed to send message to Codex session")).not.toBeInTheDocument();
+  });
+
+  it("keeps the thinking placeholder scoped to the replying thread", async () => {
+    const replyDeferred = createDeferred<Response>();
+    installFetchMock({
+      onReplyPost: () => replyDeferred.promise,
+    });
+
+    render(<SessionsPage />);
+
+    const textarea = (await screen.findByLabelText("Reply message")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Check the alert state" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByText("Codex is thinking…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reply message")).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Inspect AGENTS.md" }));
+
+    expect(await screen.findByRole("heading", { name: "Inspect AGENTS.md" })).toBeInTheDocument();
+    expect(screen.queryByText("Codex is thinking…")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reply message")).not.toBeDisabled();
+
+    await act(async () => {
+      replyDeferred.resolve(jsonResponse({ streamId: "stream-1" }, 202));
+    });
+  });
+
+  it("reuses cached transcript detail when switching back to a visited thread", async () => {
+    const fetchState = installFetchMock();
+
+    render(<SessionsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Inspect AGENTS.md" }));
+    expect(await screen.findByRole("heading", { name: "Inspect AGENTS.md" })).toBeInTheDocument();
+    expect(fetchState.getSessionDetailGetCalls("session-2")).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Verify repo purpose" }));
+    expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+    expect(fetchState.getSessionDetailGetCalls("session-1")).toBe(1);
+  });
+
+  it("ignores stale transcript responses after a faster thread switch", async () => {
+    const delayedSessionTwoDetail = createDeferred<Response>();
+    installFetchMock({
+      onSessionDetailGet: (sessionId) => {
+        if (sessionId === "session-2") {
+          return delayedSessionTwoDetail.promise;
+        }
+        return jsonResponse({ session: baseSessionDetail, pagination: basePagination });
+      },
+    });
+
+    render(<SessionsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Inspect AGENTS.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open thread Verify repo purpose" }));
+
+    expect(await screen.findByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+
+    await act(async () => {
+      delayedSessionTwoDetail.resolve(jsonResponse({ session: secondSessionDetail, pagination: basePagination }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Verify repo purpose" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Inspect AGENTS.md" })).not.toBeInTheDocument();
+    });
   });
 });
