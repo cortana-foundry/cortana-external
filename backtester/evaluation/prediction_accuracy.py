@@ -13,6 +13,7 @@ import requests
 
 from data.confidence import stable_confidence_bucket
 from data.market_data_provider import MarketDataError, MarketDataProvider
+from evaluation.artifact_safety import looks_like_mock_artifact
 from evaluation.prediction_contract import (
     PREDICTION_CONTRACT_SCHEMA_VERSION,
     build_prediction_contract_records,
@@ -87,6 +88,8 @@ def settle_prediction_snapshots(
 
     for path in sorted(snapshots_dir.glob("*.json"), reverse=True):
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if looks_like_mock_artifact(payload):
+            continue
         generated_at = _parse_dt(payload.get("generated_at"))
         if generated_at is None:
             continue
@@ -98,7 +101,7 @@ def settle_prediction_snapshots(
             if existing_payload is not None:
                 settled.append(existing_payload)
             continue
-        if max_snapshots_per_run > 0 and processed >= max_snapshots_per_run:
+        if max_snapshots_per_run <= 0 or processed >= max_snapshots_per_run:
             if existing_payload is not None:
                 settled.append(existing_payload)
             continue
@@ -190,9 +193,14 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
     for path in sorted(settled_dir.glob("*.json")):
         snapshot_count += 1
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if looks_like_mock_artifact(payload):
+            snapshot_count -= 1
+            continue
         strategy = str(payload.get("strategy") or "unknown")
         market_regime = str(payload.get("market_regime") or "unknown")
         for record in payload.get("records") or []:
+            if looks_like_mock_artifact(record):
+                continue
             normalized = dict(record)
             normalized["strategy"] = strategy
             normalized["market_regime"] = str(record.get("market_regime") or market_regime)

@@ -216,6 +216,44 @@ def test_runtime_health_snapshot_marks_stale_canary_artifact(monkeypatch, tmp_pa
     assert "pre_open_gate_unavailable" in incident_types
 
 
+def test_runtime_health_snapshot_keeps_stale_canary_supporting_after_open(monkeypatch, tmp_path):
+    readiness_path = tmp_path / "pre-open-canary-latest.json"
+    readiness_path.write_text(
+        json.dumps(
+            {
+                "artifact_family": "readiness_check",
+                "result": "pass",
+                "checked_at": "2026-04-24T12:07:57+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_get(url, timeout):
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"data": {"ready": True, "operatorState": "healthy"}},
+        )
+
+    monkeypatch.setattr("operator_surfaces.runtime_health.requests.get", fake_get)
+
+    payload = build_runtime_health_snapshot(
+        generated_at="2026-04-24T14:56:00+00:00",
+        readiness_path=readiness_path,
+        watchdog_state_path=tmp_path / "missing-state.json",
+        watchdog_log_path=tmp_path / "missing.log",
+        pre_open_canary_max_age_seconds=7200,
+    )
+
+    incident_types = {item["incident_type"] for item in payload["incident_markers"]}
+    assert payload["status"] == "ok"
+    assert payload["cron_health"]["status"] == "ok"
+    assert payload["pre_open_gate_actionable"] is False
+    assert payload["pre_open_gate_status"] == "stale"
+    assert payload["pre_open_gate_freshness"]["status"] == "stale"
+    assert "pre_open_gate_unavailable" not in incident_types
+
+
 def test_runtime_health_snapshot_humanizes_pre_open_freshness_timestamp(monkeypatch, tmp_path):
     readiness_path = tmp_path / "pre-open-canary-latest.json"
     readiness_path.write_text(

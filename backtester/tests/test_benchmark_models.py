@@ -53,3 +53,32 @@ def test_benchmark_artifact_is_machine_readable_and_non_mutating(tmp_path):
     assert (tmp_path / "reports" / "benchmark-comparison-latest.json").exists()
     assert first_path.read_text(encoding="utf-8") == original
 
+
+def test_benchmark_artifact_skips_mock_tainted_settlements(tmp_path):
+    settled_dir = tmp_path / "settled"
+    settled_dir.mkdir(parents=True, exist_ok=True)
+    (settled_dir / "good.json").write_text(
+        json.dumps(
+            {
+                "strategy": "dip_buyer",
+                "market_regime": "correction",
+                "records": [{"symbol": "AAA", "action": "NO_BUY", "forward_returns": {"5d": -0.02}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (settled_dir / "mock.json").write_text(
+        json.dumps(
+            {
+                "strategy": "canslim",
+                "market_regime": "<MagicMock name='market' id='1'>",
+                "records": [{"symbol": "BBB", "action": "BUY", "forward_returns": {"5d": 0.04}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    artifact = build_benchmark_comparison_artifact(root=tmp_path)
+
+    assert artifact["record_count"] == 1
+    assert artifact["baselines"]["all_predictions"]["matured_count"] == 1

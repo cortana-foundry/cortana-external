@@ -5,6 +5,23 @@ import sys
 import prediction_accuracy_report
 
 
+def _strategy_authority_stub(rows):
+    families = [
+        {
+            "strategy_family": row.get("strategy_family", "unknown"),
+            "authority_tier": "exploratory",
+            "autonomy_mode": "advisory",
+            "sample_depth": row.get("sample_depth", 0),
+        }
+        for row in rows
+    ]
+    return {
+        "artifact_family": "strategy_authority_tiers_v1",
+        "families": families,
+        "summary": {"highest_autonomy_mode": "advisory"},
+    }
+
+
 def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda **_kwargs: None)
     monkeypatch.setattr(
@@ -22,6 +39,7 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
         },
     )
     monkeypatch.setattr(prediction_accuracy_report, "_load_prediction_records", lambda: [])
+    monkeypatch.setattr(prediction_accuracy_report, "build_strategy_authority_tiers_artifact", _strategy_authority_stub)
     called = {"decision_review": False}
     monkeypatch.setattr(
         prediction_accuracy_report,
@@ -269,6 +287,7 @@ def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
     monkeypatch.setattr(prediction_accuracy_report, "build_strategy_scorecard_artifact", lambda *_args, **_kwargs: {"artifact_family": "strategy_scorecard_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "build_shadow_comparison_artifact", lambda *_args, **_kwargs: {"artifact_family": "opportunity_shadow_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "_load_prediction_records", lambda: [])
+    monkeypatch.setattr(prediction_accuracy_report, "build_strategy_authority_tiers_artifact", _strategy_authority_stub)
     monkeypatch.setattr(prediction_accuracy_report, "_build_governance_summary", lambda: {"artifact_family": "governance_status_summary"})
     monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py", "--json"])
 

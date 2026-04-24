@@ -252,6 +252,46 @@ def test_prediction_accuracy_skips_fresh_settlement_when_market_data_unavailable
     assert persisted["records"][0]["symbol"] == "AAPL"
 
 
+def test_prediction_accuracy_zero_batch_only_uses_existing_settlements(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[{
+            "symbol": "AAPL",
+            "action": "WATCH",
+            "score": 8,
+            "effective_confidence": 61,
+            "confidence": 61,
+            "risk": "medium",
+            "market_regime": "correction",
+            "breadth_state": "inactive",
+            "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+            "execution_policy_ref": None,
+            "vetoes": [],
+            "reason": "test",
+        }],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+    assert path is not None
+
+    class _ExplodingProvider:
+        def get_history(self, symbol: str, period: str = "6mo"):
+            raise AssertionError("provider should not be called for a zero-sized settlement batch")
+
+    settled = settle_prediction_snapshots(
+        root=tmp_path,
+        provider=_ExplodingProvider(),
+        now=generated_at + timedelta(days=30),
+        max_snapshots_per_run=0,
+    )
+
+    assert settled == []
+    assert not (tmp_path / "settled" / path.name).exists()
+
+
 def test_prediction_snapshot_contract_requires_reason(tmp_path):
     generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
     try:

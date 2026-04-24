@@ -299,6 +299,17 @@ const fixture: TradingOpsDashboardData = {
       topAction: "rebalance_posture",
       topActionStatus: "proposed",
       operatorAction: "Resolve visible interventions before restoring authority. Review the pending reconciliation actions before widening posture.",
+      scheduleRows: [
+        {
+          name: "Lifecycle cycle",
+          lastRunAt: "2026-04-03T22:20:35.951192+00:00",
+          nextExpectedAt: "2026-04-04T02:20:35.951Z",
+          freshnessLabel: "2h ago",
+          state: "ok",
+          source: "/tmp/cycle_summary.json",
+        },
+      ],
+      lateScheduleCount: 0,
     },
   },
   workflow: {

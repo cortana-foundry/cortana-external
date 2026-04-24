@@ -89,6 +89,15 @@ export type BenchmarkOverview = {
   bestComparisonLabel: string | null;
 };
 
+export type ControlLoopScheduleRow = {
+  name: string;
+  lastRunAt: string | null;
+  nextExpectedAt: string | null;
+  freshnessLabel: string;
+  state: LoadState;
+  source: string;
+};
+
 export type LifecycleOverview = {
   openCount: number;
   closedCount: number;
@@ -123,6 +132,8 @@ export type ControlTowerOverview = {
   topAction: string | null;
   topActionStatus: string | null;
   operatorAction: string | null;
+  scheduleRows: ControlLoopScheduleRow[];
+  lateScheduleCount: number;
 };
 
 export type WorkflowOverview = {

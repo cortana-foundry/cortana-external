@@ -1153,7 +1153,9 @@ check_market_data_health() {
   fi
   recovery_alert "$readiness_check_name" "Market-data service recovered and is ready"
 
-  local ops_code
+  local ops_code service_operator_state service_operator_action
+  service_operator_state=""
+  service_operator_action=""
   ops_code=$(probe_json_endpoint "$ops_url" "$ops_body")
   if [[ "$ops_code" == "000" ]]; then
     alert "Market-data ops endpoint is unreachable (${ops_url})" "market_data_ops" "warning"
@@ -1161,7 +1163,6 @@ check_market_data_health() {
     alert "Market-data ops endpoint returned HTTP ${ops_code}" "market_data_ops" "warning"
   else
     clear_check_recovery_silent "market_data_ops"
-    local service_operator_state service_operator_action
     service_operator_state=$(jq -r '.data.serviceOperatorState // empty' "$ops_body" 2>/dev/null || true)
     service_operator_action=$(jq -r '.data.serviceOperatorAction // empty' "$ops_body" 2>/dev/null || true)
     if [[ "$service_operator_state" == "provider_cooldown" ]]; then
@@ -1204,6 +1205,11 @@ check_market_data_health() {
   fi
 
   if [[ "$(get_check_status "$quote_check_name")" == "failing" ]]; then
+    if [[ "$quote_code" == "000" && "$ops_code" == "200" && "$service_operator_state" == "healthy" ]]; then
+      alert_if_failure_persists "$quote_check_name" "$advisory_threshold_seconds" "Market-data quote smoke is timing out while readiness and ops remain healthy; investigate quote endpoint load before restarting service." "warning" >/dev/null || true
+      log "info" "Deferring quote-smoke restart because market-data readiness and ops are healthy"
+      return
+    fi
     log "warning" "Market-data quote smoke still failing (HTTP ${quote_code}); attempting launchctl kickstart"
     if attempt_launchd_restart "$MARKET_DATA_LAUNCHD_LABEL" "$MARKET_DATA_RESTART_WAIT_SECONDS"; then
       quote_code=$(probe_json_endpoint "$quote_url" "$quote_body")

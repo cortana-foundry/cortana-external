@@ -16,6 +16,7 @@ const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const STALE_SUMMARY_MAX_AGE_SECONDS = 24 * 60 * 60;
+const CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS = 4 * 60 * 60;
 
 export type LoadState = "ok" | "degraded" | "missing" | "error";
 
@@ -108,6 +109,15 @@ export type BenchmarkOverview = {
   bestComparisonLabel: string | null;
 };
 
+export type ControlLoopScheduleRow = {
+  name: string;
+  lastRunAt: string | null;
+  nextExpectedAt: string | null;
+  freshnessLabel: string;
+  state: LoadState;
+  source: string;
+};
+
 export type LifecycleOverview = {
   openCount: number;
   closedCount: number;
@@ -142,6 +152,8 @@ export type ControlTowerOverview = {
   topAction: string | null;
   topActionStatus: string | null;
   operatorAction: string | null;
+  scheduleRows: ControlLoopScheduleRow[];
+  lateScheduleCount: number;
 };
 
 export type WorkflowOverview = {
@@ -437,14 +449,16 @@ async function loadRuntimeOverview(
     const data = asRecord(raw);
     const service = asRecord(data?.service_health);
     const incidentMarkers = asArray(data?.incident_markers);
-    const incidents = incidentMarkers
-      .map((entry) => asRecord(entry))
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry))
-      .map((entry) => ({
-        incidentType: stringValue(entry.incident_type) ?? "unknown",
-        severity: stringValue(entry.severity) ?? "unknown",
-        operatorAction: humanizeOperatorText(stringValue(entry.operator_action) ?? "No operator action provided."),
-      }));
+    const incidents = dedupeAndSortRuntimeIncidents(
+      incidentMarkers
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+        .map((entry) => ({
+          incidentType: stringValue(entry.incident_type) ?? "unknown",
+          severity: stringValue(entry.severity) ?? "unknown",
+          operatorAction: humanizeOperatorText(stringValue(entry.operator_action) ?? "No operator action provided."),
+        })),
+    );
     const operatorState = stringValue(service?.operator_state) ?? "unknown";
     const state: LoadState = operatorState === "healthy" ? "ok" : "degraded";
     const preOpenGateStatus = normalizePreOpenGateStatus(stringValue(data?.pre_open_gate_status));
@@ -1283,28 +1297,30 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const cyclePath = path.join(lifecycleRoot, "cycle_summary.json");
   const authorityPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json");
 
-  const [desired, actual, reconciliation, release, drift, interventions] = await Promise.all([
+  const [desired, actual, reconciliation, release, drift, interventions, cycle] = await Promise.all([
     readJsonFile<Record<string, unknown>>(desiredPath),
     readJsonFile<Record<string, unknown>>(actualPath),
     readJsonFile<Record<string, unknown>>(reconciliationPath),
     readJsonFile<Record<string, unknown>>(releasePath),
     readJsonFile<Record<string, unknown>>(driftPath),
     readJsonFile<Record<string, unknown>>(interventionsPath),
+    readJsonFile<Record<string, unknown>>(cyclePath),
   ]);
 
   if (!desired?.data || !actual?.data) {
-    const [cycleSummary, authority] = await Promise.all([
-      readJsonFile<Record<string, unknown>>(cyclePath),
-      readJsonFile<Record<string, unknown>>(authorityPath),
-    ]);
-    const cycleData = asRecord(cycleSummary?.data) ?? {};
+    const authority = await readJsonFile<Record<string, unknown>>(authorityPath);
+    const cycleData = asRecord(cycle?.data) ?? {};
     const cycleSummaryData = asRecord(cycleData.summary) ?? {};
     const authorityData = asRecord(authority?.data) ?? {};
     const authoritySummary = asRecord(authorityData.summary) ?? {};
-    if (cycleSummary?.data) {
+    if (cycle?.data) {
       const legacyPosture = "unknown";
       const legacyAutonomy = stringValue(authoritySummary.highest_autonomy_mode) ?? "advisory";
       const updatedAt = stringValue(cycleData.generated_at) ?? null;
+      const scheduleRows = buildControlLoopScheduleRows([
+        { name: "Lifecycle cycle", path: cyclePath, data: cycleData },
+      ]);
+      const lateScheduleCount = scheduleRows.filter((row) => row.state !== "ok").length;
       return {
         state: "degraded",
         label: "Control tower (fallback)",
@@ -1332,6 +1348,8 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
             `Legacy lifecycle snapshot shows ${numberValue(cycleSummaryData.open_count) ?? 0} open and ${numberValue(cycleSummaryData.closed_total_count) ?? 0} closed positions.`,
             "Run the V4 lifecycle cycle to materialize desired, actual, release, drift, and intervention artifacts.",
           ]).join(" "),
+          scheduleRows,
+          lateScheduleCount,
         },
         source: [cyclePath, authorityPath].join(" · "),
         updatedAt,
@@ -1369,6 +1387,13 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const interventionRows = asArray(interventionsData.events)
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const scheduleRows = buildControlLoopScheduleRows([
+    { name: "Lifecycle cycle", path: cyclePath, data: cycle.data },
+    { name: "Desired state", path: desiredPath, data: desiredData },
+    { name: "Actual state", path: actualPath, data: actualData },
+    { name: "Reconciliation", path: reconciliationPath, data: reconciliationData },
+  ]);
+  const lateScheduleCount = scheduleRows.filter((row) => row.state !== "ok").length;
   const proposedCount = numberValue(reconciliationSummary.proposed_count)
     ?? actionRows.filter((entry) => stringValue(entry.action_status) === "proposed").length;
   const appliedCount = numberValue(reconciliationSummary.applied_count)
@@ -1443,14 +1468,17 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
       topAction,
       topActionStatus,
       operatorAction,
+      scheduleRows,
+      lateScheduleCount,
     },
-    source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath].join(" · "),
+    source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath, cyclePath].join(" · "),
     updatedAt,
     warnings: compactStrings([
       driftStatus && driftStatus !== "ok" ? `drift:${driftStatus}` : null,
       proposedCount > 0 ? `pending-actions:${proposedCount}` : null,
       activeInterventionCount > 0 ? `active-interventions:${activeInterventionCount}` : null,
       releaseValidationStatus === "invalid" ? "release-validation:invalid" : null,
+      lateScheduleCount > 0 ? `control-loop-schedule-late:${lateScheduleCount}` : null,
     ]),
     badgeText: driftStatus && driftStatus !== "ok" ? driftStatus : proposedCount > 0 ? `${proposedCount} pending` : undefined,
   };
@@ -1921,6 +1949,50 @@ async function latestPredictionAccuracyArtifactFreshnessMs(dirPath: string): Pro
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return 0;
     return 0;
   }
+}
+
+
+function dedupeAndSortRuntimeIncidents(
+  incidents: RuntimeOverview["incidents"],
+): RuntimeOverview["incidents"] {
+  const deduped = new Map<string, RuntimeOverview["incidents"][number]>();
+  for (const incident of incidents) {
+    const key = `${incident.incidentType}:${incident.severity}:${incident.operatorAction}`;
+    if (!deduped.has(key)) deduped.set(key, incident);
+  }
+  return [...deduped.values()].sort(
+    (left, right) => severityRank(right.severity) - severityRank(left.severity),
+  );
+}
+
+function severityRank(severity: string): number {
+  const normalized = severity.toLowerCase();
+  if (["critical", "high"].includes(normalized)) return 3;
+  if (["medium", "warning", "warn"].includes(normalized)) return 2;
+  if (["low", "info"].includes(normalized)) return 1;
+  return 0;
+}
+
+function buildControlLoopScheduleRows(
+  artifacts: Array<{ name: string; path: string; data: Record<string, unknown> | null | undefined }>,
+): ControlLoopScheduleRow[] {
+  return artifacts.map((artifact) => {
+    const lastRunAt = stringValue(artifact.data?.generated_at) ?? stringValue(artifact.data?.known_at);
+    const lastRunMs = lastRunAt ? Date.parse(lastRunAt) : Number.NaN;
+    const nextExpectedAt = Number.isFinite(lastRunMs)
+      ? new Date(lastRunMs + CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS * 1000).toISOString()
+      : null;
+    const isLate = !Number.isFinite(lastRunMs)
+      || Date.now() - lastRunMs > CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS * 1000;
+    return {
+      name: artifact.name,
+      lastRunAt: lastRunAt ?? null,
+      nextExpectedAt,
+      freshnessLabel: lastRunAt ? formatRelativeAge(lastRunAt) : "missing",
+      state: isLate ? "degraded" : "ok",
+      source: artifact.path,
+    };
+  });
 }
 
 async function readJsonFile<T>(filePath: string): Promise<{ path: string; data: T | null; message?: string; error?: "missing" | "invalid" | "read" }> {

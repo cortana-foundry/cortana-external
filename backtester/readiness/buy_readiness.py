@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from evaluation.artifact_safety import looks_like_mock_artifact
 from evaluation.prediction_accuracy import default_prediction_root
 from governance.authority import DEFAULT_STRATEGY_AUTHORITY_PATH
 
@@ -16,6 +17,7 @@ GATE_VERSION = "buy_readiness.v1"
 DEFAULT_MARKET_MAX_STALENESS_SECONDS = 15 * 60
 DEFAULT_SCORECARD_MAX_AGE_HOURS = 72.0
 DEFAULT_LIFECYCLE_MAX_AGE_HOURS = 4.0
+DEFAULT_RUNTIME_HEALTH_MAX_AGE_HOURS = 1.0
 MIN_AUTHORITY_TIER = "limited_trust"
 AUTHORITY_RANK = {"demoted": 0, "exploratory": 1, "limited_trust": 2, "trusted": 3}
 BLOCKER_PREFIX = "BUY_BLOCKED"
@@ -69,6 +71,11 @@ def build_buy_readiness_context(
         lifecycle_root=base / ".cache" / "trade_lifecycle",
         now=now,
         max_age_hours=_env_float("BUY_READINESS_LIFECYCLE_MAX_AGE_HOURS", DEFAULT_LIFECYCLE_MAX_AGE_HOURS),
+    )
+    checks["runtime_health"] = _runtime_health_check(
+        path=base / ".cache" / "trade_lifecycle" / "runtime_health.json",
+        now=now,
+        max_age_hours=_env_float("BUY_READINESS_RUNTIME_HEALTH_MAX_AGE_HOURS", DEFAULT_RUNTIME_HEALTH_MAX_AGE_HOURS),
     )
     checks["calibration"] = _calibration_check(calibration_summary)
 
@@ -134,6 +141,7 @@ def summarize_buy_readiness(readiness: Mapping[str, Any], records: Sequence[Mapp
         "gate_version": str(readiness.get("gate_version") or GATE_VERSION),
         "allowed": bool(readiness.get("allowed")),
         "status": str(readiness.get("status") or "unknown"),
+        "decision": "BUY_ALLOWED" if bool(readiness.get("allowed")) else "BUY_BLOCKED",
         "generated_at": readiness.get("generated_at"),
         "strategy": readiness.get("strategy"),
         "blockers": list(readiness.get("blockers") or []),
@@ -155,9 +163,9 @@ def buy_readiness_line(summary: Mapping[str, Any]) -> str:
     if not summary or int(summary.get("raw_buy_count", 0) or 0) <= 0:
         return ""
     if bool(summary.get("allowed")):
-        return "BUY readiness: ok — final BUY labels have current evidence."
+        return "BUY readiness: BUY_ALLOWED — final BUY labels have current evidence."
     blockers = ", ".join(str(code) for code in summary.get("blockers") or [] if str(code)) or "BUY_BLOCKED:UNKNOWN"
-    return f"BUY readiness: blocked — raw BUY downgraded to WATCH until gates clear ({blockers})."
+    return f"BUY readiness: BUY_BLOCKED — raw BUY downgraded to WATCH until gates clear ({blockers})."
 
 
 def _market_data_check(*, market: object, max_input_staleness_seconds: float, max_age_seconds: float) -> dict[str, Any]:
@@ -234,6 +242,7 @@ def _authority_check(*, strategy: str, path: Path, minimum_tier: str) -> dict[st
 
 def _lifecycle_check(*, lifecycle_root: Path, now: datetime, max_age_hours: float) -> dict[str, Any]:
     required = {
+        "cycle_summary": lifecycle_root / "cycle_summary.json",
         "desired_state": lifecycle_root / "desired_state.json",
         "actual_state": lifecycle_root / "actual_state.json",
         "reconciliation_actions": lifecycle_root / "reconciliation_actions.json",
@@ -256,6 +265,38 @@ def _lifecycle_check(*, lifecycle_root: Path, now: datetime, max_age_hours: floa
         "blockers": blockers,
         "max_age_hours": float(max_age_hours),
         "artifacts": artifacts,
+    }
+
+
+def _runtime_health_check(*, path: Path, now: datetime, max_age_hours: float) -> dict[str, Any]:
+    payload = _load_json(path)
+    blockers: list[str] = []
+    if not payload:
+        return {
+            "passed": False,
+            "blockers": ["BUY_BLOCKED:RUNTIME_HEALTH_MISSING"],
+            "path": str(path),
+            "age_hours": None,
+            "incident_count": None,
+        }
+    age_hours = _age_hours(payload.get("generated_at") or payload.get("known_at"), now)
+    incidents = [item for item in payload.get("incident_markers") or [] if isinstance(item, Mapping)]
+    status = str(payload.get("status") or "unknown").strip().lower()
+    if age_hours is None or age_hours > max_age_hours:
+        blockers.append("BUY_BLOCKED:RUNTIME_HEALTH_STALE")
+    if status != "ok":
+        blockers.append("BUY_BLOCKED:RUNTIME_HEALTH_DEGRADED")
+    if incidents:
+        blockers.append("BUY_BLOCKED:RUNTIME_HEALTH_INCIDENTS")
+    return {
+        "passed": not blockers,
+        "blockers": list(dict.fromkeys(blockers)),
+        "path": str(path),
+        "generated_at": payload.get("generated_at"),
+        "age_hours": age_hours,
+        "max_age_hours": float(max_age_hours),
+        "status": status,
+        "incident_count": len(incidents),
     }
 
 
@@ -325,6 +366,8 @@ def _load_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
     except Exception:
+        return {}
+    if looks_like_mock_artifact(payload):
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
 

@@ -1412,6 +1412,11 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                     }
                   />
                   <Metric label="Rollback ready" value={data.controlTower.data.rollbackReady == null ? "unknown" : data.controlTower.data.rollbackReady ? "yes" : "no"} />
+                  <Metric label="Loop schedule" value={data.controlTower.data.lateScheduleCount > 0 ? `${data.controlTower.data.lateScheduleCount} late` : "current"} />
+                  <Metric
+                    label="Last loop artifacts"
+                    value={data.controlTower.data.scheduleRows.map((row) => `${row.name}: ${row.freshnessLabel}`).join(" · ") || "none"}
+                  />
                   <Metric label="Next operator step" value={data.controlTower.data.operatorAction ?? "No immediate operator action required."} />
                 </div>
               ) : null}

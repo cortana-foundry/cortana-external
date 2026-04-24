@@ -22,8 +22,9 @@ def _seed_ready_artifacts(root, generated_at="2026-04-24T13:00:00+00:00"):
         reports / "strategy-authority-tiers-latest.json",
         {"generated_at": generated_at, "families": [{"strategy_family": "canslim", "authority_tier": "limited_trust", "autonomy_mode": "advisory"}]},
     )
-    for name in ("desired_state", "actual_state", "reconciliation_actions"):
+    for name in ("cycle_summary", "desired_state", "actual_state", "reconciliation_actions"):
         _write_json(lifecycle / f"{name}.json", {"generated_at": generated_at, "status": "ok"})
+    _write_json(lifecycle / "runtime_health.json", {"generated_at": generated_at, "status": "ok", "incident_markers": []})
 
 
 def test_buy_readiness_allows_buy_when_all_gates_pass(tmp_path):
@@ -78,3 +79,49 @@ def test_buy_readiness_summary_writes_latest_artifact(tmp_path):
 
     assert path == tmp_path / ".cache" / "trade_lifecycle" / "buy_readiness_latest.json"
     assert json.loads(path.read_text(encoding="utf-8"))["blocked_buy_count"] == 1
+
+
+def test_buy_readiness_blocks_buy_when_runtime_health_has_incidents(tmp_path):
+    _seed_ready_artifacts(tmp_path)
+    runtime_path = tmp_path / ".cache" / "trade_lifecycle" / "runtime_health.json"
+    _write_json(
+        runtime_path,
+        {
+            "generated_at": "2026-04-24T13:00:00+00:00",
+            "status": "degraded",
+            "incident_markers": [{"incident_type": "provider_cooldown"}],
+        },
+    )
+    market = SimpleNamespace(status="ok", data_source="schwab", provider_mode="schwab_primary", fallback_engaged=False, snapshot_age_seconds=30)
+
+    readiness = build_buy_readiness_context(
+        strategy="canslim",
+        market=market,
+        max_input_staleness_seconds=45,
+        calibration_summary={"settled_candidates": 8, "is_stale": False},
+        generated_at="2026-04-24T14:00:00+00:00",
+        root=tmp_path,
+    )
+
+    assert readiness["allowed"] is False
+    assert "BUY_BLOCKED:RUNTIME_HEALTH_DEGRADED" in readiness["blockers"]
+    assert "BUY_BLOCKED:RUNTIME_HEALTH_INCIDENTS" in readiness["blockers"]
+
+
+def test_buy_readiness_rejects_test_generated_scorecard_artifacts(tmp_path):
+    _seed_ready_artifacts(tmp_path)
+    scorecard_path = tmp_path / ".cache" / "prediction_accuracy" / "reports" / "strategy-scorecard-latest.json"
+    _write_json(scorecard_path, {"generated_at": "2026-04-24T13:00:00+00:00", "strategies": ["<MagicMock name=scorecard>"]})
+    market = SimpleNamespace(status="ok", data_source="schwab", provider_mode="schwab_primary", fallback_engaged=False, snapshot_age_seconds=30)
+
+    readiness = build_buy_readiness_context(
+        strategy="canslim",
+        market=market,
+        max_input_staleness_seconds=45,
+        calibration_summary={"settled_candidates": 8, "is_stale": False},
+        generated_at="2026-04-24T14:00:00+00:00",
+        root=tmp_path,
+    )
+
+    assert readiness["allowed"] is False
+    assert "BUY_BLOCKED:SCORECARD_MISSING" in readiness["blockers"]
