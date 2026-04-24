@@ -172,6 +172,18 @@ Covers:
 - scheduled V4 control-loop refresh
 - Mission Control readiness visibility
 
+### W12. Backtester V5 Evidence-Gated Operator Evaluation
+
+- PRD: [12-backtester-v5-evidence-gated-operator-evaluation.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/12-backtester-v5-evidence-gated-operator-evaluation.md)
+
+Status: blocked until W11 produces sufficient live or replay evidence.
+
+Covers:
+- activation gate for post-hardening feature work
+- LLM-readable evidence comparison packet
+- readiness criteria before W12 implementation starts
+- operator trust summaries with evidence and counterevidence
+
 ## Recommended Order
 
 Execution order:
@@ -187,6 +199,7 @@ Execution order:
 9. W9 Backtester V3 Adaptive Portfolio Intelligence And Governed Autonomy
 10. W10 Backtester V4 Unified Trading Control Loop And Scaled Compounding
 11. W11 Backtester V4 Buy Readiness And Control-Loop Hardening
+12. W12 Backtester V5 Evidence-Gated Operator Evaluation
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -200,6 +213,7 @@ This order is deliberate:
 - W9 turns trusted signals into governed capital competition
 - W10 unifies posture, release, drift, and intervention into one trading control loop
 - W11 hardens final BUY semantics so advisory labels require current evidence and current control-loop truth
+- W12 stays blocked until W11 evidence proves the system is ready for post-hardening feature work
 
 ## Authoring Rules
 
