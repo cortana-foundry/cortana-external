@@ -39,8 +39,13 @@ from strategy_alert_pipeline import (
     dedupe_reason as _dedupe_reason,
     market_degraded_warning_line as _market_degraded_warning_line,
     market_recovery_line as _market_recovery_line,
+    apply_buy_readiness,
+    build_buy_readiness_context,
+    buy_readiness_line,
     persist_strategy_predictions,
     run_quiet as _run_quiet,
+    save_buy_readiness_summary,
+    summarize_buy_readiness,
     top_names as _top_names,
     trade_quality_sort_key as _trade_quality_sort_key,
 )
@@ -529,6 +534,8 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "symbol": str(record.get("symbol", "") or ""),
                 "score": int(record.get("score", 0) or 0),
                 "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
+                "raw_action": str(record.get("raw_action", record.get("action", "NO_BUY")) or "NO_BUY"),
+                "final_action": str(record.get("final_action", record.get("action", "NO_BUY")) or "NO_BUY"),
                 "reason": str(record.get("reason", "") or ""),
                 "price": float(record.get("price", 0.0) or 0.0),
                 "confidence": float(record.get("confidence", record.get("effective_confidence", 0.0)) or 0.0),
@@ -550,6 +557,8 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "exit_risk_veto": bool(record.get("exit_risk_veto", False)),
                 "market_regime_blocked": bool(record.get("market_regime_blocked", False)),
                 "has_risk_telemetry": bool(record.get("has_risk_telemetry", False)),
+                "buy_readiness_blocked": bool(record.get("buy_readiness_blocked", False)),
+                "buy_readiness": dict(record.get("buy_readiness") or {}),
             }
         )
     return serialized
@@ -569,6 +578,7 @@ def _finalize_alert_payload(
     risk_overlay: dict[str, Any],
     execution_overlay: dict[str, Any],
     calibration_note: str,
+    buy_readiness: dict[str, Any] | None,
     gate_active: bool,
     analysis_error_count: int,
     lines: list[str],
@@ -609,6 +619,7 @@ def _finalize_alert_payload(
             "execution": dict(execution_overlay or {}),
             "calibration_note": calibration_note or "",
         },
+        "buy_readiness": dict(buy_readiness or {}),
         "parameters": {
             "limit": int(limit),
             "min_score": int(min_score),
@@ -776,6 +787,7 @@ def build_alert_payload(
             risk_overlay=risk_overlay,
             execution_overlay=execution_overlay,
             calibration_note=calibration_note,
+            buy_readiness=None,
             gate_active=True,
             analysis_error_count=0,
             lines=lines,
@@ -876,6 +888,7 @@ def build_alert_payload(
             risk_overlay=risk_overlay,
             execution_overlay=execution_overlay,
             calibration_note=calibration_note,
+            buy_readiness=None,
             gate_active=False,
             analysis_error_count=analysis_error_count,
             lines=lines,
@@ -889,6 +902,17 @@ def build_alert_payload(
 
     ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
+    calibration_summary = load_buy_decision_calibration_summary()
+    readiness = build_buy_readiness_context(
+        strategy="canslim",
+        market=market,
+        max_input_staleness_seconds=max_input_staleness,
+        calibration_summary=calibration_summary,
+        generated_at=generated_at,
+    )
+    candidates = apply_buy_readiness(candidates, readiness)
+    readiness_summary = summarize_buy_readiness(readiness, candidates)
+    save_buy_readiness_summary(readiness_summary)
     _persist_predictions(market=market, records=candidates)
 
     buy_count = sum(1 for c in candidates if c["action"] == "BUY")
@@ -908,6 +932,9 @@ def build_alert_payload(
         no_buy_count=no_buy_count,
     )
     lines.append(f"Scanned {len(symbols)} | {len(passed)} passed threshold | {buy_count} BUY | {watch_count} WATCH")
+    readiness_text = buy_readiness_line(readiness_summary)
+    if readiness_text:
+        lines.append(readiness_text)
     lines.append(f"Top names considered: {_top_names(candidates, 3)}")
 
     if buy_count == 0 and watch_count == 0:
@@ -947,6 +974,7 @@ def build_alert_payload(
         risk_overlay=risk_overlay,
         execution_overlay=execution_overlay,
         calibration_note=calibration_note,
+        buy_readiness=readiness_summary,
         gate_active=False,
         analysis_error_count=analysis_error_count,
         lines=lines,

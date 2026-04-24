@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD) - Backtester V4 Buy Readiness And Control-Loop Hardening
 
-**Document Status:** Draft
+**Document Status:** In Progress
 
 ## Team
 

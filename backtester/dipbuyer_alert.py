@@ -40,8 +40,13 @@ from strategy_alert_pipeline import (
     dedupe_reason as _dedupe_reason,
     market_degraded_warning_line as _market_degraded_warning_line,
     market_recovery_line as _market_recovery_line,
+    apply_buy_readiness,
+    build_buy_readiness_context,
+    buy_readiness_line,
     persist_strategy_predictions,
     run_quiet as _run_quiet,
+    save_buy_readiness_summary,
+    summarize_buy_readiness,
     top_names as _top_names,
     trade_quality_sort_key as _trade_quality_sort_key,
 )
@@ -208,11 +213,13 @@ def _with_display_actions(
     for record in records:
         copied = dict(record)
         original_action = str(copied.get("action", "")).strip().upper()
+        copied["raw_action"] = original_action
         copied["action"] = _display_action(
             record,
             regime_value=regime_value,
             allowed_buy_symbols=allowed_buy_symbols,
         )
+        copied["final_action"] = copied["action"]
         copied["market_regime_blocked"] = (
             regime_value == "correction"
             and original_action == "BUY"
@@ -663,6 +670,8 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "symbol": str(record.get("symbol", "") or ""),
                 "score": int(record.get("score", 0) or 0),
                 "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
+                "raw_action": str(record.get("raw_action", record.get("action", "NO_BUY")) or "NO_BUY"),
+                "final_action": str(record.get("final_action", record.get("action", "NO_BUY")) or "NO_BUY"),
                 "reason": str(record.get("reason", "") or ""),
                 "price": float(record.get("price", 0.0) or 0.0),
                 "sentiment_tag": str(record.get("sentiment_tag", "") or ""),
@@ -685,6 +694,8 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "falling_knife": bool(record.get("falling_knife", False)),
                 "market_inactive": bool(record.get("market_inactive", False)),
                 "has_risk_telemetry": bool(record.get("has_risk_telemetry", False)),
+                "buy_readiness_blocked": bool(record.get("buy_readiness_blocked", False)),
+                "buy_readiness": dict(record.get("buy_readiness") or {}),
             }
         )
     return serialized
@@ -704,6 +715,7 @@ def _finalize_alert_payload(
     risk_overlay: dict[str, Any],
     execution_overlay: dict[str, Any],
     calibration_note: str,
+    buy_readiness: dict[str, Any] | None,
     breadth_snapshot: dict[str, Any],
     risk_snapshot: dict[str, Any],
     profile_name: str,
@@ -759,6 +771,7 @@ def _finalize_alert_payload(
             "calibration_note": calibration_note or "",
             "breadth": dict(breadth_snapshot or {}),
         },
+        "buy_readiness": dict(buy_readiness or {}),
         "profile": {
             "name": profile_name,
             "settings": dict(profile or {}),
@@ -1010,6 +1023,7 @@ def build_alert_payload(
             risk_overlay=risk_overlay,
             execution_overlay=execution_overlay,
             calibration_note=calibration_note,
+            buy_readiness=None,
             breadth_snapshot=breadth_snapshot,
             risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
             profile_name=profile_name,
@@ -1030,12 +1044,23 @@ def build_alert_payload(
         regime_value=regime_value,
         breadth_snapshot=breadth_snapshot,
     )
+    calibration_summary = load_buy_decision_calibration_summary()
+    readiness = build_buy_readiness_context(
+        strategy="dip_buyer",
+        market=market,
+        max_input_staleness_seconds=max_input_staleness,
+        calibration_summary=calibration_summary,
+        generated_at=generated_at,
+    )
+    display_candidates = apply_buy_readiness(display_candidates, readiness)
+    readiness_summary = summarize_buy_readiness(readiness, display_candidates)
+    save_buy_readiness_summary(readiness_summary)
     _persist_predictions(market=market, records=display_candidates)
     buy_candidates = [c for c in display_candidates if c["action"] == "BUY"]
     watch_candidates = [c for c in display_candidates if c["action"] == "WATCH"]
     buy_count = len(buy_candidates)
     watch_count = len(watch_candidates)
-    blocked_buy_count = breadth_meta["downgraded_buy_count"] if regime_value == "correction" else 0
+    blocked_buy_count = breadth_meta["downgraded_buy_count"] if regime_value == "correction" else int(readiness_summary.get("blocked_buy_count", 0) or 0)
 
     posture_line = describe_alert_posture(
         market_regime=regime_value,
@@ -1055,6 +1080,9 @@ def build_alert_payload(
         no_buy_count=sum(1 for c in display_candidates if str(c.get("action", "")).upper() == "NO_BUY"),
     )
     lines.append(f"Qualified setups: {len(passed)} of {len(symbols)} scanned | BUY {buy_count} | WATCH {watch_count}")
+    readiness_text = buy_readiness_line(readiness_summary)
+    if readiness_text:
+        lines.append(readiness_text)
     if regime_value == "correction" and breadth_meta.get("active") and buy_count > 0:
         lines.append(f"BUY names: {_all_names(buy_candidates, 10)}")
         if watch_count > 0:
@@ -1097,6 +1125,8 @@ def build_alert_payload(
     elif regime_value == "correction" and watch_count > 0:
         veto_reason = _dedupe_reason(market.notes or 'market correction gate')
         lines.append(f"Final action: WATCH only — correction regime blocks new dip buys ({veto_reason})")
+    elif buy_count == 0 and int(readiness_summary.get("blocked_buy_count", 0) or 0) > 0:
+        lines.append("Final action: WATCH only — BUY readiness gates block new entries")
     elif buy_count == 0:
         veto_reason = _dedupe_reason(market.notes or 'market correction gate')
         lines.append(f"Final action: DO NOT BUY — market regime veto ({veto_reason})")
@@ -1128,6 +1158,7 @@ def build_alert_payload(
         risk_overlay=risk_overlay,
         execution_overlay=execution_overlay,
         calibration_note=calibration_note,
+        buy_readiness=readiness_summary,
         breadth_snapshot=breadth_snapshot,
         risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
         profile_name=profile_name,

@@ -44,7 +44,7 @@ def describe_calibration_note(summary: Mapping[str, object] | None) -> str:
     settled = int(summary.get("settled_candidates", 0) or 0)
     reason = str(summary.get("reason") or "").strip().lower()
     is_stale = bool(summary.get("is_stale"))
-    if reason == "no_settled_records" or settled <= 0:
+    if settled <= 0:
         return (
             "Calibration note: uncalibrated — no settled outcomes yet, "
             "so confidence is still model-estimated rather than proven."
