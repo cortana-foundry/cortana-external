@@ -10,14 +10,15 @@ from typing import Any, Mapping, Sequence
 
 from evaluation.artifact_safety import looks_like_mock_artifact
 from evaluation.prediction_accuracy import default_prediction_root
+from readiness.freshness_policy import freshness_policy
 from governance.authority import DEFAULT_STRATEGY_AUTHORITY_PATH
 
 SCHEMA_VERSION = 1
 GATE_VERSION = "buy_readiness.v1"
-DEFAULT_MARKET_MAX_STALENESS_SECONDS = 15 * 60
-DEFAULT_SCORECARD_MAX_AGE_HOURS = 72.0
-DEFAULT_LIFECYCLE_MAX_AGE_HOURS = 4.0
-DEFAULT_RUNTIME_HEALTH_MAX_AGE_HOURS = 1.0
+DEFAULT_MARKET_MAX_STALENESS_SECONDS = freshness_policy("market_data").max_age_seconds
+DEFAULT_SCORECARD_MAX_AGE_HOURS = freshness_policy("prediction_scorecard").max_age_hours
+DEFAULT_LIFECYCLE_MAX_AGE_HOURS = freshness_policy("lifecycle").max_age_hours
+DEFAULT_RUNTIME_HEALTH_MAX_AGE_HOURS = freshness_policy("runtime_health").max_age_hours
 MIN_AUTHORITY_TIER = "limited_trust"
 AUTHORITY_RANK = {"demoted": 0, "exploratory": 1, "limited_trust": 2, "trusted": 3}
 BLOCKER_PREFIX = "BUY_BLOCKED"
@@ -37,6 +38,7 @@ def build_buy_readiness_context(
     now = _parse_time(generated_at) or datetime.now(UTC)
     if root is None and os.getenv("BUY_READINESS_TEST_BYPASS") == "1":
         return {
+            "artifact_family": "buy_readiness",
             "schema_version": SCHEMA_VERSION,
             "gate_version": GATE_VERSION,
             "generated_at": now.isoformat(),
@@ -85,6 +87,7 @@ def build_buy_readiness_context(
 
     unique_blockers = list(dict.fromkeys(blockers))
     return {
+        "artifact_family": "buy_readiness",
         "schema_version": SCHEMA_VERSION,
         "gate_version": GATE_VERSION,
         "generated_at": now.isoformat(),
@@ -153,10 +156,40 @@ def summarize_buy_readiness(readiness: Mapping[str, Any], records: Sequence[Mapp
 
 
 def save_buy_readiness_summary(summary: Mapping[str, Any], *, path: Path | None = None, root: Path | None = None) -> Path:
-    target = path.expanduser() if path else _base_root(root) / ".cache" / "trade_lifecycle" / "buy_readiness_latest.json"
+    base = _base_root(root)
+    target = path.expanduser() if path else base / ".cache" / "trade_lifecycle" / "buy_readiness_latest.json"
+    artifact = build_buy_readiness_artifact(summary)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(dict(summary), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    target.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    strategy = str(summary.get("strategy") or "").strip().lower()
+    if strategy and path is None:
+        strategy_target = target.with_name(f"buy_readiness_{strategy}_latest.json")
+        strategy_target.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return target
+
+
+def build_buy_readiness_artifact(summary: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(summary)
+    payload.update(
+        {
+            "artifact_family": "buy_readiness",
+            "schema_version": SCHEMA_VERSION,
+            "gate_version": str(summary.get("gate_version") or GATE_VERSION),
+            "decision": "BUY_ALLOWED" if bool(summary.get("allowed")) else "BUY_BLOCKED",
+            "summary": {
+                "raw_buy_count": int(summary.get("raw_buy_count", 0) or 0),
+                "final_buy_count": int(summary.get("final_buy_count", 0) or 0),
+                "blocked_buy_count": int(summary.get("blocked_buy_count", 0) or 0),
+            },
+            "readiness": {
+                "allowed": bool(summary.get("allowed")),
+                "status": str(summary.get("status") or "unknown"),
+                "blockers": list(summary.get("blockers") or []),
+                "checks": dict(summary.get("checks") or {}),
+            },
+        }
+    )
+    return payload
 
 
 def buy_readiness_line(summary: Mapping[str, Any]) -> str:

@@ -8,6 +8,7 @@ import importlib
 import inspect
 import json
 import os
+import time
 from pathlib import Path
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
@@ -33,6 +34,8 @@ from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
 from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
+from market_data_freshness_lane import save_market_data_freshness_lane
+from scan_performance import save_scan_performance_artifact
 from strategies.dip_buyer import DIPBUYER_CONFIG
 from strategy_alert_pipeline import (
     append_pipeline_contract_signals as _append_pipeline_contract_signals,
@@ -53,6 +56,25 @@ from strategy_alert_pipeline import (
 
 
 DIPBUYER_ALERT_PRODUCER = "backtester.dipbuyer_alert"
+
+
+def _save_scan_performance(
+    *,
+    generated_at: str,
+    phase_timings: dict[str, float],
+    nested_timings: dict[str, float],
+    counters: dict[str, Any],
+) -> None:
+    try:
+        save_scan_performance_artifact(
+            strategy="dip_buyer",
+            generated_at=generated_at,
+            phase_timings=phase_timings,
+            nested_timings=nested_timings,
+            counters=counters,
+        )
+    except Exception:
+        return
 
 
 def _display_action(record: dict, *, regime_value: str, allowed_buy_symbols: set[str] | None = None) -> str:
@@ -885,11 +907,21 @@ def build_alert_payload(
     universe_size: int = 120,
     review_detail_limit: int = 2,
 ) -> dict[str, Any]:
+    timing_enabled = os.getenv("BACKTESTER_TIMING", "0") not in {"", "0", "false", "False"}
+    phase_timings: dict[str, float] = {}
+    nested_timings: defaultdict[str, float] = defaultdict(float)
+    setup_start = time.perf_counter()
     advisor = TradingAdvisor()
     sentiment_analyzer = XSentimentAnalyzer()
     generated_at = datetime.now(UTC).isoformat()
+    phase_timings["setup"] = time.perf_counter() - setup_start
 
+    market_start = time.perf_counter()
     market = _run_quiet(advisor.get_market_status, True)
+    phase_timings["market"] = time.perf_counter() - market_start
+    save_market_data_freshness_lane(market, generated_at=generated_at)
+
+    context_start = time.perf_counter()
     regime_value = getattr(getattr(market, "regime", None), "value", "")
     snapshot = _run_quiet(advisor.risk_fetcher.get_snapshot)
     stress = build_adverse_regime_indicator(market=market, risk_inputs=snapshot)
@@ -909,6 +941,7 @@ def build_alert_payload(
     )
     calibration_note = describe_calibration_note(load_buy_decision_calibration_summary())
     breadth_snapshot = build_intraday_breadth_snapshot()
+    phase_timings["context"] = time.perf_counter() - context_start
 
     lines = [
         "Dip Buyer Scan",
@@ -947,6 +980,7 @@ def build_alert_payload(
     source_counts = Counter()
     max_input_staleness = 0.0
 
+    analysis_start = time.perf_counter()
     for symbol in symbols:
         analysis = _analyze_dip_for_alert(
             advisor,
@@ -969,7 +1003,9 @@ def build_alert_payload(
         if score >= min_score:
             sentiment_tag = ""
             if action in {"BUY", "WATCH"}:
+                sentiment_start = time.perf_counter()
                 sentiment = sentiment_analyzer.analyze(symbol)
+                nested_timings["sentiment"] += time.perf_counter() - sentiment_start
                 if sentiment.get("sentiment") != "UNAVAILABLE":
                     sentiment_checked += 1
                 if sentiment.get("sentiment") == "VERY_BEARISH":
@@ -999,6 +1035,7 @@ def build_alert_payload(
 
         if action == "NO_BUY":
             rejected.append({"symbol": symbol, "reason": reason})
+    phase_timings["analysis"] = time.perf_counter() - analysis_start
 
     if not passed:
         if analysis_error_count > 0 and evaluated == 0:
@@ -1068,6 +1105,14 @@ def build_alert_payload(
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
         lines.append(f"Top leaders: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(final_action_line)
+        if timing_enabled:
+            lines.append("Timing: " + " | ".join(f"{key} {value:.2f}s" for key, value in phase_timings.items()))
+        _save_scan_performance(
+            generated_at=generated_at,
+            phase_timings=phase_timings,
+            nested_timings=dict(nested_timings),
+            counters={"scanned": len(symbols), "evaluated": evaluated, "threshold_passed": 0, "analysis_errors": analysis_error_count},
+        )
         return _finalize_alert_payload(
             generated_at=generated_at,
             strategy="dip_buyer",
@@ -1204,6 +1249,14 @@ def build_alert_payload(
     recovery_line = _market_recovery_line(market)
     if recovery_line:
         lines.append(recovery_line)
+    if timing_enabled:
+        lines.append("Timing: " + " | ".join(f"{key} {value:.2f}s" for key, value in phase_timings.items()))
+    _save_scan_performance(
+        generated_at=generated_at,
+        phase_timings=phase_timings,
+        nested_timings=dict(nested_timings),
+        counters={"scanned": len(symbols), "evaluated": evaluated, "threshold_passed": len(passed), "buy_count": buy_count, "watch_count": watch_count},
+    )
     return _finalize_alert_payload(
         generated_at=generated_at,
         strategy="dip_buyer",

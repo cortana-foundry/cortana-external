@@ -33,6 +33,8 @@ from evaluation.decision_review import render_decision_review
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
 from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
 from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
+from market_data_freshness_lane import save_market_data_freshness_lane
+from scan_performance import save_scan_performance_artifact
 from strategy_alert_pipeline import (
     append_pipeline_contract_signals as _append_pipeline_contract_signals,
     append_pipeline_contract_summary as _append_pipeline_contract_summary,
@@ -491,6 +493,25 @@ def _format_timing_line(phase_timings: dict[str, float], nested_timings: dict[st
     return "Timing: " + " | ".join(phase_bits)
 
 
+def _save_scan_performance(
+    *,
+    generated_at: str,
+    phase_timings: dict[str, float],
+    nested_timings: dict[str, float],
+    counters: dict[str, Any],
+) -> None:
+    try:
+        save_scan_performance_artifact(
+            strategy="canslim",
+            generated_at=generated_at,
+            phase_timings=phase_timings,
+            nested_timings=nested_timings,
+            counters=counters,
+        )
+    except Exception:
+        return
+
+
 def _serialize_market_state(market: object) -> dict[str, Any]:
     regime = getattr(getattr(market, "regime", None), "value", str(getattr(market, "regime", "unknown")))
     return {
@@ -682,8 +703,8 @@ def build_alert_payload(
     start = time.perf_counter()
     advisor = TradingAdvisor()
     market = _run_quiet(advisor.get_market_status, True)
-    if timing_enabled:
-        phase_timings["market"] = time.perf_counter() - start
+    phase_timings["market"] = time.perf_counter() - start
+    save_market_data_freshness_lane(market, generated_at=generated_at)
 
     start = time.perf_counter()
     stress = build_adverse_regime_indicator(market=market)
@@ -706,8 +727,7 @@ def build_alert_payload(
         selected_symbols=symbols,
     )
     calibration_note = describe_calibration_note(load_buy_decision_calibration_summary())
-    if timing_enabled:
-        phase_timings["universe"] = time.perf_counter() - start
+    phase_timings["universe"] = time.perf_counter() - start
 
     lines = [
         "CANSLIM Scan",
@@ -767,6 +787,12 @@ def build_alert_payload(
             lines.append(recovery_line)
         if timing_enabled:
             lines.append(_format_timing_line(phase_timings, nested_timings))
+        _save_scan_performance(
+            generated_at=generated_at,
+            phase_timings=phase_timings,
+            nested_timings=dict(nested_timings),
+            counters={"scanned": len(symbols), "evaluated": 0, "threshold_passed": 0},
+        )
         return _finalize_alert_payload(
             generated_at=generated_at,
             strategy="canslim",
@@ -813,9 +839,8 @@ def build_alert_payload(
             analysis_error_count += 1
             continue
 
-        if timing_enabled:
-            for key, value in (analysis.get("timing") or {}).items():
-                nested_timings[key] += float(value)
+        for key, value in (analysis.get("timing") or {}).items():
+            nested_timings[key] += float(value)
 
         evaluated += 1
         source_counts[analysis.get("data_source", "unknown")] += 1
@@ -846,8 +871,7 @@ def build_alert_payload(
 
         if action == "NO_BUY":
             rejected.append(record)
-    if timing_enabled:
-        phase_timings["analysis"] = time.perf_counter() - analyze_start
+    phase_timings["analysis"] = time.perf_counter() - analyze_start
 
     if not passed:
         _persist_predictions(market=market, records=rejected[:limit])
@@ -868,6 +892,12 @@ def build_alert_payload(
             lines.append("Why no buys: no names cleared the CANSLIM threshold")
         if timing_enabled:
             lines.append(_format_timing_line(phase_timings, nested_timings))
+        _save_scan_performance(
+            generated_at=generated_at,
+            phase_timings=phase_timings,
+            nested_timings=dict(nested_timings),
+            counters={"scanned": len(symbols), "evaluated": evaluated, "threshold_passed": 0, "analysis_errors": analysis_error_count},
+        )
         return _finalize_alert_payload(
             generated_at=generated_at,
             strategy="canslim",
@@ -954,6 +984,12 @@ def build_alert_payload(
         lines.append(recovery_line)
     if timing_enabled:
         lines.append(_format_timing_line(phase_timings, nested_timings))
+    _save_scan_performance(
+        generated_at=generated_at,
+        phase_timings=phase_timings,
+        nested_timings=dict(nested_timings),
+        counters={"scanned": len(symbols), "evaluated": evaluated, "threshold_passed": len(passed), "buy_count": buy_count, "watch_count": watch_count},
+    )
     return _finalize_alert_payload(
         generated_at=generated_at,
         strategy="canslim",

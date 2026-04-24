@@ -252,6 +252,37 @@ describe("trading ops loader", () => {
         event_types: ["manual_pause"],
       },
     });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "buy_readiness_latest.json"), {
+      artifact_family: "buy_readiness",
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      decision: "BUY_BLOCKED",
+      readiness: {
+        allowed: false,
+        blockers: ["BUY_BLOCKED:MARKET_DATA_STALE"],
+      },
+    });
+    await mkdir(path.join(repoPath, "watchdog", "logs"), { recursive: true });
+    await writeFile(
+      path.join(repoPath, "watchdog", "logs", "alert-delivery-receipts.jsonl"),
+      [
+        JSON.stringify({
+          sent_at: "2026-04-03T23:20:00.000Z",
+          channel: "telegram",
+          severity: "warning",
+          dedupe_key: "trading_advisor",
+          status: "sent",
+          message_hash: "a".repeat(64),
+        }),
+        JSON.stringify({
+          sent_at: "2026-04-03T23:21:00.000Z",
+          channel: "telegram",
+          severity: "warning",
+          dedupe_key: "watchdog_digest",
+          status: "failed",
+          message_hash: "b".repeat(64),
+        }),
+      ].join("\n"),
+    );
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
       generated_at: "2026-04-03T23:15:25.794002+00:00",
       degraded_status: "degraded_safe",
@@ -376,6 +407,9 @@ describe("trading ops loader", () => {
     expect(data.controlTower.data?.interventionTypes).toEqual(["manual_pause"]);
     expect(data.controlTower.data?.topAction).toBe("rebalance_posture");
     expect(data.controlTower.data?.topActionStatus).toBe("proposed");
+    expect(data.controlTower.data?.buyReadinessDecision).toBe("BUY_BLOCKED");
+    expect(data.controlTower.data?.buyReadinessBlockers).toEqual(["BUY_BLOCKED:MARKET_DATA_STALE"]);
+    expect(data.controlTower.data?.operatorAction).toContain("Clear BUY gate blockers");
     expect(data.controlTower.data?.operatorAction).toContain("Resolve visible interventions");
     expect(data.controlTower.data?.scheduleRows.map((row) => row.name)).toEqual([
       "Lifecycle cycle",
@@ -384,6 +418,10 @@ describe("trading ops loader", () => {
       "Reconciliation",
     ]);
     expect(data.controlTower.data?.lateScheduleCount).toBeGreaterThanOrEqual(0);
+    expect(data.alertDelivery.state).toBe("degraded");
+    expect(data.alertDelivery.data?.sentCount).toBe(1);
+    expect(data.alertDelivery.data?.failedCount).toBe(1);
+    expect(data.alertDelivery.data?.lastDedupeKey).toBe("watchdog_digest");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");
@@ -528,6 +566,7 @@ describe("trading ops loader", () => {
     expect(data.controlTower.badgeText).toBe("fallback");
     expect(data.controlTower.data?.stateAlignment).toBe("fallback");
     expect(data.controlTower.data?.releaseStatus).toBe("legacy");
+    expect(data.controlTower.data?.buyReadinessDecision).toBeNull();
     expect(data.controlTower.data?.operatorAction).toContain("Run the V4 lifecycle cycle");
   });
 

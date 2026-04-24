@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from readiness.buy_readiness import apply_buy_readiness, build_buy_readiness_context, save_buy_readiness_summary, summarize_buy_readiness
+from readiness.buy_readiness import (
+    apply_buy_readiness,
+    build_buy_readiness_artifact,
+    build_buy_readiness_context,
+    save_buy_readiness_summary,
+    summarize_buy_readiness,
+)
 
 
 def _write_json(path, payload):
@@ -73,12 +79,25 @@ def test_buy_readiness_downgrades_raw_buy_when_required_artifacts_are_missing(tm
 
 
 def test_buy_readiness_summary_writes_latest_artifact(tmp_path):
-    summary = {"status": "blocked", "blocked_buy_count": 1}
+    summary = {"allowed": False, "status": "blocked", "strategy": "canslim", "blocked_buy_count": 1, "blockers": ["BUY_BLOCKED:SCORECARD_EMPTY"]}
 
     path = save_buy_readiness_summary(summary, root=tmp_path)
 
     assert path == tmp_path / ".cache" / "trade_lifecycle" / "buy_readiness_latest.json"
-    assert json.loads(path.read_text(encoding="utf-8"))["blocked_buy_count"] == 1
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    assert artifact["artifact_family"] == "buy_readiness"
+    assert artifact["decision"] == "BUY_BLOCKED"
+    assert artifact["summary"]["blocked_buy_count"] == 1
+    assert artifact["readiness"]["blockers"] == ["BUY_BLOCKED:SCORECARD_EMPTY"]
+    strategy_path = tmp_path / ".cache" / "trade_lifecycle" / "buy_readiness_canslim_latest.json"
+    assert json.loads(strategy_path.read_text(encoding="utf-8"))["decision"] == "BUY_BLOCKED"
+
+
+def test_build_buy_readiness_artifact_preserves_allowed_decision():
+    artifact = build_buy_readiness_artifact({"allowed": True, "status": "ok", "raw_buy_count": 1, "final_buy_count": 1})
+
+    assert artifact["decision"] == "BUY_ALLOWED"
+    assert artifact["readiness"]["allowed"] is True
 
 
 def test_buy_readiness_blocks_buy_when_runtime_health_has_incidents(tmp_path):

@@ -5,9 +5,11 @@ import { promisify } from "node:util";
 import { formatCurrency as formatMoney, formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
-import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
+import { readTradingJsonArtifact } from "@/lib/trading-artifacts";
+import { tradingFreshnessSeconds } from "@/lib/trading-freshness-policy";
 import {
   prismaTradingRunStateStore,
+  resolveTradingRunStateSource,
   type TradingRunStateRecord,
   type TradingRunStateStore,
 } from "@/lib/trading-run-state";
@@ -15,8 +17,8 @@ import {
 const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
-const STALE_SUMMARY_MAX_AGE_SECONDS = 24 * 60 * 60;
-const CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS = 4 * 60 * 60;
+const STALE_SUMMARY_MAX_AGE_SECONDS = tradingFreshnessSeconds("tradingSummary");
+const CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS = tradingFreshnessSeconds("controlLoop");
 
 export type LoadState = "ok" | "degraded" | "missing" | "error";
 
@@ -151,6 +153,8 @@ export type ControlTowerOverview = {
   interventionTypes: string[];
   topAction: string | null;
   topActionStatus: string | null;
+  buyReadinessDecision: string | null;
+  buyReadinessBlockers: string[];
   operatorAction: string | null;
   scheduleRows: ControlLoopScheduleRow[];
   lateScheduleCount: number;
@@ -190,6 +194,16 @@ export type FinancialServicesHealthOverview = {
   degradedCount: number;
   errorCount: number;
   checkedAt: string | null;
+};
+
+export type AlertDeliveryOverview = {
+  sentCount: number;
+  failedCount: number;
+  lastSentAt: string | null;
+  lastStatus: string | null;
+  lastChannel: string | null;
+  lastDedupeKey: string | null;
+  rows: Array<{ sentAt: string; channel: string; severity: string; status: string; dedupeKey: string; messageHash: string }>;
 };
 
 export type TradingRunOverview = {
@@ -245,6 +259,7 @@ export type TradingOpsDashboardData = {
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
+  alertDelivery: ArtifactState<AlertDeliveryOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 
@@ -281,6 +296,7 @@ export async function loadTradingOpsDashboardData(
     workflow,
     opsHighway,
     financialServices,
+    alertDelivery,
   ] = await Promise.all([
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
@@ -293,6 +309,7 @@ export async function loadTradingOpsDashboardData(
     loadWorkflowOverview(repoPath, tradingRunSignal),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
     loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
+    loadAlertDeliveryOverview(repoPath),
   ]);
 
   return {
@@ -310,6 +327,7 @@ export async function loadTradingOpsDashboardData(
     workflow,
     opsHighway,
     financialServices,
+    alertDelivery,
     tradingRun,
   };
 }
@@ -589,6 +607,66 @@ async function loadFinancialServicesOverview(
       errorCount,
       checkedAt,
     },
+  };
+}
+
+async function loadAlertDeliveryOverview(repoPath: string): Promise<ArtifactState<AlertDeliveryOverview>> {
+  const repoRoot = path.basename(repoPath) === "backtester" ? path.dirname(repoPath) : repoPath;
+  const receiptPath = path.join(repoRoot, "watchdog", "logs", "alert-delivery-receipts.jsonl");
+  const raw = await readTextIfExists(receiptPath);
+  if (!raw.trim()) {
+    return {
+      state: "missing",
+      label: "No alert delivery receipts",
+      message: "Watchdog has not written alert delivery receipts yet.",
+      data: null,
+      source: receiptPath,
+      warnings: [],
+    };
+  }
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is Record<string, unknown> => Boolean(row))
+    .slice(-20)
+    .map((row) => ({
+      sentAt: stringValue(row.sent_at) ?? "",
+      channel: stringValue(row.channel) ?? "unknown",
+      severity: stringValue(row.severity) ?? "unknown",
+      status: stringValue(row.status) ?? "unknown",
+      dedupeKey: stringValue(row.dedupe_key) ?? "unknown",
+      messageHash: stringValue(row.message_hash) ?? "",
+    }));
+  const failedCount = rows.filter((row) => row.status === "failed").length;
+  const sentCount = rows.filter((row) => row.status === "sent").length;
+  const last = rows.at(-1) ?? null;
+  return {
+    state: failedCount > 0 ? "degraded" : "ok",
+    label: "Alert delivery receipts",
+    message: last
+      ? `Last ${last.channel} delivery ${last.status} for ${last.dedupeKey}.`
+      : "Alert delivery receipts are present but empty.",
+    data: {
+      sentCount,
+      failedCount,
+      lastSentAt: last?.sentAt ?? null,
+      lastStatus: last?.status ?? null,
+      lastChannel: last?.channel ?? null,
+      lastDedupeKey: last?.dedupeKey ?? null,
+      rows: rows.reverse(),
+    },
+    source: receiptPath,
+    updatedAt: last?.sentAt ?? null,
+    warnings: rows.filter((row) => row.status === "failed").map((row) => `${row.channel}:${row.dedupeKey}:failed`),
+    badgeText: failedCount > 0 ? `${failedCount} failed` : `${sentCount} sent`,
   };
 }
 
@@ -1295,9 +1373,11 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const driftPath = path.join(lifecycleRoot, "drift_monitor.json");
   const interventionsPath = path.join(lifecycleRoot, "intervention_events.json");
   const cyclePath = path.join(lifecycleRoot, "cycle_summary.json");
+  const buyReadinessPath = path.join(lifecycleRoot, "buy_readiness_latest.json");
+  const scheduleCheckPath = path.join(lifecycleRoot, "control_loop_schedule_check_latest.json");
   const authorityPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json");
 
-  const [desired, actual, reconciliation, release, drift, interventions, cycle] = await Promise.all([
+  const [desired, actual, reconciliation, release, drift, interventions, cycle, buyReadiness, scheduleCheck] = await Promise.all([
     readJsonFile<Record<string, unknown>>(desiredPath),
     readJsonFile<Record<string, unknown>>(actualPath),
     readJsonFile<Record<string, unknown>>(reconciliationPath),
@@ -1305,7 +1385,23 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
     readJsonFile<Record<string, unknown>>(driftPath),
     readJsonFile<Record<string, unknown>>(interventionsPath),
     readJsonFile<Record<string, unknown>>(cyclePath),
+    readJsonFile<Record<string, unknown>>(buyReadinessPath),
+    readJsonFile<Record<string, unknown>>(scheduleCheckPath),
   ]);
+  const buyReadinessData = asRecord(buyReadiness?.data) ?? {};
+  const buyReadinessNested = asRecord(buyReadinessData.readiness) ?? {};
+  const buyReadinessDecision = stringValue(buyReadinessData.decision)
+    ?? (booleanValue(buyReadinessData.allowed) === true
+      ? "BUY_ALLOWED"
+      : booleanValue(buyReadinessData.allowed) === false
+        ? "BUY_BLOCKED"
+        : null);
+  const buyReadinessBlockers = asArray(buyReadinessNested.blockers ?? buyReadinessData.blockers)
+    .map(String)
+    .filter(Boolean);
+  const scheduleCheckData = asRecord(scheduleCheck?.data) ?? {};
+  const scheduleCheckLateCount = numberValue(scheduleCheckData.late_count);
+  const scheduleCheckStatus = stringValue(scheduleCheckData.status);
 
   if (!desired?.data || !actual?.data) {
     const authority = await readJsonFile<Record<string, unknown>>(authorityPath);
@@ -1320,7 +1416,7 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
       const scheduleRows = buildControlLoopScheduleRows([
         { name: "Lifecycle cycle", path: cyclePath, data: cycleData },
       ]);
-      const lateScheduleCount = scheduleRows.filter((row) => row.state !== "ok").length;
+      const lateScheduleCount = scheduleCheckLateCount ?? scheduleRows.filter((row) => row.state !== "ok").length;
       return {
         state: "degraded",
         label: "Control tower (fallback)",
@@ -1344,6 +1440,8 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
           interventionTypes: [],
           topAction: null,
           topActionStatus: null,
+          buyReadinessDecision,
+          buyReadinessBlockers,
           operatorAction: compactStrings([
             `Legacy lifecycle snapshot shows ${numberValue(cycleSummaryData.open_count) ?? 0} open and ${numberValue(cycleSummaryData.closed_total_count) ?? 0} closed positions.`,
             "Run the V4 lifecycle cycle to materialize desired, actual, release, drift, and intervention artifacts.",
@@ -1351,7 +1449,7 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
           scheduleRows,
           lateScheduleCount,
         },
-        source: [cyclePath, authorityPath].join(" · "),
+        source: [cyclePath, authorityPath, buyReadinessPath, scheduleCheckPath].join(" · "),
         updatedAt,
         warnings: ["control-tower:fallback"],
         badgeText: "fallback",
@@ -1393,7 +1491,7 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
     { name: "Actual state", path: actualPath, data: actualData },
     { name: "Reconciliation", path: reconciliationPath, data: reconciliationData },
   ]);
-  const lateScheduleCount = scheduleRows.filter((row) => row.state !== "ok").length;
+  const lateScheduleCount = scheduleCheckLateCount ?? scheduleRows.filter((row) => row.state !== "ok").length;
   const proposedCount = numberValue(reconciliationSummary.proposed_count)
     ?? actionRows.filter((entry) => stringValue(entry.action_status) === "proposed").length;
   const appliedCount = numberValue(reconciliationSummary.applied_count)
@@ -1423,6 +1521,9 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
   const topAction = stringValue(reconciliationSummary.top_action) ?? stringValue(actionRows[0]?.action_type);
   const topActionStatus = stringValue(actionRows[0]?.action_status);
   const operatorAction = compactStrings([
+    buyReadinessDecision === "BUY_BLOCKED" && buyReadinessBlockers.length > 0
+      ? `Clear BUY gate blockers: ${buyReadinessBlockers.slice(0, 3).join(", ")}.`
+      : null,
     activeInterventionCount > 0 ? "Resolve visible interventions before restoring authority." : null,
     proposedCount > 0 ? "Review the pending reconciliation actions before widening posture." : null,
     releaseValidationStatus === "invalid" ? "Keep rollout constrained until the release bundle validates cleanly." : null,
@@ -1467,17 +1568,21 @@ async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState
       interventionTypes,
       topAction,
       topActionStatus,
+      buyReadinessDecision,
+      buyReadinessBlockers,
       operatorAction,
       scheduleRows,
       lateScheduleCount,
     },
-    source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath, cyclePath].join(" · "),
+    source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath, cyclePath, buyReadinessPath, scheduleCheckPath].join(" · "),
     updatedAt,
     warnings: compactStrings([
       driftStatus && driftStatus !== "ok" ? `drift:${driftStatus}` : null,
       proposedCount > 0 ? `pending-actions:${proposedCount}` : null,
       activeInterventionCount > 0 ? `active-interventions:${activeInterventionCount}` : null,
       releaseValidationStatus === "invalid" ? "release-validation:invalid" : null,
+      buyReadinessDecision === "BUY_BLOCKED" ? `buy-readiness:${buyReadinessBlockers.join(",") || "blocked"}` : null,
+      scheduleCheckStatus && scheduleCheckStatus !== "ok" ? `control-loop-schedule:${scheduleCheckStatus}` : null,
       lateScheduleCount > 0 ? `control-loop-schedule-late:${lateScheduleCount}` : null,
     ]),
     badgeText: driftStatus && driftStatus !== "ok" ? driftStatus : proposedCount > 0 ? `${proposedCount} pending` : undefined,
@@ -1622,8 +1727,9 @@ async function loadTradingRunOverview(
     dbError = formatError(error);
   }
 
-  const compareWarning = compareTradingRunState(dbRecord, artifactOverview.data);
-  if (dbRecord && !compareWarning) {
+  const resolution = resolveTradingRunStateSource(dbRecord, artifactOverview.data);
+  const compareWarning = resolution.warning;
+  if (dbRecord && resolution.source === "db") {
     const dbOverview = tradingRunOverviewFromStateRecord(dbRecord, dbWarnings);
     return artifactOverview.data
       ? { ...dbOverview, warnings: compactStrings([...dbOverview.warnings, ...artifactOverview.warnings]) }
@@ -1846,25 +1952,6 @@ function tradingRunOverviewFromStateRecord(
   };
 }
 
-function compareTradingRunState(
-  dbRecord: TradingRunStateRecord | null,
-  artifactData: TradingRunOverview | null,
-): string | null {
-  if (!dbRecord || !artifactData) return null;
-  if (shouldTolerateInFlightRunAheadOfArtifact(dbRecord, artifactData)) return null;
-  if (dbRecord.runId !== artifactData.runId) return `DB latest run ${dbRecord.runId} does not match file latest run ${artifactData.runId}.`;
-  if (dbRecord.status !== artifactData.status) return `DB status ${dbRecord.status} does not match file status ${artifactData.status} for ${artifactData.runId}.`;
-  if ((dbRecord.decision ?? "unknown") !== artifactData.decision) {
-    return `DB decision ${(dbRecord.decision ?? "unknown")} does not match file decision ${artifactData.decision} for ${artifactData.runId}.`;
-  }
-  if ((dbRecord.buyCount ?? 0) !== artifactData.buyCount || (dbRecord.watchCount ?? 0) !== artifactData.watchCount || (dbRecord.noBuyCount ?? 0) !== artifactData.noBuyCount) {
-    return `DB counts do not match file counts for ${artifactData.runId}.`;
-  }
-  if ((dbRecord.completedAt ?? null) !== artifactData.completedAt) return `DB completedAt does not match file completedAt for ${artifactData.runId}.`;
-  if ((dbRecord.notifiedAt ?? null) !== artifactData.notifiedAt) return `DB notifiedAt does not match file notifiedAt for ${artifactData.runId}.`;
-  return null;
-}
-
 async function runBacktesterJsonScript(
   repoPath: string,
   scriptPath: string,
@@ -1995,25 +2082,7 @@ function buildControlLoopScheduleRows(
   });
 }
 
-async function readJsonFile<T>(filePath: string): Promise<{ path: string; data: T | null; message?: string; error?: "missing" | "invalid" | "read" }> {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    const data = JSON.parse(raw) as T;
-    if (looksLikeMockArtifact(data)) {
-      return { path: filePath, data: null, error: "invalid", message: "JSON artifact appears corrupt or test-generated." };
-    }
-    return { path: filePath, data };
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return { path: filePath, data: null, error: "missing", message: "File not found." };
-    }
-    if (error instanceof SyntaxError) {
-      return { path: filePath, data: null, error: "invalid", message: "Could not parse JSON artifact." };
-    }
-    return { path: filePath, data: null, error: "read", message: formatError(error) };
-  }
-}
+const readJsonFile = readTradingJsonArtifact;
 
 async function readTextIfExists(filePath: string): Promise<string> {
   try {
@@ -2208,15 +2277,6 @@ function extractTickers(value: unknown): string[] {
 
 function compactStrings(values: Array<string | null | undefined>): string[] {
   return values.filter((value): value is string => Boolean(value && value.trim()));
-}
-
-function looksLikeMockArtifact(value: unknown): boolean {
-  try {
-    const serialized = JSON.stringify(value);
-    return typeof serialized === "string" && /MagicMock|<MagicMock|\[object MagicMock\]/u.test(serialized);
-  } catch {
-    return false;
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
