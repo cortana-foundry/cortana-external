@@ -184,6 +184,32 @@ Covers:
 - readiness criteria before W12 implementation starts
 - operator trust summaries with evidence and counterevidence
 
+### W13. Mission Control Advisor Cockpit And Telegram Actions
+
+- PRD: [13-mission-control-advisor-cockpit-and-telegram-actions.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/13-mission-control-advisor-cockpit-and-telegram-actions.md)
+
+Status: future work after W12 activation approval.
+
+Covers:
+- Mission Control as the primary advisor cockpit
+- Telegram buy/sell/action alerts
+- multi-horizon recommendations
+- counterarguments for actionable signals
+- learning from manual operator decisions
+
+### W14. Supervised Real Execution Readiness
+
+- PRD: [14-supervised-real-execution-readiness.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/14-supervised-real-execution-readiness.md)
+
+Status: future work after W13 advisor cockpit proves useful.
+
+Covers:
+- advisor to supervised execution path
+- explicit no-paper-trading constraint
+- execution policy contracts
+- approval modes and kill switch
+- broker boundary and execution audit trail
+
 ## Recommended Order
 
 Execution order:
@@ -200,6 +226,8 @@ Execution order:
 10. W10 Backtester V4 Unified Trading Control Loop And Scaled Compounding
 11. W11 Backtester V4 Buy Readiness And Control-Loop Hardening
 12. W12 Backtester V5 Evidence-Gated Operator Evaluation
+13. W13 Mission Control Advisor Cockpit And Telegram Actions
+14. W14 Supervised Real Execution Readiness
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -214,6 +242,8 @@ This order is deliberate:
 - W10 unifies posture, release, drift, and intervention into one trading control loop
 - W11 hardens final BUY semantics so advisory labels require current evidence and current control-loop truth
 - W12 stays blocked until W11 evidence proves the system is ready for post-hardening feature work
+- W13 turns the proven evidence into a usable advisor cockpit and alerting product
+- W14 defines the guarded path from advisor recommendations to supervised real execution
 
 ## Authoring Rules
 
