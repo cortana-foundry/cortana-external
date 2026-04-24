@@ -22,6 +22,7 @@ from governance.challengers import (
     save_governance_status_artifact,
 )
 from governance.registry import load_experiment_registry
+from evaluation.artifact_safety import looks_like_mock_artifact
 
 
 def main() -> None:
@@ -310,9 +311,13 @@ def _load_prediction_records() -> list[dict]:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
+        if looks_like_mock_artifact(payload):
+            continue
         strategy = str(payload.get("strategy") or "unknown")
         for record in payload.get("records") or []:
             if not isinstance(record, dict):
+                continue
+            if looks_like_mock_artifact(record):
                 continue
             records.append({**record, "strategy": strategy})
     return records

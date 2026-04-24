@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from evaluation.prediction_accuracy import default_prediction_root
+from evaluation.artifact_safety import looks_like_mock_artifact
 from outcomes import compare_metrics_to_baseline, summarize_forward_return_metrics
 
 SCHEMA_VERSION = 1
@@ -82,9 +83,13 @@ def _load_settled_records(base: Path) -> list[dict]:
     records: list[dict] = []
     for path in sorted((base / "settled").glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if looks_like_mock_artifact(payload):
+            continue
         strategy = str(payload.get("strategy") or "unknown")
         market_regime = str(payload.get("market_regime") or "unknown")
         for record in payload.get("records") or []:
+            if looks_like_mock_artifact(record):
+                continue
             normalized = dict(record)
             normalized["strategy"] = strategy
             normalized["market_regime"] = str(record.get("market_regime") or market_regime)

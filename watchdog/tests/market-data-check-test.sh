@@ -177,6 +177,22 @@ if [[ "$scenario" == "quote_flap" ]]; then
   fi
 fi
 
+if [[ "$scenario" == "quote_timeout" ]]; then
+  if [[ "$url" == *"/market-data/ready" ]]; then
+    printf '%s\n' '{"data":{"ready":true,"operatorState":"healthy","operatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/ops" ]]; then
+    printf '%s\n' '{"data":{"serviceOperatorState":"healthy","serviceOperatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/quote/batch"* ]]; then
+    exit 28
+  fi
+fi
+
 if [[ "$scenario" == "quote_cooldown" ]]; then
   if [[ "$url" == *"/market-data/ready" ]]; then
     printf '%s\n' '{"data":{"ready":true,"operatorState":"healthy","operatorAction":"No operator action required."}}' >"$out"
@@ -238,6 +254,12 @@ assert_file_empty "quote smoke first failure stays silent" "$TMP_DIR/quote_flap/
 run_scenario quote_flap
 assert_file_contains "quote smoke sustained failure alerts after restart attempt" "Market-data quote smoke test still failing after automatic restart" "$TMP_DIR/quote_flap/output.txt"
 assert_file_contains "quote smoke sustained failure triggers restart attempt" "kickstart -k gui/" "$TMP_DIR/quote_flap/launchctl.log"
+
+run_scenario quote_timeout
+assert_file_empty "quote timeout first failure stays silent" "$TMP_DIR/quote_timeout/output.txt"
+run_scenario quote_timeout
+assert_file_contains "quote timeout with healthy ops alerts without restart" "Market-data quote smoke is timing out while readiness and ops remain healthy" "$TMP_DIR/quote_timeout/output.txt"
+assert_file_empty "quote timeout with healthy ops does not restart service" "$TMP_DIR/quote_timeout/launchctl.log"
 
 run_scenario quote_cooldown
 assert_file_empty "quote cooldown first failure stays silent" "$TMP_DIR/quote_cooldown/output.txt"
