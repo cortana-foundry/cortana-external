@@ -15,6 +15,7 @@ SLACK_WEBHOOK_URL="${WATCHDOG_SLACK_WEBHOOK_URL:-}"
 ALERTS=""
 LOGS=""
 STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/watchdog-state.json}"
+ALERT_RECEIPT_PATH="${ALERT_RECEIPT_PATH:-$SCRIPT_DIR/logs/alert-delivery-receipts.jsonl}"
 FITNESS_BASE_URL="${FITNESS_BASE_URL:-http://localhost:3033}"
 MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
 MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
@@ -29,6 +30,8 @@ PRE_OPEN_CANARY_WINDOW_START_HHMM="${PRE_OPEN_CANARY_WINDOW_START_HHMM:-0400}"
 PRE_OPEN_CANARY_WINDOW_END_HHMM="${PRE_OPEN_CANARY_WINDOW_END_HHMM:-0930}"
 BACKTESTER_ROOT="${BACKTESTER_ROOT:-$SCRIPT_DIR/../backtester}"
 PRE_OPEN_CANARY_REFRESH_COMMAND="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
+CONTROL_LOOP_SCHEDULE_ENABLED="${CONTROL_LOOP_SCHEDULE_ENABLED:-1}"
+CONTROL_LOOP_SCHEDULE_PATH="${CONTROL_LOOP_SCHEDULE_PATH:-$BACKTESTER_ROOT/.cache/trade_lifecycle/control_loop_schedule_check_latest.json}"
 MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
 MISSION_CONTROL_HEALTH_PATH="${MISSION_CONTROL_HEALTH_PATH:-/api/heartbeat-status}"
 MISSION_CONTROL_LAUNCHD_LABEL="${MISSION_CONTROL_LAUNCHD_LABEL:-com.cortana.mission-control}"
@@ -371,17 +374,49 @@ probe_heartbeat_state_health() {
   echo "$output"
 }
 
+record_alert_delivery_receipt() {
+  local channel="$1" severity="$2" dedupe_key="$3" status="$4" provider_result="$5" msg="$6"
+  local sent_at message_hash
+  sent_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  message_hash="$(printf '%s' "$msg" | shasum -a 256 | awk '{print $1}')"
+  mkdir -p "$(dirname "$ALERT_RECEIPT_PATH")" 2>/dev/null || true
+  jq -nc \
+    --arg sent_at "$sent_at" \
+    --arg channel "$channel" \
+    --arg severity "$severity" \
+    --arg dedupe_key "$dedupe_key" \
+    --arg message_hash "$message_hash" \
+    --arg status "$status" \
+    --arg provider_result "$provider_result" \
+    '{sent_at:$sent_at,channel:$channel,severity:$severity,dedupe_key:$dedupe_key,message_hash:$message_hash,status:$status,provider_result:$provider_result}' \
+    >> "$ALERT_RECEIPT_PATH" 2>/dev/null || true
+}
+
 send_alert_notifications() {
   local msg="$1"
+  local severity="${2:-warning}"
+  local dedupe_key="${3:-watchdog_digest}"
+  local output status provider_result
 
   # canonical channel in this repo is Telegram via OpenClaw bot token
-  "$SCRIPT_DIR/send_telegram.sh" "$BOT_TOKEN" "$CHAT_ID" "$msg"
+  if output="$("$SCRIPT_DIR/send_telegram.sh" "$BOT_TOKEN" "$CHAT_ID" "$msg" 2>&1)"; then
+    status="sent"
+    provider_result="${output:-ok}"
+  else
+    status="failed"
+    provider_result="${output:-send_telegram failed}"
+  fi
+  record_alert_delivery_receipt "telegram" "$severity" "$dedupe_key" "$status" "$provider_result" "$msg"
 
   # optional Slack bridge (if explicitly configured)
   if [[ -n "$SLACK_WEBHOOK_URL" ]]; then
-    curl -s -X POST -H 'Content-type: application/json' \
+    if output="$(curl -s -X POST -H 'Content-type: application/json' \
       --data "$(jq -nc --arg text "$(echo -e "$msg" | sed 's/\*//g')" '{text:$text}')" \
-      "$SLACK_WEBHOOK_URL" >/dev/null || true
+      "$SLACK_WEBHOOK_URL" 2>&1)"; then
+      record_alert_delivery_receipt "slack" "$severity" "$dedupe_key" "sent" "${output:-ok}" "$msg"
+    else
+      record_alert_delivery_receipt "slack" "$severity" "$dedupe_key" "failed" "${output:-curl failed}" "$msg"
+    fi
   fi
 }
 
@@ -887,6 +922,22 @@ check_pre_open_readiness() {
     "warning" >/dev/null || true
 }
 
+check_control_loop_schedule() {
+  [[ "$CONTROL_LOOP_SCHEDULE_ENABLED" == "1" ]] || return
+  [[ -d "$BACKTESTER_ROOT" ]] || return
+  [[ -f "$BACKTESTER_ROOT/control_loop_schedule_check.py" ]] || return
+
+  local output late_count warnings
+  if output="$(cd "$BACKTESTER_ROOT" && uv run python control_loop_schedule_check.py --root "$BACKTESTER_ROOT" --output "$CONTROL_LOOP_SCHEDULE_PATH" --fail-on-late 2>/dev/null)"; then
+    recovery_alert "V4 control-loop schedule" "V4 control-loop schedule is current"
+    return
+  fi
+
+  late_count="$(echo "$output" | jq -r '.late_count // "unknown"' 2>/dev/null || echo "unknown")"
+  warnings="$(echo "$output" | jq -r '.warnings // [] | join(", ")' 2>/dev/null || echo "")"
+  alert "V4 control-loop schedule assertion is degraded (${late_count} late artifacts${warnings:+: $warnings})" "V4 control-loop schedule" "warning"
+}
+
 refresh_pre_open_canary_artifact() {
   local reason="${1:-unknown}"
   local command="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
@@ -1356,6 +1407,7 @@ run_watchdog() {
   check_mission_control_health
   check_market_data_health
   check_pre_open_readiness
+  check_control_loop_schedule
   check_tools
   check_degraded_agents
   check_budget
@@ -1365,7 +1417,11 @@ run_watchdog() {
 
 ${ALERTS}
 _$(date '+%H:%M %b %d')_"
-    send_alert_notifications "$(echo -e "$MSG")"
+    digest_severity="warning"
+    if [[ "$ALERTS" == *"🚨"* ]]; then
+      digest_severity="critical"
+    fi
+    send_alert_notifications "$(echo -e "$MSG")" "$digest_severity" "watchdog_digest"
     log "info" "Alerts sent to notification channels"
   fi
 

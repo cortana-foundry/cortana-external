@@ -1402,6 +1402,16 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                     label="Top action"
                     value={[data.controlTower.data.topAction, data.controlTower.data.topActionStatus].filter(Boolean).join(" · ") || "none"}
                   />
+                  <Metric
+                    label="BUY gate"
+                    value={
+                      data.controlTower.data.buyReadinessDecision === "BUY_BLOCKED"
+                        ? `blocked · ${data.controlTower.data.buyReadinessBlockers.slice(0, 2).join(", ") || "see artifact"}`
+                        : data.controlTower.data.buyReadinessDecision
+                          ? formatLabel(data.controlTower.data.buyReadinessDecision)
+                          : "unknown"
+                    }
+                  />
                   <Metric label="Pending / applied" value={`${data.controlTower.data.pendingActionCount} / ${data.controlTower.data.appliedActionCount}`} />
                   <Metric
                     label="Interventions"

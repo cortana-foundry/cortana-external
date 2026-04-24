@@ -131,6 +131,8 @@ export type ControlTowerOverview = {
   interventionTypes: string[];
   topAction: string | null;
   topActionStatus: string | null;
+  buyReadinessDecision: string | null;
+  buyReadinessBlockers: string[];
   operatorAction: string | null;
   scheduleRows: ControlLoopScheduleRow[];
   lateScheduleCount: number;
