@@ -133,9 +133,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want the system to rank opportunities across strategies and symbols so that the best ideas compete fairly for capital instead of being evaluated in isolation. | Core V3 leap. |
-| Draft | As a portfolio engine, I want capital and risk budgets to constrain sizing, concentration, and overlap so that a cluster of similar signals does not accidentally dominate the book. | Budgeting must be explicit. |
-| Draft | As a reviewer, I want to distinguish good raw ideas from poor portfolio fit so that the system can reject a signal for portfolio reasons without labeling the strategy itself as broken. | Signal quality and portfolio fit stay separate. |
+| Complete | As an operator, I want the system to rank opportunities across strategies and symbols so that the best ideas compete fairly for capital instead of being evaluated in isolation. | Core V3 leap. |
+| Complete | As a portfolio engine, I want capital and risk budgets to constrain sizing, concentration, and overlap so that a cluster of similar signals does not accidentally dominate the book. | Budgeting must be explicit. |
+| Complete | As a reviewer, I want to distinguish good raw ideas from poor portfolio fit so that the system can reject a signal for portfolio reasons without labeling the strategy itself as broken. | Signal quality and portfolio fit stay separate. |
 
 ---
 
@@ -143,9 +143,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a governance layer, I want strategy trust tiers to control how much authority each strategy has so that validation outcomes directly change behavior. | No trust theater. |
-| Draft | As an operator, I want challengers, incumbents, and demoted strategies shown clearly so that I know what currently has real influence on portfolio decisions. | Prevents invisible drift. |
-| Draft | As a system maintainer, I want authority changes written as machine-readable artifacts with reasons so that promotions and demotions are reversible and auditable. | Required for long-term credibility. |
+| Complete | As a governance layer, I want strategy trust tiers to control how much authority each strategy has so that validation outcomes directly change behavior. | No trust theater. |
+| Complete | As an operator, I want challengers, incumbents, and demoted strategies shown clearly so that I know what currently has real influence on portfolio decisions. | Prevents invisible drift. |
+| Complete | As a system maintainer, I want authority changes written as machine-readable artifacts with reasons so that promotions and demotions are reversible and auditable. | Required for long-term credibility. |
 
 ---
 
@@ -153,8 +153,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a decision engine, I want regime, breadth, narrative, and research artifacts to adjust ranking and trust in bounded ways so that contextual intelligence improves selection without becoming a black box. | Builds on V2/V4-style state. |
-| Draft | As an operator, I want the system to explain when research freshness, crowding, or regime conflict reduced allocation so that capital decisions remain understandable. | Context must be visible. |
+| Complete | As a decision engine, I want regime, breadth, narrative, and research artifacts to adjust ranking and trust in bounded ways so that contextual intelligence improves selection without becoming a black box. | Builds on V2/V4-style state. |
+| Complete | As an operator, I want the system to explain when research freshness, crowding, or regime conflict reduced allocation so that capital decisions remain understandable. | Context must be visible. |
 
 ---
 
@@ -162,8 +162,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As the account owner, I want advisory, paper, supervised-live, and future higher-trust modes to be explicit product states so that automation only expands when evidence and policy allow it. | Long-term autonomy should be governed. |
-| Draft | As a risk-conscious operator, I want each autonomy tier to have distinct guardrails, alerts, and intervention paths so that a stronger mode never feels opaque or irreversible. | Policy rails are mandatory. |
+| Complete | As the account owner, I want advisory, paper, supervised-live, and future higher-trust modes to be explicit product states so that automation only expands when evidence and policy allow it. | Long-term autonomy should be governed. |
+| Complete | As a risk-conscious operator, I want each autonomy tier to have distinct guardrails, alerts, and intervention paths so that a stronger mode never feels opaque or irreversible. | Policy rails are mandatory. |
 
 ---
 
@@ -171,8 +171,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a monitoring system, I want to detect drift, degraded regime coverage, and weakening calibration early so that the system can reduce trust before losses compound. | Continuous validation is a product feature. |
-| Draft | As an operator, I want the system to explain whether degradation comes from data quality, strategy decay, regime shift, or portfolio crowding so that intervention is targeted instead of reactive. | Better diagnosis, faster response. |
+| Complete | As a monitoring system, I want to detect drift, degraded regime coverage, and weakening calibration early so that the system can reduce trust before losses compound. | Continuous validation is a product feature. |
+| Complete | As an operator, I want the system to explain whether degradation comes from data quality, strategy decay, regime shift, or portfolio crowding so that intervention is targeted instead of reactive. | Better diagnosis, faster response. |
 
 ---
 
@@ -180,8 +180,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want one command surface that shows portfolio posture, risk budget, trust tiers, current autonomy mode, and intervention options so that I can run the system confidently. | This is the long-term operating surface. |
-| Draft | As a maintainer, I want overrides, pauses, demotions, and approvals captured in the same truth surface so that operational decisions stay auditable. | Human intervention must be legible. |
+| Complete | As an operator, I want one command surface that shows portfolio posture, risk budget, trust tiers, current autonomy mode, and intervention options so that I can run the system confidently. | This is the long-term operating surface. |
+| Complete | As a maintainer, I want overrides, pauses, demotions, and approvals captured in the same truth surface so that operational decisions stay auditable. | Human intervention must be legible. |
 
 ---
 

@@ -158,6 +158,20 @@ Covers:
 - Mission Control as control tower
 - scaled compounding with explicit operator control
 
+### W11. Backtester V4 Buy Readiness And Control-Loop Hardening
+
+- PRD: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- Tech Spec: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- Implementation Plan: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- QA Plan: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/QA/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+
+Covers:
+- hard BUY-readiness gates
+- raw action vs final action provenance
+- calibration source-of-truth cleanup
+- scheduled V4 control-loop refresh
+- Mission Control readiness visibility
+
 ## Recommended Order
 
 Execution order:
@@ -172,6 +186,7 @@ Execution order:
 8. W8 Backtester V2 Signal Intelligence And Operator Trust
 9. W9 Backtester V3 Adaptive Portfolio Intelligence And Governed Autonomy
 10. W10 Backtester V4 Unified Trading Control Loop And Scaled Compounding
+11. W11 Backtester V4 Buy Readiness And Control-Loop Hardening
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -184,6 +199,7 @@ This order is deliberate:
 - W8 strengthens the signal layer before broader automation
 - W9 turns trusted signals into governed capital competition
 - W10 unifies posture, release, drift, and intervention into one trading control loop
+- W11 hardens final BUY semantics so advisory labels require current evidence and current control-loop truth
 
 ## Authoring Rules
 
