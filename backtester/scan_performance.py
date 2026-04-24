@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from artifact_schema import assert_valid_trading_artifact
+
 
 def build_scan_performance_artifact(
     *,
@@ -53,6 +55,7 @@ def save_scan_performance_artifact(
         nested_timings=nested_timings,
         counters=counters,
     )
+    assert_valid_trading_artifact(payload, expected_family="strategy_scan_performance")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     latest = target.with_name("scan_performance_latest.json")

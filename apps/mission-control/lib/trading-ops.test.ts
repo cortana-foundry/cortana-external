@@ -254,12 +254,23 @@ describe("trading ops loader", () => {
     });
     await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "buy_readiness_latest.json"), {
       artifact_family: "buy_readiness",
+      schema_version: 1,
       generated_at: "2026-04-03T22:20:35.951192+00:00",
       decision: "BUY_BLOCKED",
       readiness: {
         allowed: false,
         blockers: ["BUY_BLOCKED:MARKET_DATA_STALE"],
       },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "schedule_registry_latest.json"), {
+      artifact_family: "trading_schedule_registry",
+      schema_version: 1,
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      schedules: [
+        { name: "watchdog", kind: "launchd", target: "com.cortana.watchdog", owner: "watchdog", expected_interval_seconds: 900 },
+        { name: "v4_control_loop", kind: "artifact", target: "control_loop_schedule_check_latest.json", owner: "control_loop", expected_interval_seconds: 14400 },
+      ],
+      summary: { schedule_count: 2, launchd_count: 1, artifact_count: 1, cron_registry_count: 0 },
     });
     await mkdir(path.join(repoPath, "watchdog", "logs"), { recursive: true });
     await writeFile(
@@ -422,6 +433,9 @@ describe("trading ops loader", () => {
     expect(data.alertDelivery.data?.sentCount).toBe(1);
     expect(data.alertDelivery.data?.failedCount).toBe(1);
     expect(data.alertDelivery.data?.lastDedupeKey).toBe("watchdog_digest");
+    expect(data.scheduleRegistry.state).toBe("ok");
+    expect(data.scheduleRegistry.data?.scheduleCount).toBe(2);
+    expect(data.scheduleRegistry.data?.rows.map((row) => row.name)).toEqual(["watchdog", "v4_control_loop"]);
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");

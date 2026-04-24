@@ -25,6 +25,19 @@ describe("trading artifact loader", () => {
     expect(result.message).toMatch(/test-generated/);
   });
 
+  it("rejects known trading artifacts with unsupported schema versions", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "trading-artifacts-"));
+    tempDirs.push(dir);
+    const filePath = path.join(dir, "artifact.json");
+    await writeFile(filePath, JSON.stringify({ artifact_family: "buy_readiness", schema_version: 99 }));
+
+    const result = await readTradingJsonArtifact(filePath);
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBe("invalid");
+    expect(result.message).toMatch(/schema_version 99/);
+  });
+
   it("classifies missing and stale timestamps with a shared freshness window", () => {
     expect(classifyArtifactFreshness(null, 60).state).toBe("missing");
     expect(classifyArtifactFreshness("2026-04-24T14:00:00.000Z", 60, Date.parse("2026-04-24T14:02:00.000Z")).state).toBe("stale");

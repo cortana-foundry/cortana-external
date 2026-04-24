@@ -7,6 +7,7 @@ import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths
 import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { readTradingJsonArtifact } from "@/lib/trading-artifacts";
 import { tradingFreshnessSeconds } from "@/lib/trading-freshness-policy";
+import { loadAlertDeliveryOverview, loadScheduleRegistryOverview } from "@/lib/trading-health-model";
 import {
   prismaTradingRunStateStore,
   resolveTradingRunStateSource,
@@ -206,6 +207,14 @@ export type AlertDeliveryOverview = {
   rows: Array<{ sentAt: string; channel: string; severity: string; status: string; dedupeKey: string; messageHash: string }>;
 };
 
+export type ScheduleRegistryOverview = {
+  scheduleCount: number;
+  launchdCount: number;
+  artifactCount: number;
+  cronRegistryCount: number;
+  rows: Array<{ name: string; kind: string; target: string; owner: string; expectedIntervalSeconds: number | null }>;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -260,6 +269,7 @@ export type TradingOpsDashboardData = {
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
   alertDelivery: ArtifactState<AlertDeliveryOverview>;
+  scheduleRegistry: ArtifactState<ScheduleRegistryOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 
@@ -297,6 +307,7 @@ export async function loadTradingOpsDashboardData(
     opsHighway,
     financialServices,
     alertDelivery,
+    scheduleRegistry,
   ] = await Promise.all([
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
@@ -310,6 +321,7 @@ export async function loadTradingOpsDashboardData(
     loadOpsHighwayOverview(repoPath, runJsonCommand),
     loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
     loadAlertDeliveryOverview(repoPath),
+    loadScheduleRegistryOverview(repoPath),
   ]);
 
   return {
@@ -328,6 +340,7 @@ export async function loadTradingOpsDashboardData(
     opsHighway,
     financialServices,
     alertDelivery,
+    scheduleRegistry,
     tradingRun,
   };
 }
@@ -607,66 +620,6 @@ async function loadFinancialServicesOverview(
       errorCount,
       checkedAt,
     },
-  };
-}
-
-async function loadAlertDeliveryOverview(repoPath: string): Promise<ArtifactState<AlertDeliveryOverview>> {
-  const repoRoot = path.basename(repoPath) === "backtester" ? path.dirname(repoPath) : repoPath;
-  const receiptPath = path.join(repoRoot, "watchdog", "logs", "alert-delivery-receipts.jsonl");
-  const raw = await readTextIfExists(receiptPath);
-  if (!raw.trim()) {
-    return {
-      state: "missing",
-      label: "No alert delivery receipts",
-      message: "Watchdog has not written alert delivery receipts yet.",
-      data: null,
-      source: receiptPath,
-      warnings: [],
-    };
-  }
-  const rows = raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    })
-    .filter((row): row is Record<string, unknown> => Boolean(row))
-    .slice(-20)
-    .map((row) => ({
-      sentAt: stringValue(row.sent_at) ?? "",
-      channel: stringValue(row.channel) ?? "unknown",
-      severity: stringValue(row.severity) ?? "unknown",
-      status: stringValue(row.status) ?? "unknown",
-      dedupeKey: stringValue(row.dedupe_key) ?? "unknown",
-      messageHash: stringValue(row.message_hash) ?? "",
-    }));
-  const failedCount = rows.filter((row) => row.status === "failed").length;
-  const sentCount = rows.filter((row) => row.status === "sent").length;
-  const last = rows.at(-1) ?? null;
-  return {
-    state: failedCount > 0 ? "degraded" : "ok",
-    label: "Alert delivery receipts",
-    message: last
-      ? `Last ${last.channel} delivery ${last.status} for ${last.dedupeKey}.`
-      : "Alert delivery receipts are present but empty.",
-    data: {
-      sentCount,
-      failedCount,
-      lastSentAt: last?.sentAt ?? null,
-      lastStatus: last?.status ?? null,
-      lastChannel: last?.channel ?? null,
-      lastDedupeKey: last?.dedupeKey ?? null,
-      rows: rows.reverse(),
-    },
-    source: receiptPath,
-    updatedAt: last?.sentAt ?? null,
-    warnings: rows.filter((row) => row.status === "failed").map((row) => `${row.channel}:${row.dedupeKey}:failed`),
-    badgeText: failedCount > 0 ? `${failedCount} failed` : `${sentCount} sent`,
   };
 }
 

@@ -565,6 +565,13 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     data: null,
     warnings: [],
   };
+  const scheduleRegistryArtifact = data.scheduleRegistry ?? {
+    state: "missing" as const,
+    label: "No schedule registry",
+    message: "Schedule registry has not been generated yet.",
+    data: null,
+    warnings: [],
+  };
 
   return (
     <div className="space-y-3">
@@ -1350,6 +1357,24 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {alertDeliveryArtifact.data.rows.slice(0, 3).map((row) => (
                     <p key={`${row.sentAt}-${row.messageHash}`} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
                       {row.channel} · {row.status} · {row.dedupeKey}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
+            <ArtifactPanel title="Schedule registry" artifact={scheduleRegistryArtifact}>
+              {scheduleRegistryArtifact.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Total" value={String(scheduleRegistryArtifact.data.scheduleCount)} />
+                  <Metric
+                    label="Launchd / artifacts"
+                    value={`${scheduleRegistryArtifact.data.launchdCount} / ${scheduleRegistryArtifact.data.artifactCount}`}
+                  />
+                  <Metric label="Cron registries" value={String(scheduleRegistryArtifact.data.cronRegistryCount)} />
+                  {scheduleRegistryArtifact.data.rows.slice(0, 4).map((row) => (
+                    <p key={`${row.kind}-${row.name}`} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                      {row.name} · {row.kind} · {row.owner}
                     </p>
                   ))}
                 </div>
