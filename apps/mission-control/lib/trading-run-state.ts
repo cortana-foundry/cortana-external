@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import prisma from "@/lib/prisma";
+import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
 
 const TRADING_RUN_SYNC_LIMIT = 40;
 
@@ -46,6 +47,51 @@ export type TradingRunStateStore = {
   syncFromArtifacts: (cortanaRepoPath: string) => Promise<string[]>;
   loadLatest: () => Promise<TradingRunStateRecord | null>;
 };
+
+export type TradingRunArtifactLike = {
+  runId: string;
+  status: string;
+  decision: string;
+  buyCount: number;
+  watchCount: number;
+  noBuyCount: number;
+  completedAt: string | null;
+  notifiedAt: string | null;
+};
+
+export type TradingRunStateResolution = {
+  source: "db" | "file_fallback" | "missing";
+  warning: string | null;
+};
+
+export function resolveTradingRunStateSource(
+  dbRecord: TradingRunStateRecord | null,
+  artifactData: TradingRunArtifactLike | null,
+): TradingRunStateResolution {
+  const warning = compareTradingRunStateRecord(dbRecord, artifactData);
+  if (dbRecord && !warning) return { source: "db", warning: null };
+  if (artifactData) return { source: "file_fallback", warning };
+  return { source: "missing", warning };
+}
+
+export function compareTradingRunStateRecord(
+  dbRecord: TradingRunStateRecord | null,
+  artifactData: TradingRunArtifactLike | null,
+): string | null {
+  if (!dbRecord || !artifactData) return null;
+  if (shouldTolerateInFlightRunAheadOfArtifact(dbRecord, artifactData)) return null;
+  if (dbRecord.runId !== artifactData.runId) return `DB latest run ${dbRecord.runId} does not match file latest run ${artifactData.runId}.`;
+  if (dbRecord.status !== artifactData.status) return `DB status ${dbRecord.status} does not match file status ${artifactData.status} for ${artifactData.runId}.`;
+  if ((dbRecord.decision ?? "unknown") !== artifactData.decision) {
+    return `DB decision ${(dbRecord.decision ?? "unknown")} does not match file decision ${artifactData.decision} for ${artifactData.runId}.`;
+  }
+  if ((dbRecord.buyCount ?? 0) !== artifactData.buyCount || (dbRecord.watchCount ?? 0) !== artifactData.watchCount || (dbRecord.noBuyCount ?? 0) !== artifactData.noBuyCount) {
+    return `DB counts do not match file counts for ${artifactData.runId}.`;
+  }
+  if ((dbRecord.completedAt ?? null) !== artifactData.completedAt) return `DB completedAt does not match file completedAt for ${artifactData.runId}.`;
+  if ((dbRecord.notifiedAt ?? null) !== artifactData.notifiedAt) return `DB notifiedAt does not match file notifiedAt for ${artifactData.runId}.`;
+  return null;
+}
 
 type TradingRunArtifactRecord = {
   runId: string;

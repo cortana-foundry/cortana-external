@@ -261,6 +261,28 @@ describe("trading ops loader", () => {
         blockers: ["BUY_BLOCKED:MARKET_DATA_STALE"],
       },
     });
+    await mkdir(path.join(repoPath, "watchdog", "logs"), { recursive: true });
+    await writeFile(
+      path.join(repoPath, "watchdog", "logs", "alert-delivery-receipts.jsonl"),
+      [
+        JSON.stringify({
+          sent_at: "2026-04-03T23:20:00.000Z",
+          channel: "telegram",
+          severity: "warning",
+          dedupe_key: "trading_advisor",
+          status: "sent",
+          message_hash: "a".repeat(64),
+        }),
+        JSON.stringify({
+          sent_at: "2026-04-03T23:21:00.000Z",
+          channel: "telegram",
+          severity: "warning",
+          dedupe_key: "watchdog_digest",
+          status: "failed",
+          message_hash: "b".repeat(64),
+        }),
+      ].join("\n"),
+    );
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
       generated_at: "2026-04-03T23:15:25.794002+00:00",
       degraded_status: "degraded_safe",
@@ -396,6 +418,10 @@ describe("trading ops loader", () => {
       "Reconciliation",
     ]);
     expect(data.controlTower.data?.lateScheduleCount).toBeGreaterThanOrEqual(0);
+    expect(data.alertDelivery.state).toBe("degraded");
+    expect(data.alertDelivery.data?.sentCount).toBe(1);
+    expect(data.alertDelivery.data?.failedCount).toBe(1);
+    expect(data.alertDelivery.data?.lastDedupeKey).toBe("watchdog_digest");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");

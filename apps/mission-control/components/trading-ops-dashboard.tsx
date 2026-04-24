@@ -558,6 +558,13 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         badgeText: String(polymarketSportsRows.length),
       }
     : polymarketLiveArtifact;
+  const alertDeliveryArtifact = data.alertDelivery ?? {
+    state: "missing" as const,
+    label: "No alert delivery receipts",
+    message: "Watchdog has not written alert delivery receipts yet.",
+    data: null,
+    warnings: [],
+  };
 
   return (
     <div className="space-y-3">
@@ -1015,7 +1022,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             </ArtifactPanel>
           </section>
 
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
             <ArtifactPanel title="Top events" artifact={polymarketEventsCardArtifact}>
               {displayPolymarketLiveData ? (
                 <div className="space-y-3 text-sm">
@@ -1329,6 +1336,22 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   ) : (
                     <p className="text-xs text-muted-foreground">No active runtime incidents.</p>
                   )}
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
+            <ArtifactPanel title="Alert delivery" artifact={alertDeliveryArtifact}>
+              {alertDeliveryArtifact.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Sent / failed" value={`${alertDeliveryArtifact.data.sentCount} / ${alertDeliveryArtifact.data.failedCount}`} />
+                  <Metric label="Last channel" value={alertDeliveryArtifact.data.lastChannel ?? "unknown"} />
+                  <Metric label="Last status" value={alertDeliveryArtifact.data.lastStatus ?? "unknown"} />
+                  <Metric label="Last key" value={alertDeliveryArtifact.data.lastDedupeKey ?? "unknown"} />
+                  {alertDeliveryArtifact.data.rows.slice(0, 3).map((row) => (
+                    <p key={`${row.sentAt}-${row.messageHash}`} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                      {row.channel} · {row.status} · {row.dedupeKey}
+                    </p>
+                  ))}
                 </div>
               ) : null}
             </ArtifactPanel>

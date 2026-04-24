@@ -174,6 +174,16 @@ export type FinancialServicesHealthOverview = {
   checkedAt: string | null;
 };
 
+export type AlertDeliveryOverview = {
+  sentCount: number;
+  failedCount: number;
+  lastSentAt: string | null;
+  lastStatus: string | null;
+  lastChannel: string | null;
+  lastDedupeKey: string | null;
+  rows: Array<{ sentAt: string; channel: string; severity: string; status: string; dedupeKey: string; messageHash: string }>;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -215,6 +225,7 @@ export type TradingOpsDashboardData = {
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
+  alertDelivery: ArtifactState<AlertDeliveryOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 

@@ -5,11 +5,11 @@ import { promisify } from "node:util";
 import { formatCurrency as formatMoney, formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
-import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
 import { readTradingJsonArtifact } from "@/lib/trading-artifacts";
 import { tradingFreshnessSeconds } from "@/lib/trading-freshness-policy";
 import {
   prismaTradingRunStateStore,
+  resolveTradingRunStateSource,
   type TradingRunStateRecord,
   type TradingRunStateStore,
 } from "@/lib/trading-run-state";
@@ -196,6 +196,16 @@ export type FinancialServicesHealthOverview = {
   checkedAt: string | null;
 };
 
+export type AlertDeliveryOverview = {
+  sentCount: number;
+  failedCount: number;
+  lastSentAt: string | null;
+  lastStatus: string | null;
+  lastChannel: string | null;
+  lastDedupeKey: string | null;
+  rows: Array<{ sentAt: string; channel: string; severity: string; status: string; dedupeKey: string; messageHash: string }>;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -249,6 +259,7 @@ export type TradingOpsDashboardData = {
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
+  alertDelivery: ArtifactState<AlertDeliveryOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 
@@ -285,6 +296,7 @@ export async function loadTradingOpsDashboardData(
     workflow,
     opsHighway,
     financialServices,
+    alertDelivery,
   ] = await Promise.all([
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
@@ -297,6 +309,7 @@ export async function loadTradingOpsDashboardData(
     loadWorkflowOverview(repoPath, tradingRunSignal),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
     loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
+    loadAlertDeliveryOverview(repoPath),
   ]);
 
   return {
@@ -314,6 +327,7 @@ export async function loadTradingOpsDashboardData(
     workflow,
     opsHighway,
     financialServices,
+    alertDelivery,
     tradingRun,
   };
 }
@@ -593,6 +607,66 @@ async function loadFinancialServicesOverview(
       errorCount,
       checkedAt,
     },
+  };
+}
+
+async function loadAlertDeliveryOverview(repoPath: string): Promise<ArtifactState<AlertDeliveryOverview>> {
+  const repoRoot = path.basename(repoPath) === "backtester" ? path.dirname(repoPath) : repoPath;
+  const receiptPath = path.join(repoRoot, "watchdog", "logs", "alert-delivery-receipts.jsonl");
+  const raw = await readTextIfExists(receiptPath);
+  if (!raw.trim()) {
+    return {
+      state: "missing",
+      label: "No alert delivery receipts",
+      message: "Watchdog has not written alert delivery receipts yet.",
+      data: null,
+      source: receiptPath,
+      warnings: [],
+    };
+  }
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is Record<string, unknown> => Boolean(row))
+    .slice(-20)
+    .map((row) => ({
+      sentAt: stringValue(row.sent_at) ?? "",
+      channel: stringValue(row.channel) ?? "unknown",
+      severity: stringValue(row.severity) ?? "unknown",
+      status: stringValue(row.status) ?? "unknown",
+      dedupeKey: stringValue(row.dedupe_key) ?? "unknown",
+      messageHash: stringValue(row.message_hash) ?? "",
+    }));
+  const failedCount = rows.filter((row) => row.status === "failed").length;
+  const sentCount = rows.filter((row) => row.status === "sent").length;
+  const last = rows.at(-1) ?? null;
+  return {
+    state: failedCount > 0 ? "degraded" : "ok",
+    label: "Alert delivery receipts",
+    message: last
+      ? `Last ${last.channel} delivery ${last.status} for ${last.dedupeKey}.`
+      : "Alert delivery receipts are present but empty.",
+    data: {
+      sentCount,
+      failedCount,
+      lastSentAt: last?.sentAt ?? null,
+      lastStatus: last?.status ?? null,
+      lastChannel: last?.channel ?? null,
+      lastDedupeKey: last?.dedupeKey ?? null,
+      rows: rows.reverse(),
+    },
+    source: receiptPath,
+    updatedAt: last?.sentAt ?? null,
+    warnings: rows.filter((row) => row.status === "failed").map((row) => `${row.channel}:${row.dedupeKey}:failed`),
+    badgeText: failedCount > 0 ? `${failedCount} failed` : `${sentCount} sent`,
   };
 }
 
@@ -1653,8 +1727,9 @@ async function loadTradingRunOverview(
     dbError = formatError(error);
   }
 
-  const compareWarning = compareTradingRunState(dbRecord, artifactOverview.data);
-  if (dbRecord && !compareWarning) {
+  const resolution = resolveTradingRunStateSource(dbRecord, artifactOverview.data);
+  const compareWarning = resolution.warning;
+  if (dbRecord && resolution.source === "db") {
     const dbOverview = tradingRunOverviewFromStateRecord(dbRecord, dbWarnings);
     return artifactOverview.data
       ? { ...dbOverview, warnings: compactStrings([...dbOverview.warnings, ...artifactOverview.warnings]) }
@@ -1875,25 +1950,6 @@ function tradingRunOverviewFromStateRecord(
       sourceType: "db",
     },
   };
-}
-
-function compareTradingRunState(
-  dbRecord: TradingRunStateRecord | null,
-  artifactData: TradingRunOverview | null,
-): string | null {
-  if (!dbRecord || !artifactData) return null;
-  if (shouldTolerateInFlightRunAheadOfArtifact(dbRecord, artifactData)) return null;
-  if (dbRecord.runId !== artifactData.runId) return `DB latest run ${dbRecord.runId} does not match file latest run ${artifactData.runId}.`;
-  if (dbRecord.status !== artifactData.status) return `DB status ${dbRecord.status} does not match file status ${artifactData.status} for ${artifactData.runId}.`;
-  if ((dbRecord.decision ?? "unknown") !== artifactData.decision) {
-    return `DB decision ${(dbRecord.decision ?? "unknown")} does not match file decision ${artifactData.decision} for ${artifactData.runId}.`;
-  }
-  if ((dbRecord.buyCount ?? 0) !== artifactData.buyCount || (dbRecord.watchCount ?? 0) !== artifactData.watchCount || (dbRecord.noBuyCount ?? 0) !== artifactData.noBuyCount) {
-    return `DB counts do not match file counts for ${artifactData.runId}.`;
-  }
-  if ((dbRecord.completedAt ?? null) !== artifactData.completedAt) return `DB completedAt does not match file completedAt for ${artifactData.runId}.`;
-  if ((dbRecord.notifiedAt ?? null) !== artifactData.notifiedAt) return `DB notifiedAt does not match file notifiedAt for ${artifactData.runId}.`;
-  return null;
 }
 
 async function runBacktesterJsonScript(
