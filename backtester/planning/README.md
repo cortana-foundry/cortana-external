@@ -175,6 +175,7 @@ Covers:
 ### W12. Backtester V5 Evidence-Gated Operator Evaluation
 
 - PRD: [12-backtester-v5-evidence-gated-operator-evaluation.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/12-backtester-v5-evidence-gated-operator-evaluation.md)
+- Precursor Handoff: [w12-precursor-handoff.md](/Users/hd/Developer/cortana-external/backtester/planning/docs/w12-precursor-handoff.md)
 
 Status: blocked until W11 produces sufficient live or replay evidence.
 
