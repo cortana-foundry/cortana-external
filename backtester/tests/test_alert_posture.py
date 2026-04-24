@@ -51,3 +51,12 @@ def test_describe_calibration_note_uses_stale_and_fresh_states():
         "so treat confidence as provisional."
     )
     assert fresh == "Calibration note: learning on 24 settled outcomes."
+
+
+def test_describe_calibration_note_does_not_claim_no_settled_records_when_count_exists():
+    line = describe_calibration_note({"reason": "no_settled_records", "settled_candidates": 7, "is_stale": True})
+
+    assert line == (
+        "Calibration note: stale — learning is based on 7 settled outcomes, "
+        "so treat confidence as provisional."
+    )

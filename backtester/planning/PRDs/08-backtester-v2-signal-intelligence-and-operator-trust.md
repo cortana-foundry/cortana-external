@@ -128,9 +128,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want `BUY`, `WATCH`, and `NO_BUY` to reflect measured edge on the 1-5 day horizon so that I can use the system to make decisions now. | Primary V2 outcome. |
-| Draft | As a maintainer, I want signal quality measured separately from lifecycle and execution quality so that weak paper-trade handling does not hide genuine alpha. | Keeps diagnosis honest. |
-| Draft | As a reviewer, I want confidence to map to observed outcome quality so that trust increases only when the data supports it. | Calibration is supporting scope. |
+| Complete | As an operator, I want `BUY`, `WATCH`, and `NO_BUY` to reflect measured edge on the 1-5 day horizon so that I can use the system to make decisions now. | Primary V2 outcome. |
+| Complete | As a maintainer, I want signal quality measured separately from lifecycle and execution quality so that weak paper-trade handling does not hide genuine alpha. | Keeps diagnosis honest. |
+| Complete | As a reviewer, I want confidence to map to observed outcome quality so that trust increases only when the data supports it. | Calibration is supporting scope. |
 
 ---
 
@@ -138,8 +138,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a strategist, I want the model inputs to include price, volume, trend, breadth, realized volatility, relative strength, technical transforms, and regime labels so that the system reasons over real market structure instead of sparse heuristics. | Core V2 feature set. |
-| Draft | As a researcher, I want performance segmented by regime so that I can tell whether a strategy truly generalizes or only works in one market environment. | Required for robustness. |
+| Complete | As a strategist, I want the model inputs to include price, volume, trend, breadth, realized volatility, relative strength, technical transforms, and regime labels so that the system reasons over real market structure instead of sparse heuristics. | Core V2 feature set. |
+| Complete | As a researcher, I want performance segmented by regime so that I can tell whether a strategy truly generalizes or only works in one market environment. | Required for robustness. |
 
 ---
 
@@ -147,9 +147,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a product owner, I want V2 to add one new experimental strategy family focused on regime-aware momentum and relative strength so that we widen opportunity capture without exploding scope. | Chosen phase 1 expansion. |
-| Draft | As a maintainer, I want current strategy families to remain first-class incumbents so that new work can be benchmarked against known behavior instead of replacing everything at once. | Stability over churn. |
-| Draft | As a future planner, I want mean reversion and volatility-filtered dip-buy ideas documented as next candidates rather than phase 1 deliverables. | Keeps roadmap visible. |
+| Complete | As a product owner, I want V2 to add one new experimental strategy family focused on regime-aware momentum and relative strength so that we widen opportunity capture without exploding scope. | Chosen phase 1 expansion. |
+| Complete | As a maintainer, I want current strategy families to remain first-class incumbents so that new work can be benchmarked against known behavior instead of replacing everything at once. | Stability over churn. |
+| Complete | As a future planner, I want mean reversion and volatility-filtered dip-buy ideas documented as next candidates rather than phase 1 deliverables. | Keeps roadmap visible. |
 
 ---
 
@@ -157,9 +157,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As a skeptical operator, I want each strategy improvement evaluated against simple baselines, walk-forward splits, and regime segments so that I do not mistake recent luck for durable edge. | Non-negotiable trust requirement. |
-| Draft | As a governance layer, I want challenger logic to prove itself on comparable windows with reproducible artifacts before it earns more authority. | Promotion must be evidence-backed. |
-| Draft | As a researcher, I want profit factor, drawdown, and regime robustness tracked as first-class metrics so that model selection stays aligned with actual trading outcomes. | Chosen success criteria. |
+| Complete | As a skeptical operator, I want each strategy improvement evaluated against simple baselines, walk-forward splits, and regime segments so that I do not mistake recent luck for durable edge. | Non-negotiable trust requirement. |
+| Complete | As a governance layer, I want challenger logic to prove itself on comparable windows with reproducible artifacts before it earns more authority. | Promotion must be evidence-backed. |
+| Complete | As a researcher, I want profit factor, drawdown, and regime robustness tracked as first-class metrics so that model selection stays aligned with actual trading outcomes. | Chosen success criteria. |
 
 ---
 
@@ -167,9 +167,9 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As an operator, I want the dashboards to show whether the system is warming up, fresh, degraded, or stale without flashing false failure during normal startup gaps. | Extends recent Mission Control direction. |
-| Draft | As an operator, I want to see which strategies are currently trusted, which are drifting, and which regimes they are weak in so that I can act with context instead of guesswork. | Trust must be visible. |
-| Draft | As a maintainer, I want artifacts and UI summaries to answer whether the system is working before I read logs or source files. | Operational leverage. |
+| Complete | As an operator, I want the dashboards to show whether the system is warming up, fresh, degraded, or stale without flashing false failure during normal startup gaps. | Extends recent Mission Control direction. |
+| Complete | As an operator, I want to see which strategies are currently trusted, which are drifting, and which regimes they are weak in so that I can act with context instead of guesswork. | Trust must be visible. |
+| Complete | As a maintainer, I want artifacts and UI summaries to answer whether the system is working before I read logs or source files. | Operational leverage. |
 
 ---
 
@@ -177,8 +177,8 @@ Supporting success signals:
 
 | Status | User story | Notes |
 |--------|------------|-------|
-| Draft | As the account owner, I want the system to provide ranked ideas, confidence, and regime-aware sizing guidance without silently deploying real capital risk. | Current autonomy boundary. |
-| Draft | As a future roadmap owner, I want lifecycle and sizing logic to remain available for paper-trade review so that autonomy can be expanded later only if signal trust justifies it. | Deferred, not deleted. |
+| Complete | As the account owner, I want the system to provide ranked ideas, confidence, and regime-aware sizing guidance without silently deploying real capital risk. | Current autonomy boundary. |
+| Complete | As a future roadmap owner, I want lifecycle and sizing logic to remain available for paper-trade review so that autonomy can be expanded later only if signal trust justifies it. | Deferred, not deleted. |
 
 ---
 

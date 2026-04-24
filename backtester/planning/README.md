@@ -158,6 +158,58 @@ Covers:
 - Mission Control as control tower
 - scaled compounding with explicit operator control
 
+### W11. Backtester V4 Buy Readiness And Control-Loop Hardening
+
+- PRD: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- Tech Spec: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- Implementation Plan: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+- QA Plan: [11-backtester-v4-buy-readiness-and-control-loop-hardening.md](/Users/hd/Developer/cortana-external/backtester/planning/QA/11-backtester-v4-buy-readiness-and-control-loop-hardening.md)
+
+Covers:
+- hard BUY-readiness gates
+- raw action vs final action provenance
+- calibration source-of-truth cleanup
+- scheduled V4 control-loop refresh
+- Mission Control readiness visibility
+
+### W12. Backtester V5 Evidence-Gated Operator Evaluation
+
+- PRD: [12-backtester-v5-evidence-gated-operator-evaluation.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/12-backtester-v5-evidence-gated-operator-evaluation.md)
+
+Status: blocked until W11 produces sufficient live or replay evidence.
+
+Covers:
+- activation gate for post-hardening feature work
+- LLM-readable evidence comparison packet
+- readiness criteria before W12 implementation starts
+- operator trust summaries with evidence and counterevidence
+
+### W13. Mission Control Advisor Cockpit And Telegram Actions
+
+- PRD: [13-mission-control-advisor-cockpit-and-telegram-actions.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/13-mission-control-advisor-cockpit-and-telegram-actions.md)
+
+Status: future work after W12 activation approval.
+
+Covers:
+- Mission Control as the primary advisor cockpit
+- Telegram buy/sell/action alerts
+- multi-horizon recommendations
+- counterarguments for actionable signals
+- learning from manual operator decisions
+
+### W14. Supervised Real Execution Readiness
+
+- PRD: [14-supervised-real-execution-readiness.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/14-supervised-real-execution-readiness.md)
+
+Status: future work after W13 advisor cockpit proves useful.
+
+Covers:
+- advisor to supervised execution path
+- explicit no-paper-trading constraint
+- execution policy contracts
+- approval modes and kill switch
+- broker boundary and execution audit trail
+
 ## Recommended Order
 
 Execution order:
@@ -172,6 +224,10 @@ Execution order:
 8. W8 Backtester V2 Signal Intelligence And Operator Trust
 9. W9 Backtester V3 Adaptive Portfolio Intelligence And Governed Autonomy
 10. W10 Backtester V4 Unified Trading Control Loop And Scaled Compounding
+11. W11 Backtester V4 Buy Readiness And Control-Loop Hardening
+12. W12 Backtester V5 Evidence-Gated Operator Evaluation
+13. W13 Mission Control Advisor Cockpit And Telegram Actions
+14. W14 Supervised Real Execution Readiness
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -184,6 +240,10 @@ This order is deliberate:
 - W8 strengthens the signal layer before broader automation
 - W9 turns trusted signals into governed capital competition
 - W10 unifies posture, release, drift, and intervention into one trading control loop
+- W11 hardens final BUY semantics so advisory labels require current evidence and current control-loop truth
+- W12 stays blocked until W11 evidence proves the system is ready for post-hardening feature work
+- W13 turns the proven evidence into a usable advisor cockpit and alerting product
+- W14 defines the guarded path from advisor recommendations to supervised real execution
 
 ## Authoring Rules
 
