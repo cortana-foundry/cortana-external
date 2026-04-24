@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 
 from evaluation.artifact_safety import looks_like_mock_artifact
 from evaluation.prediction_accuracy import default_prediction_root
+from artifact_schema import assert_valid_trading_artifact
 from readiness.freshness_policy import freshness_policy
 from governance.authority import DEFAULT_STRATEGY_AUTHORITY_PATH
 
@@ -159,6 +160,7 @@ def save_buy_readiness_summary(summary: Mapping[str, Any], *, path: Path | None 
     base = _base_root(root)
     target = path.expanduser() if path else base / ".cache" / "trade_lifecycle" / "buy_readiness_latest.json"
     artifact = build_buy_readiness_artifact(summary)
+    assert_valid_trading_artifact(artifact, expected_family="buy_readiness")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     strategy = str(summary.get("strategy") or "").strip().lower()

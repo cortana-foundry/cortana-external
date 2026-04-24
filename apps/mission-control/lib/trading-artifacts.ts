@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { validateTradingArtifactSchema } from "@/lib/trading-artifact-schema";
 
 export type JsonArtifactError = "missing" | "invalid" | "read";
 
@@ -21,6 +22,10 @@ export async function readTradingJsonArtifact<T>(filePath: string): Promise<Json
     const data = JSON.parse(raw) as T;
     if (looksLikeMockArtifact(data)) {
       return { path: filePath, data: null, error: "invalid", message: "JSON artifact appears corrupt or test-generated." };
+    }
+    const schema = validateTradingArtifactSchema(data);
+    if (!schema.ok) {
+      return { path: filePath, data: null, error: "invalid", message: schema.message ?? "Trading artifact schema is not supported." };
     }
     return { path: filePath, data };
   } catch (error) {

@@ -184,6 +184,14 @@ export type AlertDeliveryOverview = {
   rows: Array<{ sentAt: string; channel: string; severity: string; status: string; dedupeKey: string; messageHash: string }>;
 };
 
+export type ScheduleRegistryOverview = {
+  scheduleCount: number;
+  launchdCount: number;
+  artifactCount: number;
+  cronRegistryCount: number;
+  rows: Array<{ name: string; kind: string; target: string; owner: string; expectedIntervalSeconds: number | null }>;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -226,6 +234,7 @@ export type TradingOpsDashboardData = {
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
   alertDelivery: ArtifactState<AlertDeliveryOverview>;
+  scheduleRegistry: ArtifactState<ScheduleRegistryOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 

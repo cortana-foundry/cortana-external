@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from artifact_schema import assert_valid_trading_artifact
 from readiness.freshness_policy import freshness_policy
 
 
@@ -73,6 +74,7 @@ def save_market_data_freshness_lane(
     base = (root or Path(__file__).resolve().parent).expanduser()
     target = base / ".cache" / "trade_lifecycle" / "market_data_freshness_latest.json"
     payload = build_market_data_freshness_lane(market, generated_at=generated_at, runtime_health=runtime_health)
+    assert_valid_trading_artifact(payload, expected_family="market_data_freshness_lane")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return target

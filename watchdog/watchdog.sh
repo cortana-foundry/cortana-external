@@ -32,6 +32,7 @@ BACKTESTER_ROOT="${BACKTESTER_ROOT:-$SCRIPT_DIR/../backtester}"
 PRE_OPEN_CANARY_REFRESH_COMMAND="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
 CONTROL_LOOP_SCHEDULE_ENABLED="${CONTROL_LOOP_SCHEDULE_ENABLED:-1}"
 CONTROL_LOOP_SCHEDULE_PATH="${CONTROL_LOOP_SCHEDULE_PATH:-$BACKTESTER_ROOT/.cache/trade_lifecycle/control_loop_schedule_check_latest.json}"
+SCHEDULE_REGISTRY_PATH="${SCHEDULE_REGISTRY_PATH:-$BACKTESTER_ROOT/.cache/trade_lifecycle/schedule_registry_latest.json}"
 MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
 MISSION_CONTROL_HEALTH_PATH="${MISSION_CONTROL_HEALTH_PATH:-/api/heartbeat-status}"
 MISSION_CONTROL_LAUNCHD_LABEL="${MISSION_CONTROL_LAUNCHD_LABEL:-com.cortana.mission-control}"
@@ -938,6 +939,16 @@ check_control_loop_schedule() {
   alert "V4 control-loop schedule assertion is degraded (${late_count} late artifacts${warnings:+: $warnings})" "V4 control-loop schedule" "warning"
 }
 
+refresh_schedule_registry() {
+  [[ -d "$BACKTESTER_ROOT" ]] || return
+  [[ -f "$BACKTESTER_ROOT/schedule_registry.py" ]] || return
+  if (cd "$BACKTESTER_ROOT" && uv run python schedule_registry.py --root "$BACKTESTER_ROOT" --output "$SCHEDULE_REGISTRY_PATH" >/dev/null 2>&1); then
+    log "info" "Schedule registry refreshed"
+  else
+    log "warning" "Schedule registry refresh failed"
+  fi
+}
+
 refresh_pre_open_canary_artifact() {
   local reason="${1:-unknown}"
   local command="${PRE_OPEN_CANARY_REFRESH_COMMAND:-}"
@@ -1400,6 +1411,7 @@ check_budget() {
 run_watchdog() {
   echo "=== Watchdog run: $(date) ==="
 
+  refresh_schedule_registry
   check_cron_quarantine
   check_cron_health
   check_heartbeat_health
