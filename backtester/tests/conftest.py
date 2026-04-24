@@ -37,8 +37,9 @@ def seed_buy_readiness_artifacts(tmp_path, monkeypatch):
     ]
     _write_json(reports / "strategy-scorecard-latest.json", {"generated_at": generated_at, "strategies": strategies})
     _write_json(reports / "strategy-authority-tiers-latest.json", {"generated_at": generated_at, "families": families})
-    for name in ("desired_state", "actual_state", "reconciliation_actions"):
+    for name in ("cycle_summary", "desired_state", "actual_state", "reconciliation_actions"):
         _write_json(lifecycle / f"{name}.json", {"generated_at": generated_at, "status": "ok"})
+    _write_json(lifecycle / "runtime_health.json", {"generated_at": generated_at, "status": "ok", "incident_markers": []})
     calibration_path = tmp_path / "buy-decision-calibration-latest.json"
     _write_json(
         calibration_path,

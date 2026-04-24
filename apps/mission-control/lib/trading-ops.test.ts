@@ -377,6 +377,13 @@ describe("trading ops loader", () => {
     expect(data.controlTower.data?.topAction).toBe("rebalance_posture");
     expect(data.controlTower.data?.topActionStatus).toBe("proposed");
     expect(data.controlTower.data?.operatorAction).toContain("Resolve visible interventions");
+    expect(data.controlTower.data?.scheduleRows.map((row) => row.name)).toEqual([
+      "Lifecycle cycle",
+      "Desired state",
+      "Actual state",
+      "Reconciliation",
+    ]);
+    expect(data.controlTower.data?.lateScheduleCount).toBeGreaterThanOrEqual(0);
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");
@@ -781,6 +788,16 @@ describe("trading ops loader", () => {
                 severity: "medium",
                 operator_action: "Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
               },
+              {
+                incident_type: "provider_cooldown",
+                severity: "medium",
+                operator_action: "Wait until 2026-04-07T17:35:29.777Z or inspect upstream connectivity/auth.",
+              },
+              {
+                incident_type: "market_data_service_unreachable",
+                severity: "high",
+                operator_action: "Restart market data.",
+              },
             ],
           };
         }
@@ -791,7 +808,9 @@ describe("trading ops loader", () => {
     expect(data.runtime.message).toContain("Apr 7, 1:35 PM ET");
     expect(data.runtime.message).not.toContain("2026-04-07T17:35:29.777Z");
     expect(data.runtime.data?.operatorAction).toContain("Apr 7, 1:35 PM ET");
-    expect(data.runtime.data?.incidents[0]?.operatorAction).toContain("Apr 7, 1:35 PM ET");
+    expect(data.runtime.data?.incidents).toHaveLength(2);
+    expect(data.runtime.data?.incidents[0]?.incidentType).toBe("market_data_service_unreachable");
+    expect(data.runtime.data?.incidents[1]?.operatorAction).toContain("Apr 7, 1:35 PM ET");
     expect(data.runtime.data?.cooldownSummary).toContain("Apr 7, 1:35 PM ET");
   });
 
