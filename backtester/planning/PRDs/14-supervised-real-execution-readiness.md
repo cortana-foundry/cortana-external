@@ -35,6 +35,25 @@ It can only act when:
 - No position without a sell, trim, or invalidation plan.
 - No execution path that bypasses Mission Control audit trails.
 
+## Architecture Evolution Notes
+
+W14 should not rearchitect the advisor. It should add a narrow execution boundary after the recommendation and evidence contracts are stable.
+
+The broker adapter must stay behind an audited port. The advisor, Mission Control, Telegram, and cron jobs should never call broker APIs directly. They should request execution through the policy and broker boundary, using the same evidence packet and recommendation id that produced the action.
+
+The execution path should preserve one chain of custody:
+
+1. recommendation contract
+2. evidence packet
+3. execution policy check
+4. operator approval state
+5. broker preview
+6. order submission
+7. fill/cancel result
+8. post-trade lifecycle update
+
+Any design that bypasses this chain should be treated as a blocker.
+
 ## Requirements
 
 ### 1. Execution Policy Contract

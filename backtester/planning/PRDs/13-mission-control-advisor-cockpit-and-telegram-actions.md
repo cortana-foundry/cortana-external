@@ -97,6 +97,20 @@ The operator should trust a recommendation only when the app can answer:
 
 If those answers are missing, the recommendation should remain visible but not feel actionable.
 
+## Architecture Evolution Notes
+
+This track does not require a full rewrite of the current backtester or control loop. The existing system is scalable enough for the next phase if the product surface grows around stronger contracts instead of duplicated interpretation.
+
+W13 should gradually consolidate these boundaries:
+
+- canonical recommendation contract with `raw_action`, `final_action`, horizon, confidence, evidence, blockers, lifecycle state, and sell plan
+- stable decision evidence layer that Mission Control and Telegram both read
+- Python-owned decision contracts that Mission Control renders without reinterpreting scattered artifacts
+- Telegram alert pipeline that consumes the same recommendation contract as Mission Control
+- no duplicated buy/sell logic across Python, Mission Control, cron, alerts, or future execution code
+
+The architectural risk is not throughput scale yet. The risk is letting decision logic fork across scripts, UI code, alerts, and broker integrations.
+
 ## Non-Goals
 
 - No broker execution.
