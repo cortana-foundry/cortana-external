@@ -267,7 +267,7 @@ export type VacationOpsSnapshot = {
   }>;
 };
 
-export type VacationActionKey = "prep" | "enable" | "disable" | "unpause";
+export type VacationActionKey = "prep" | "enable" | "disable" | "unpause" | "cancel";
 
 export function formatVacationWindowLabel(label: string | null | undefined): string {
   if (!label) return "—";
@@ -628,6 +628,10 @@ export async function runVacationOpsAction(
 
   if (action === "disable") {
     args.push("--reason", input.reason ?? "manual");
+  }
+
+  if (action === "cancel" && input.windowId != null) {
+    args.push("--window-id", String(input.windowId));
   }
 
   args.push("--json");
