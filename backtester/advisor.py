@@ -139,7 +139,10 @@ class TradingAdvisor:
             )
         )
         self.market_data = MarketDataProvider(
-            stale_fallback_max_age_hours=stale_history_fallback_hours
+            cache_ttl_seconds=int(os.getenv("TRADING_ANALYSIS_FRESH_CACHE_TTL_SECONDS", "240") or 240),
+            stale_fallback_max_age_hours=stale_history_fallback_hours,
+            prefer_fresh_cache=os.getenv("TRADING_ANALYSIS_PREFER_FRESH_CACHE", "1") not in {"", "0", "false", "False"},
+            refresh_concurrency=int(os.getenv("TRADING_MARKET_DATA_REFRESH_CONCURRENCY", "8") or 8),
         )
         self.screener = UniverseScreener(market_data=self.market_data)
         self.fundamentals = FundamentalsFetcher()
@@ -706,6 +709,9 @@ class TradingAdvisor:
             'data_source': history_result.source,
             'data_staleness_seconds': history_result.staleness_seconds,
             'data_status': history_result.status,
+            'provider_mode': getattr(history_result, 'provider_mode', 'unknown'),
+            'fallback_engaged': bool(getattr(history_result, 'fallback_engaged', False)),
+            'provider_mode_reason': getattr(history_result, 'provider_mode_reason', ''),
             'analysis_profile': analysis_profile,
             'timing': timings if self.enable_timing else {},
             'recommendation': recommendation,
@@ -784,6 +790,9 @@ class TradingAdvisor:
             'data_source': hist_result.source,
             'data_staleness_seconds': hist_result.staleness_seconds,
             'data_status': hist_result.status,
+            'provider_mode': getattr(hist_result, 'provider_mode', 'unknown'),
+            'fallback_engaged': bool(getattr(hist_result, 'fallback_engaged', False)),
+            'provider_mode_reason': getattr(hist_result, 'provider_mode_reason', ''),
             'market_active': setup.get('market_active'),
             'credit_veto': setup.get('credit_veto'),
             'recovery_ready': setup.get('recovery_ready'),

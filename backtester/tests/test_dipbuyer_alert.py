@@ -10,7 +10,7 @@ from data.market_regime import MarketRegime
 from data.liquidity_model import LiquidityOverlayModel
 from data.liquidity_overlay import build_execution_quality_overlay
 from data.risk_budget import build_risk_budget_overlay
-from dipbuyer_alert import _macro_gate_line, format_alert
+from dipbuyer_alert import _fresh_cache_line, _macro_gate_line, format_alert
 from strategies.dip_buyer import DIPBUYER_CONFIG
 
 
@@ -59,6 +59,21 @@ class _FakeAdvisor:
 
     def analyze_dip_stock(self, symbol: str):
         return self._analysis.get(symbol, {"error": "not stubbed"})
+
+
+def test_fresh_cache_line_summarizes_scan_coverage():
+    line = _fresh_cache_line(
+        {
+            "requested_count": 10,
+            "fresh_count": 8,
+            "stale_count": 1,
+            "failed_count": 1,
+            "ttl_seconds": 600,
+            "counts": {"refreshed": 3, "fresh_cache_hit": 5},
+        }
+    )
+
+    assert line == "Market data fresh cache: 8/10 fresh <= 600s (3 refreshed, 5 cache hits, 1 stale, 1 failed)"
 
 
 def test_macro_gate_line_displays_open_and_closed_states():

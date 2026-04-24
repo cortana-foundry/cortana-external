@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -11,6 +13,8 @@ from decision_brain.multi_timeframe import build_multi_timeframe_context
 from data.universe import GROWTH_WATCHLIST
 
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
+BACKTESTER_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_BREADTH_CACHE_PATH = BACKTESTER_ROOT / ".cache" / "intraday_breadth" / "latest.json"
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA")
 
 
@@ -39,7 +43,7 @@ def _quote_batch(
             response = requests.get(
                 f"{service_base_url}/market-data/quote/batch",
                 params={"symbols": ",".join(chunk), "subsystem": "intraday_breadth"},
-                timeout=15,
+                timeout=float(os.getenv("TRADING_INTRADAY_BREADTH_TIMEOUT_SECONDS", "3")),
             )
             response.raise_for_status()
             payload = response.json() or {}
@@ -70,7 +74,10 @@ def _quote_batch(
 
 def _load_base_universe_symbols(*, service_base_url: str) -> tuple[list[str], str | None]:
     try:
-        response = requests.get(f"{service_base_url}/market-data/universe/base", timeout=10)
+        response = requests.get(
+            f"{service_base_url}/market-data/universe/base",
+            timeout=float(os.getenv("TRADING_INTRADAY_BREADTH_TIMEOUT_SECONDS", "3")),
+        )
         response.raise_for_status()
         payload = response.json() or {}
     except Exception as exc:
@@ -87,6 +94,39 @@ def _load_base_universe_symbols(*, service_base_url: str) -> tuple[list[str], st
             seen.add(value)
             cleaned.append(value)
     return cleaned, None
+
+
+def _load_fresh_breadth_cache(now: datetime) -> dict[str, Any] | None:
+    ttl = float(os.getenv("TRADING_INTRADAY_BREADTH_CACHE_TTL_SECONDS", "60") or 60)
+    if ttl <= 0:
+        return None
+    path = Path(os.getenv("TRADING_INTRADAY_BREADTH_CACHE_PATH", str(DEFAULT_BREADTH_CACHE_PATH))).expanduser()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        generated = datetime.fromisoformat(str(payload.get("generated_at", "")).replace("Z", "+00:00"))
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+        age_seconds = max((now.astimezone(timezone.utc) - generated.astimezone(timezone.utc)).total_seconds(), 0.0)
+    except Exception:
+        return None
+    if age_seconds > ttl:
+        return None
+    payload = dict(payload)
+    payload["cache_status"] = "fresh_cache_hit"
+    payload["cache_age_seconds"] = round(age_seconds, 3)
+    payload["provider_mode"] = "fresh_cache"
+    payload["fallback_engaged"] = False
+    payload["provider_mode_reason"] = f"Intraday breadth served from fresh cache ({int(age_seconds)}s old)."
+    return payload
+
+
+def _write_breadth_cache(snapshot: dict[str, Any]) -> None:
+    path = Path(os.getenv("TRADING_INTRADAY_BREADTH_CACHE_PATH", str(DEFAULT_BREADTH_CACHE_PATH))).expanduser()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except Exception:
+        return
 
 
 def _collect_change_map(items: list[dict[str, Any]]) -> tuple[dict[str, float], list[str]]:
@@ -168,6 +208,9 @@ def build_intraday_breadth_snapshot(
             "warnings": [],
         }
     session_now = now or datetime.now(ZoneInfo("America/New_York"))
+    cached_snapshot = _load_fresh_breadth_cache(session_now)
+    if cached_snapshot is not None:
+        return cached_snapshot
     if not _is_regular_market_session(session_now):
         return {
             "status": "inactive",
@@ -221,7 +264,8 @@ def build_intraday_breadth_snapshot(
         warnings=warnings,
         multi_timeframe=multi_timeframe,
     )
-    return {
+    snapshot = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "degraded" if warnings else "ok",
         "override_state": override_state,
         "override_reason": override_reason,
@@ -240,6 +284,8 @@ def build_intraday_breadth_snapshot(
         "provider_mode_reason": str(provider_meta.get("provider_mode_reason", "") or ""),
         "warnings": warnings,
     }
+    _write_breadth_cache(snapshot)
+    return snapshot
 
 
 def render_intraday_breadth_lines(snapshot: dict[str, Any] | None) -> list[str]:

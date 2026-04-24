@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 import time
 from dataclasses import dataclass
@@ -69,6 +70,9 @@ class MarketDataProvider:
         backoff_jitter_seconds: float = 0.35,
         cooldown_seconds: int = 45,
         stale_fallback_max_age_hours: float = 168.0,
+        prefer_fresh_cache: bool | None = None,
+        refresh_concurrency: int | None = None,
+        cache_manifest_path: Optional[str] = None,
     ):
         self.providers = [p.strip().lower() for p in provider_order.split(",") if p.strip()]
         self.service_base_url = os.getenv("MARKET_DATA_SERVICE_URL", service_base_url).rstrip("/")
@@ -82,6 +86,9 @@ class MarketDataProvider:
         self.stale_fallback_max_age_hours = float(
             os.getenv("MARKET_DATA_STALE_FALLBACK_MAX_AGE_HOURS", str(stale_fallback_max_age_hours))
         )
+        self.prefer_fresh_cache = _env_bool("MARKET_DATA_PREFER_FRESH_CACHE", False) if prefer_fresh_cache is None else bool(prefer_fresh_cache)
+        self.refresh_concurrency = int(refresh_concurrency or os.getenv("MARKET_DATA_REFRESH_CONCURRENCY", "8") or 8)
+        self.cache_manifest_path = Path(cache_manifest_path).expanduser() if cache_manifest_path else self.cache_dir / "fresh-cache-manifest-latest.json"
 
     def get_history(
         self,
@@ -90,8 +97,25 @@ class MarketDataProvider:
         auto_adjust: bool = False,
         *,
         subsystem: str | None = None,
+        prefer_fresh_cache: bool | None = None,
     ) -> MarketHistoryResult:
         symbol = symbol.upper().strip()
+        use_fresh_cache = self.prefer_fresh_cache if prefer_fresh_cache is None else bool(prefer_fresh_cache)
+        if use_fresh_cache:
+            cached = self._read_cache_with_compatible_periods(symbol, period, allow_stale_recent=False)
+            if cached is not None:
+                cached_frame, cache_source, age_seconds, cache_period = cached
+                period_note = f"{cache_period} -> {period}" if cache_period != period else period
+                return MarketHistoryResult(
+                    frame=cached_frame,
+                    source=cache_source,
+                    status="ok",
+                    degraded_reason="",
+                    staleness_seconds=age_seconds,
+                    provider_mode="fresh_cache",
+                    fallback_engaged=False,
+                    provider_mode_reason=f"History served from fresh local cache ({period_note}, {int(age_seconds)}s old).",
+                )
         providers_tried: list[str] = []
         transient_failures: list[str] = []
         fatal_failures: list[str] = []
@@ -229,6 +253,115 @@ class MarketDataProvider:
             period,
             allow_stale_recent=allow_stale_recent,
         ) is not None
+
+
+    def warm_history_cache(
+        self,
+        symbols: Sequence[str],
+        period: str,
+        *,
+        auto_adjust: bool = False,
+        subsystem: str | None = None,
+        max_workers: int | None = None,
+        manifest_path: Path | None = None,
+    ) -> dict:
+        unique_symbols = []
+        seen = set()
+        for raw in symbols:
+            symbol = str(raw or "").strip().upper()
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                unique_symbols.append(symbol)
+
+        started = datetime.now(timezone.utc)
+        workers = max(1, int(max_workers or self.refresh_concurrency or 1))
+
+        def _warm_one(symbol: str) -> dict:
+            cached = self._read_cache_with_compatible_periods(symbol, period, allow_stale_recent=False)
+            if cached is not None:
+                _frame, cache_source, age_seconds, cache_period = cached
+                return {
+                    "symbol": symbol,
+                    "status": "fresh_cache_hit",
+                    "source": cache_source,
+                    "provider_mode": "fresh_cache",
+                    "cache_period": cache_period,
+                    "staleness_seconds": round(float(age_seconds), 3),
+                }
+            try:
+                result = self.get_history(
+                    symbol,
+                    period=period,
+                    auto_adjust=auto_adjust,
+                    subsystem=subsystem,
+                    prefer_fresh_cache=False,
+                )
+                return {
+                    "symbol": symbol,
+                    "status": "refreshed",
+                    "source": result.source,
+                    "provider_mode": result.provider_mode,
+                    "fallback_engaged": result.fallback_engaged,
+                    "staleness_seconds": round(float(result.staleness_seconds or 0.0), 3),
+                }
+            except Exception as exc:
+                stale = self._read_cache_with_compatible_periods(symbol, period, allow_stale_recent=True)
+                if stale is not None:
+                    _frame, cache_source, age_seconds, cache_period = stale
+                    return {
+                        "symbol": symbol,
+                        "status": "stale_cache_available",
+                        "source": cache_source,
+                        "provider_mode": "stale_cache",
+                        "cache_period": cache_period,
+                        "staleness_seconds": round(float(age_seconds), 3),
+                        "error": str(exc),
+                    }
+                return {
+                    "symbol": symbol,
+                    "status": "failed",
+                    "source": "unavailable",
+                    "provider_mode": "unavailable",
+                    "staleness_seconds": None,
+                    "error": str(exc),
+                }
+
+        results: list[dict] = []
+        if unique_symbols:
+            with ThreadPoolExecutor(max_workers=min(workers, len(unique_symbols))) as pool:
+                futures = {pool.submit(_warm_one, symbol): symbol for symbol in unique_symbols}
+                for future in as_completed(futures):
+                    results.append(future.result())
+        order = {symbol: index for index, symbol in enumerate(unique_symbols)}
+        results.sort(key=lambda item: order.get(str(item.get("symbol")), len(order)))
+
+        counts: dict[str, int] = {}
+        for item in results:
+            status = str(item.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+        fresh_count = counts.get("fresh_cache_hit", 0) + counts.get("refreshed", 0)
+        failed_count = counts.get("failed", 0)
+        stale_count = counts.get("stale_cache_available", 0)
+        manifest = {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": started.isoformat(),
+            "period": period,
+            "ttl_seconds": int(self.cache_ttl_seconds),
+            "requested_count": len(unique_symbols),
+            "fresh_count": fresh_count,
+            "stale_count": stale_count,
+            "failed_count": failed_count,
+            "counts": counts,
+            "symbols": results,
+        }
+        target = manifest_path or self.cache_manifest_path
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+        return manifest
 
     def _fetch_with_retries(
         self,
@@ -634,3 +767,10 @@ class MarketDataProvider:
             start = now - pd.Timedelta(days=365)
 
         return start.isoformat(), now.isoformat()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"", "0", "false", "no", "off"}
