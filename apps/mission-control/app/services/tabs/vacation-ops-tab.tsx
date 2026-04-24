@@ -61,7 +61,7 @@ const DEFAULT_PLANNER_PARTS: PlannerParts = {
   meridiem: "AM",
 };
 
-type ActionKey = "prep" | "enable" | "disable" | "unpause";
+type ActionKey = "prep" | "enable" | "disable" | "unpause" | "cancel";
 
 type PlannerParts = {
   date: string;
@@ -466,7 +466,11 @@ export function VacationOpsTab() {
         startAt: action === "prep" ? fromPlannerParts(startParts) : undefined,
         endAt: action === "prep" ? fromPlannerParts(endParts) : undefined,
         timezone: data?.config.timezone,
-        windowId: action === "enable" ? data?.enableReadyWindowId : undefined,
+        windowId: action === "enable"
+          ? data?.enableReadyWindowId
+          : action === "cancel" && data && data.mode !== "active" && visibleWindow && ["prep", "ready", "failed"].includes(visibleWindow.status)
+            ? visibleWindow.id
+            : undefined,
         reason: action === "disable" ? "manual" : undefined,
       });
       setData(payload.data);
@@ -522,6 +526,9 @@ export function VacationOpsTab() {
     ? "Preflight is still running. Vacation state and enable controls will refresh automatically when the readiness run completes."
     : null;
   const canUnpauseJobs = Boolean(data && data.mode === "active" && data.pausedJobs.length > 0 && !activePreflight);
+  const cancelableWindowId = data && data.mode !== "active" && visibleWindow && ["prep", "ready", "failed"].includes(visibleWindow.status)
+    ? visibleWindow.id
+    : null;
 
   return (
     <TabLayout
@@ -767,7 +774,7 @@ export function VacationOpsTab() {
                 </PlannerField>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <ActionButton
                   label="Run preflight"
                   icon={<PlayCircle className="h-4 w-4" />}
@@ -796,6 +803,14 @@ export function VacationOpsTab() {
                   loading={activeAction === "unpause"}
                   onClick={() => void runAction("unpause")}
                   disabled={activeAction != null || !canUnpauseJobs}
+                  variant="outline"
+                />
+                <ActionButton
+                  label="Cancel staged"
+                  icon={<AlertTriangle className="h-4 w-4" />}
+                  loading={activeAction === "cancel"}
+                  onClick={() => void runAction("cancel")}
+                  disabled={activeAction != null || cancelableWindowId == null}
                   variant="outline"
                 />
               </div>
