@@ -13,11 +13,24 @@ describe("POST /api/approvals/[id]/resume", () => {
     vi.clearAllMocks();
   });
 
+  it("rejects malformed approval ids before querying", async () => {
+    const response = await POST(new Request("http://localhost", { method: "POST" }), {
+      params: Promise.resolve({ id: "not-real" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("Invalid approval id");
+    expect(getApprovalById).not.toHaveBeenCalled();
+    expect(resumeApproval).not.toHaveBeenCalled();
+    expect(recordExecution).not.toHaveBeenCalled();
+  });
+
   it("requires an approved request before resuming", async () => {
-    vi.mocked(getApprovalById).mockResolvedValueOnce({ id: "apr-1", status: "pending" } as never);
+    vi.mocked(getApprovalById).mockResolvedValueOnce({ id: "11111111-1111-4111-8111-111111111111", status: "pending" } as never);
 
     const response = await POST(new Request("http://localhost", { method: "POST" }), {
-      params: Promise.resolve({ id: "apr-1" }),
+      params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }),
     });
     const body = await response.json();
 
@@ -30,7 +43,7 @@ describe("POST /api/approvals/[id]/resume", () => {
     vi.mocked(resumeApproval).mockResolvedValueOnce();
     vi.mocked(getApprovalById)
       .mockResolvedValueOnce({
-        id: "apr-1",
+        id: "11111111-1111-4111-8111-111111111111",
         status: "approved",
         proposal: { task: "deploy" },
         resumePayload: { target: "prod" },
@@ -39,7 +52,7 @@ describe("POST /api/approvals/[id]/resume", () => {
         agentId: "oracle",
       } as never)
       .mockResolvedValueOnce({
-        id: "apr-1",
+        id: "11111111-1111-4111-8111-111111111111",
         status: "approved",
         proposal: { task: "deploy" },
         resumePayload: { target: "prod" },
@@ -56,10 +69,10 @@ describe("POST /api/approvals/[id]/resume", () => {
       }),
     });
 
-    const response = await POST(request, { params: Promise.resolve({ id: "apr-1" }) });
+    const response = await POST(request, { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) });
     const body = await response.json();
 
-    expect(resumeApproval).toHaveBeenCalledWith("apr-1", "mission-control-ui", {
+    expect(resumeApproval).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", "mission-control-ui", {
       proposal: { task: "deploy" },
       resume_payload: { target: "prod" },
       note: "resume from inbox",
@@ -72,7 +85,7 @@ describe("POST /api/approvals/[id]/resume", () => {
     vi.mocked(recordExecution).mockResolvedValueOnce();
     vi.mocked(getApprovalById)
       .mockResolvedValueOnce({
-        id: "apr-1",
+        id: "11111111-1111-4111-8111-111111111111",
         status: "approved_edited",
         proposal: { task: "deploy" },
         resumePayload: null,
@@ -81,7 +94,7 @@ describe("POST /api/approvals/[id]/resume", () => {
         agentId: "oracle",
       } as never)
       .mockResolvedValueOnce({
-        id: "apr-1",
+        id: "11111111-1111-4111-8111-111111111111",
         status: "approved_edited",
         proposal: { task: "deploy" },
         resumePayload: null,
@@ -98,17 +111,17 @@ describe("POST /api/approvals/[id]/resume", () => {
       }),
     });
 
-    const response = await POST(request, { params: Promise.resolve({ id: "apr-1" }) });
+    const response = await POST(request, { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) });
     const body = await response.json();
 
-    expect(recordExecution).toHaveBeenCalledWith("apr-1", { status: "completed", note: "done" }, "mission-control-ui");
+    expect(recordExecution).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", { status: "completed", note: "done" }, "mission-control-ui");
     expect(response.status).toBe(200);
     expect(body.approval.executedAt).toBe("2026-02-26T12:05:00.000Z");
   });
 
   it("rejects duplicate resume requests", async () => {
     vi.mocked(getApprovalById).mockResolvedValueOnce({
-      id: "apr-1",
+      id: "11111111-1111-4111-8111-111111111111",
       status: "approved",
       resumedAt: "2026-02-26T12:00:00.000Z",
       executedAt: null,
@@ -118,7 +131,7 @@ describe("POST /api/approvals/[id]/resume", () => {
     } as never);
 
     const response = await POST(new Request("http://localhost", { method: "POST" }), {
-      params: Promise.resolve({ id: "apr-1" }),
+      params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }),
     });
     const body = await response.json();
 
@@ -128,7 +141,7 @@ describe("POST /api/approvals/[id]/resume", () => {
 
   it("rejects duplicate execution records", async () => {
     vi.mocked(getApprovalById).mockResolvedValueOnce({
-      id: "apr-1",
+      id: "11111111-1111-4111-8111-111111111111",
       status: "approved",
       resumedAt: "2026-02-26T12:00:00.000Z",
       executedAt: "2026-02-26T12:05:00.000Z",
@@ -141,7 +154,7 @@ describe("POST /api/approvals/[id]/resume", () => {
       method: "POST",
       body: JSON.stringify({ execution_result: { status: "completed" } }),
     }), {
-      params: Promise.resolve({ id: "apr-1" }),
+      params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }),
     });
     const body = await response.json();
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApprovalById, recordExecution, resumeApproval } from "@/lib/approvals";
+import { isUuid } from "@/lib/route-ids";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,6 +10,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid approval id" }, { status: 400 });
+  }
+
   const approval = await getApprovalById(id);
 
   if (!approval) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { addFeedbackAction } from "@/lib/feedback";
+import { isUuid } from "@/lib/route-ids";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,6 +10,10 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid feedback id" }, { status: 400 });
+  }
+
   const body = (await request.json()) as {
     actionType?: string;
     actionRef?: string | null;

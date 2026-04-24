@@ -15,17 +15,42 @@ describe("/api/feedback/[id]", () => {
     vi.clearAllMocks();
   });
 
+  it("GET rejects malformed feedback ids before querying", async () => {
+    const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ id: "not-real" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("Invalid feedback id");
+    expect(getFeedbackById).not.toHaveBeenCalled();
+  });
+
+  it("PATCH rejects malformed feedback ids before querying", async () => {
+    const request = new Request("http://localhost", {
+      method: "PATCH",
+      body: JSON.stringify({ status: "verified" }),
+    });
+
+    const response = await PATCH(request, { params: Promise.resolve({ id: "not-real" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("Invalid feedback id");
+    expect(getFeedbackById).not.toHaveBeenCalled();
+    expect(updateFeedbackStatus).not.toHaveBeenCalled();
+    expect(updateFeedbackRemediation).not.toHaveBeenCalled();
+  });
+
   it("GET returns single feedback with actions", async () => {
     vi.mocked(getFeedbackById).mockResolvedValueOnce({
-      id: "fb-1",
+      id: "22222222-2222-4222-8222-222222222222",
       actions: [{ id: 1, actionType: "opened_pr" }],
     } as never);
 
-    const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ id: "fb-1" }) });
+    const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ id: "22222222-2222-4222-8222-222222222222" }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.id).toBe("fb-1");
+    expect(body.id).toBe("22222222-2222-4222-8222-222222222222");
     expect(body.actions).toHaveLength(1);
   });
 
@@ -33,7 +58,7 @@ describe("/api/feedback/[id]", () => {
     vi.mocked(updateFeedbackStatus).mockResolvedValueOnce(true);
     vi.mocked(updateFeedbackRemediation).mockResolvedValueOnce(true);
     vi.mocked(getFeedbackById).mockResolvedValueOnce({
-      id: "fb-1",
+      id: "22222222-2222-4222-8222-222222222222",
       status: "verified",
       remediationStatus: "resolved",
     } as never);
@@ -49,13 +74,13 @@ describe("/api/feedback/[id]", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: Promise.resolve({ id: "fb-1" }) });
+    const response = await PATCH(request, { params: Promise.resolve({ id: "22222222-2222-4222-8222-222222222222" }) });
     const body = await response.json();
 
-    expect(updateFeedbackStatus).toHaveBeenCalledWith("fb-1", "verified", "hamel");
-    expect(updateFeedbackRemediation).toHaveBeenCalledWith("fb-1", "resolved", "Fixed in #123", "hamel");
+    expect(updateFeedbackStatus).toHaveBeenCalledWith("22222222-2222-4222-8222-222222222222", "verified", "hamel");
+    expect(updateFeedbackRemediation).toHaveBeenCalledWith("22222222-2222-4222-8222-222222222222", "resolved", "Fixed in #123", "hamel");
     expect(response.status).toBe(200);
-    expect(body).toEqual({ ok: true, item: { id: "fb-1", status: "verified", remediationStatus: "resolved" } });
+    expect(body).toEqual({ ok: true, item: { id: "22222222-2222-4222-8222-222222222222", status: "verified", remediationStatus: "resolved" } });
   });
 
   it("PATCH validates remediation status", async () => {
@@ -64,7 +89,7 @@ describe("/api/feedback/[id]", () => {
       body: JSON.stringify({ remediationStatus: "bad_status" }),
     });
 
-    const response = await PATCH(request, { params: Promise.resolve({ id: "fb-1" }) });
+    const response = await PATCH(request, { params: Promise.resolve({ id: "22222222-2222-4222-8222-222222222222" }) });
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -78,7 +103,7 @@ describe("/api/feedback/[id]", () => {
       body: JSON.stringify({ status: "bad_status" }),
     });
 
-    const response = await PATCH(request, { params: Promise.resolve({ id: "fb-1" }) });
+    const response = await PATCH(request, { params: Promise.resolve({ id: "22222222-2222-4222-8222-222222222222" }) });
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -92,7 +117,7 @@ describe("/api/feedback/[id]", () => {
       body: JSON.stringify({ remediationNotes: "notes only" }),
     });
 
-    const response = await PATCH(request, { params: Promise.resolve({ id: "fb-1" }) });
+    const response = await PATCH(request, { params: Promise.resolve({ id: "22222222-2222-4222-8222-222222222222" }) });
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -108,7 +133,7 @@ describe("/api/feedback/[id]", () => {
       body: JSON.stringify({ status: "in_progress", remediationStatus: "in_progress" }),
     });
 
-    const response = await PATCH(request, { params: Promise.resolve({ id: "missing" }) });
+    const response = await PATCH(request, { params: Promise.resolve({ id: "33333333-3333-4333-8333-333333333333" }) });
     const body = await response.json();
 
     expect(response.status).toBe(404);

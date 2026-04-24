@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApprovalById, updateApprovalStatus } from "@/lib/approvals";
+import { isUuid } from "@/lib/route-ids";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,6 +10,10 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid approval id" }, { status: 400 });
+  }
+
   const approval = await getApprovalById(id);
 
   if (!approval) {
@@ -27,6 +32,10 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid approval id" }, { status: 400 });
+  }
+
   const body = (await request.json()) as {
     action?: "approve" | "reject" | "approve_edited";
     decision?: Record<string, unknown>;

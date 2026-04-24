@@ -8,6 +8,7 @@ import {
   type FeedbackWorkflowStatus,
   type RemediationStatus,
 } from "@/lib/feedback";
+import { isUuid } from "@/lib/route-ids";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,6 +18,10 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid feedback id" }, { status: 400 });
+  }
+
   const item = await getFeedbackById(id);
 
   if (!item) {
@@ -35,6 +40,10 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "Invalid feedback id" }, { status: 400 });
+  }
+
   const body = (await request.json()) as {
     remediationStatus?: string;
     remediationNotes?: string | null;
