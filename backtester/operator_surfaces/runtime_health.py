@@ -32,6 +32,8 @@ DEFAULT_WATCHDOG_STATE_PATH = WATCHDOG_ROOT / "watchdog-state.json"
 DEFAULT_WATCHDOG_LOG_PATH = WATCHDOG_ROOT / "logs" / "watchdog.log"
 DEFAULT_SERVICE_BASE_URL = "http://127.0.0.1:3033"
 DEFAULT_PRE_OPEN_CANARY_MAX_AGE_SECONDS = 7200
+PRE_OPEN_GATE_ACTIONABLE_START_MINUTE = 4 * 60
+PRE_OPEN_GATE_ACTIONABLE_END_MINUTE = 9 * 60 + 30
 DISPLAY_TIMEZONE = ZoneInfo("America/New_York")
 
 
@@ -54,6 +56,7 @@ def build_runtime_health_snapshot(
         generated_at=generated_at,
         max_age_seconds=pre_open_canary_max_age_seconds,
     )
+    pre_open_gate_actionable = _is_pre_open_gate_actionable(generated_at)
 
     service_health = {
         "status": "ok" if ready_error is None else "degraded",
@@ -68,8 +71,11 @@ def build_runtime_health_snapshot(
     elif canary_result == "unknown":
         canary_result = "not_reported"
 
+    canary_is_actionable_problem = (
+        pre_open_gate_actionable and canary_freshness["status"] != "fresh"
+    )
     cron_health = {
-        "status": "ok" if canary_freshness["status"] == "fresh" else "degraded",
+        "status": "degraded" if canary_is_actionable_problem else "ok",
         "pre_open_canary_present": bool(readiness),
         "pre_open_canary_result": canary_result,
         "pre_open_canary_checked_at": (readiness or {}).get("checked_at"),
@@ -128,7 +134,11 @@ def build_runtime_health_snapshot(
                 "operator_action": operator_action,
             }
         )
-    if canary_freshness["status"] in {"missing", "stale", "unreadable"}:
+    if pre_open_gate_actionable and canary_freshness["status"] in {
+        "missing",
+        "stale",
+        "unreadable",
+    }:
         incident_markers.append(
             {
                 "incident_type": "pre_open_gate_unavailable",
@@ -158,12 +168,13 @@ def build_runtime_health_snapshot(
     pre_open_gate_status = canary_result
     pre_open_gate_detail = canary_freshness["detail"]
 
-    overall_status = "ok" if not incident_markers and canary_freshness["status"] == "fresh" else "degraded"
+    overall_status = "ok" if not incident_markers and not canary_is_actionable_problem else "degraded"
     return annotate_artifact(
         {
             "pre_open_gate_status": pre_open_gate_status,
             "pre_open_gate_detail": pre_open_gate_detail,
             "pre_open_gate_freshness": canary_freshness,
+            "pre_open_gate_actionable": pre_open_gate_actionable,
             "service_health": service_health,
             "cron_health": cron_health,
             "watchdog_health": watchdog_health,
@@ -189,6 +200,20 @@ def build_runtime_health_snapshot(
         outcome_class="run_completed" if overall_status == "ok" else "degraded_safe",
     )
 
+
+def _is_pre_open_gate_actionable(generated_at: str) -> bool:
+    generated_dt = _parse_iso(generated_at)
+    if generated_dt is None:
+        return True
+    local_dt = generated_dt.astimezone(DISPLAY_TIMEZONE)
+    if local_dt.weekday() >= 5:
+        return False
+    minute_of_day = local_dt.hour * 60 + local_dt.minute
+    return (
+        PRE_OPEN_GATE_ACTIONABLE_START_MINUTE
+        <= minute_of_day
+        < PRE_OPEN_GATE_ACTIONABLE_END_MINUTE
+    )
 
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
