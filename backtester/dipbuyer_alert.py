@@ -173,6 +173,9 @@ def _build_prediction_record(
         "has_risk_telemetry": has_risk_telemetry,
         "data_source": context.get("data_source", "unknown"),
         "data_staleness_seconds": float(context.get("data_staleness_seconds", 0.0) or 0.0),
+        "provider_mode": context.get("provider_mode", "unknown"),
+        "fallback_engaged": bool(context.get("fallback_engaged", False)),
+        "provider_mode_reason": context.get("provider_mode_reason", ""),
     }
 
 
@@ -617,6 +620,42 @@ def _execution_quality_line(overlay: dict) -> str:
     return "Execution quality: " + " | ".join(bits)
 
 
+def _fresh_cache_enabled() -> bool:
+    return os.getenv("TRADING_PRE_SCAN_REFRESH", "1") not in {"", "0", "false", "False", "no", "off"}
+
+
+def _warm_fresh_market_cache(advisor: TradingAdvisor, symbols: list[str], *, period: str) -> dict[str, Any]:
+    provider = getattr(advisor, "market_data", None)
+    if not _fresh_cache_enabled() or provider is None or not hasattr(provider, "warm_history_cache"):
+        return {}
+    max_workers = int(os.getenv("TRADING_MARKET_DATA_REFRESH_CONCURRENCY", "8") or 8)
+    return provider.warm_history_cache(
+        symbols,
+        period,
+        subsystem="strategy_scan",
+        max_workers=max_workers,
+    )
+
+
+def _fresh_cache_line(manifest: dict[str, Any]) -> str:
+    if not manifest:
+        return ""
+    requested = int(manifest.get("requested_count", 0) or 0)
+    if requested <= 0:
+        return ""
+    fresh = int(manifest.get("fresh_count", 0) or 0)
+    stale = int(manifest.get("stale_count", 0) or 0)
+    failed = int(manifest.get("failed_count", 0) or 0)
+    counts = dict(manifest.get("counts") or {})
+    refreshed = int(counts.get("refreshed", 0) or 0)
+    hits = int(counts.get("fresh_cache_hit", 0) or 0)
+    ttl = int(manifest.get("ttl_seconds", 0) or 0)
+    return (
+        f"Market data fresh cache: {fresh}/{requested} fresh <= {ttl}s "
+        f"({refreshed} refreshed, {hits} cache hits, {stale} stale, {failed} failed)"
+    )
+
+
 def _profile_for_market(market_regime: str) -> tuple[str, dict]:
     if market_regime == "correction":
         return "correction", DIPBUYER_CONFIG["profiles"].get("correction", {})
@@ -687,6 +726,9 @@ def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, A
                 "uncertainty_pct": float(record.get("uncertainty_pct", 0.0) or 0.0),
                 "data_source": str(record.get("data_source", "unknown") or "unknown"),
                 "data_staleness_seconds": float(record.get("data_staleness_seconds", 0.0) or 0.0),
+                "provider_mode": str(record.get("provider_mode", "unknown") or "unknown"),
+                "fallback_engaged": bool(record.get("fallback_engaged", False)),
+                "provider_mode_reason": str(record.get("provider_mode_reason", "") or ""),
                 "abstain": bool(record.get("abstain", False)),
                 "abstain_reason_codes": list(record.get("abstain_reason_codes", []) or []),
                 "abstain_reasons": list(record.get("abstain_reasons", []) or []),
@@ -727,6 +769,7 @@ def _finalize_alert_payload(
     limit: int,
     min_score: int,
     universe_size: int,
+    fresh_cache: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     market_payload = _serialize_market_state(market)
     breadth_provider_mode = str(breadth_snapshot.get("provider_mode", "unknown") or "unknown")
@@ -763,6 +806,7 @@ def _finalize_alert_payload(
             "risk_snapshot": dict(risk_snapshot or {}),
             "analysis_error_count": int(analysis_error_count or 0),
             "provider_mode": overall_provider_mode,
+            "fresh_cache": dict(fresh_cache or {}),
         },
         "selection": _serialize_selection(selection, priority_count),
         "overlays": {
@@ -819,6 +863,18 @@ def _analysis_failed_final_action(scanned: int, analysis_error_count: int) -> st
     )
 
 
+def _analyze_dip_for_alert(
+    advisor: TradingAdvisor,
+    symbol: str,
+    market: object,
+    risk_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    analyzer = getattr(advisor, "_analyze_dip_with_context", None)
+    if callable(analyzer):
+        return _run_quiet(analyzer, symbol, market, risk_snapshot, True)
+    return _run_quiet(advisor.analyze_dip_stock, symbol)
+
+
 def _no_qualifying_setup_final_action() -> str:
     return "Final action: no qualifying dip setups right now — wait for a stronger reversal setup"
 
@@ -844,6 +900,7 @@ def build_alert_payload(
         regime_value,
         market=market,
     )
+    fresh_cache_manifest = _warm_fresh_market_cache(advisor, symbols, period="6mo")
     risk_overlay, execution_overlay = _resolve_context_overlays(
         market=market,
         risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
@@ -873,6 +930,9 @@ def build_alert_payload(
     selection_summary = _selection_line(selection, len(symbols))
     if selection_summary:
         lines.append(selection_summary)
+    fresh_cache_line = _fresh_cache_line(fresh_cache_manifest)
+    if fresh_cache_line:
+        lines.append(fresh_cache_line)
     if degraded_universe_line:
         lines.append(degraded_universe_line)
     if stress.get("label") != "normal" and getattr(getattr(market, 'regime', None), 'value', '') != 'correction':
@@ -888,7 +948,12 @@ def build_alert_payload(
     max_input_staleness = 0.0
 
     for symbol in symbols:
-        analysis = _run_quiet(advisor.analyze_dip_stock, symbol)
+        analysis = _analyze_dip_for_alert(
+            advisor,
+            symbol,
+            market,
+            snapshot if isinstance(snapshot, dict) else {},
+        )
         if analysis.get("error"):
             analysis_error_count += 1
             continue
@@ -1035,6 +1100,7 @@ def build_alert_payload(
             limit=limit,
             min_score=min_score,
             universe_size=universe_size,
+            fresh_cache=fresh_cache_manifest,
         )
 
     ranked = sorted(passed, key=_trade_quality_sort_key)
@@ -1170,6 +1236,7 @@ def build_alert_payload(
         limit=limit,
         min_score=min_score,
         universe_size=universe_size,
+        fresh_cache=fresh_cache_manifest,
     )
 
 

@@ -422,3 +422,51 @@ def test_service_error_reason_is_extracted_from_degraded_payload(tmp_path, monke
         provider.get_history("BTC-USD", period="6mo")
 
     assert "CoinMarketCap historical quotes are not available on the configured API plan" in str(exc.value)
+
+
+def test_prefer_fresh_cache_uses_recent_primary_cache_without_live_fetch(tmp_path):
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=600,
+        max_retries=0,
+        prefer_fresh_cache=True,
+    )
+    provider._write_cache("MSFT", "6mo", "schwab", _frame())
+    provider._fetch_service_history = lambda *args, **kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("live fetch should not be called for fresh cache")
+    )
+
+    result = provider.get_history("MSFT", period="6mo")
+
+    assert result.source == "schwab"
+    assert result.status == "ok"
+    assert result.provider_mode == "fresh_cache"
+    assert result.fallback_engaged is False
+    assert result.staleness_seconds < 600
+
+
+def test_warm_history_cache_writes_manifest_and_skips_fresh_hits(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=600,
+        max_retries=0,
+        refresh_concurrency=2,
+        cache_manifest_path=str(manifest_path),
+    )
+    provider._write_cache("MSFT", "6mo", "schwab", _frame())
+    calls: list[str] = []
+
+    def _fetch(symbol, period, auto_adjust=False):
+        calls.append(symbol)
+        return _frame(), {"source": "schwab", "status": "ok", "providerMode": "schwab_primary"}
+
+    provider._fetch_service_history = _fetch  # type: ignore[method-assign]
+
+    manifest = provider.warm_history_cache(["MSFT", "AAPL"], "6mo", max_workers=2)
+
+    assert calls == ["AAPL"]
+    assert manifest["requested_count"] == 2
+    assert manifest["fresh_count"] == 2
+    assert manifest["counts"] == {"fresh_cache_hit": 1, "refreshed": 1}
+    assert manifest_path.exists()

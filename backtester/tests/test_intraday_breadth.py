@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import data.intraday_breadth as module
+
+
+@pytest.fixture(autouse=True)
+def _isolated_breadth_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADING_INTRADAY_BREADTH_CACHE_PATH", str(tmp_path / "breadth.json"))
+    monkeypatch.setenv("TRADING_INTRADAY_BREADTH_CACHE_TTL_SECONDS", "0")
 
 
 def _market_time(hour: int, minute: int = 0) -> datetime:
@@ -144,3 +152,35 @@ def test_render_intraday_breadth_lines_includes_watch_only_label():
     )
 
     assert any("watch-only" in line for line in lines)
+
+
+def test_build_intraday_breadth_snapshot_uses_fresh_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADING_INTRADAY_BREADTH_CACHE_TTL_SECONDS", "60")
+    calls = {"quote": 0}
+    monkeypatch.setattr(module, "GROWTH_WATCHLIST", ["NVDA"])
+    monkeypatch.setattr(module, "_load_base_universe_symbols", lambda service_base_url: (["AAA"], None))
+
+    def _quote(symbols, service_base_url, chunk_size=120):
+        calls["quote"] += 1
+        return (
+            [
+                {"symbol": "SPY", "data": {"changePercent": 1.8}},
+                {"symbol": "QQQ", "data": {"changePercent": 2.4}},
+                {"symbol": "IWM", "data": {"changePercent": 1.1}},
+                {"symbol": "DIA", "data": {"changePercent": 1.0}},
+                {"symbol": "AAA", "data": {"changePercent": 0.8}},
+                {"symbol": "NVDA", "data": {"changePercent": 3.0}},
+            ],
+            [],
+            {"provider_mode": "schwab_primary", "fallback_engaged": False, "provider_mode_reason": "fresh"},
+        )
+
+    monkeypatch.setattr(module, "_quote_batch", _quote)
+
+    first = module.build_intraday_breadth_snapshot(service_base_url="http://service", now=_market_time(12, 15))
+    second = module.build_intraday_breadth_snapshot(service_base_url="http://service", now=_market_time(12, 15))
+
+    assert calls["quote"] == 1
+    assert first["provider_mode"] == "schwab_primary"
+    assert second["provider_mode"] == "fresh_cache"
+    assert second["cache_status"] == "fresh_cache_hit"
