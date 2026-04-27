@@ -20,6 +20,11 @@ const JSON_TIMEOUT_MS = 10_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const STALE_SUMMARY_MAX_AGE_SECONDS = tradingFreshnessSeconds("tradingSummary");
 const CONTROL_LOOP_EXPECTED_INTERVAL_SECONDS = tradingFreshnessSeconds("controlLoop");
+const CONTROL_LOOP_ACTIONABLE_TZ = "America/New_York";
+const CONTROL_LOOP_ACTIONABLE_START_HOUR = 8;
+const CONTROL_LOOP_ACTIONABLE_START_MINUTE = 20;
+const CONTROL_LOOP_ACTIONABLE_END_HOUR = 16;
+const CONTROL_LOOP_ACTIONABLE_END_MINUTE = 0;
 
 export type LoadState = "ok" | "degraded" | "missing" | "error";
 
@@ -2016,6 +2021,7 @@ function severityRank(severity: string): number {
 function buildControlLoopScheduleRows(
   artifacts: Array<{ name: string; path: string; data: Record<string, unknown> | null | undefined }>,
 ): ControlLoopScheduleRow[] {
+  const actionable = isControlLoopScheduleActionableNow();
   return artifacts.map((artifact) => {
     const lastRunAt = stringValue(artifact.data?.generated_at) ?? stringValue(artifact.data?.known_at);
     const lastRunMs = lastRunAt ? Date.parse(lastRunAt) : Number.NaN;
@@ -2029,10 +2035,30 @@ function buildControlLoopScheduleRows(
       lastRunAt: lastRunAt ?? null,
       nextExpectedAt,
       freshnessLabel: lastRunAt ? formatRelativeAge(lastRunAt) : "missing",
-      state: isLate ? "degraded" : "ok",
+      state: actionable && isLate ? "degraded" : "ok",
       source: artifact.path,
     };
   });
+}
+
+function isControlLoopScheduleActionableNow(now: Date = new Date()): boolean {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: CONTROL_LOOP_ACTIONABLE_TZ,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+  if (!["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday)) return false;
+  if (hour < CONTROL_LOOP_ACTIONABLE_START_HOUR) return false;
+  if (hour === CONTROL_LOOP_ACTIONABLE_START_HOUR && minute < CONTROL_LOOP_ACTIONABLE_START_MINUTE) return false;
+  if (hour > CONTROL_LOOP_ACTIONABLE_END_HOUR) return false;
+  if (hour === CONTROL_LOOP_ACTIONABLE_END_HOUR && minute > CONTROL_LOOP_ACTIONABLE_END_MINUTE) return false;
+  return true;
 }
 
 const readJsonFile = readTradingJsonArtifact;

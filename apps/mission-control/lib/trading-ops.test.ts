@@ -115,6 +115,7 @@ describe("trading ops loader", () => {
     tempDirs.length = 0;
     externalServiceFetch.mockClear();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("loads mixed live snapshots and persisted artifacts into one dashboard payload", async () => {
@@ -466,6 +467,68 @@ describe("trading ops loader", () => {
     expect(data.tradingRun.data?.canslimBuy).toEqual(["NVDA"]);
     expect(data.tradingRun.data?.canslimWatch).toEqual(["MSFT"]);
     expect(data.tradingRun.data?.canslimNoBuy).toEqual(["TSLA"]);
+  });
+
+  it("does not mark control-loop artifacts late outside weekday trading windows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-27T10:45:00.000Z"));
+    vi.stubGlobal("fetch", externalServiceFetch);
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-weekend-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-weekend-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    const staleGeneratedAt = "2026-04-24T14:40:28.311984+00:00";
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json"), {
+      generated_at: staleGeneratedAt,
+      summary: { open_count: 1, closed_total_count: 2 },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "desired_state.json"), {
+      generated_at: staleGeneratedAt,
+      summary: { desired_posture_state: "selective", desired_autonomy_mode: "supervised_live" },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "actual_state.json"), {
+      generated_at: staleGeneratedAt,
+      summary: { actual_posture_state: "selective", actual_autonomy_mode: "supervised_live" },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "reconciliation_actions.json"), {
+      generated_at: staleGeneratedAt,
+      summary: { proposed_count: 0, applied_count: 0 },
+      actions: [],
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "release_unit.json"), {
+      generated_at: staleGeneratedAt,
+      release_key: "bt-v4-control-loop",
+      validation: { is_valid: true },
+      canary_state: { stage: "steady", status: "ok" },
+      rollback_state: { rollback_ready: true },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "drift_monitor.json"), {
+      generated_at: staleGeneratedAt,
+      summary: { drift_status: "ok", headline: "Aligned." },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "intervention_events.json"), {
+      generated_at: staleGeneratedAt,
+      active_event_count: 0,
+      summary: { event_types: [] },
+      events: [],
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "buy_readiness_latest.json"), {
+      artifact_family: "buy_readiness",
+      schema_version: 1,
+      generated_at: staleGeneratedAt,
+      decision: "BUY_ALLOWED",
+      readiness: { allowed: true, blockers: [] },
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+    });
+
+    expect(data.controlTower.data?.lateScheduleCount).toBe(0);
+    expect(data.controlTower.data?.scheduleRows.every((row) => row.state === "ok")).toBe(true);
+    expect(data.controlTower.warnings).not.toContain("control-loop-schedule:degraded");
   });
 
   it("keeps the Schwab streamer row explicit when the connection drops", async () => {
