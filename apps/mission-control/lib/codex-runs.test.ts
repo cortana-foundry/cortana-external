@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const codexCliMocks = vi.hoisted(() => ({
   streamCodexJson: vi.fn(),
@@ -41,8 +42,8 @@ vi.mock("@/lib/codex-mirror", () => ({
 import { startCreateCodexRun, startReplyCodexRun } from "@/lib/codex-runs";
 
 const NO_SANDBOX_FLAG = "--dangerously-bypass-approvals-and-sandbox";
-const CORTANA_EXTERNAL_CWD = "/Users/hd/Developer/cortana-external";
-const CORTANA_CWD = "/Users/hd/Developer/cortana";
+const CORTANA_EXTERNAL_CWD = path.resolve(process.cwd(), "..", "..");
+const CORTANA_CWD = path.resolve(CORTANA_EXTERNAL_CWD, "..", "cortana");
 
 describe("Codex CLI runs", () => {
   beforeEach(() => {
