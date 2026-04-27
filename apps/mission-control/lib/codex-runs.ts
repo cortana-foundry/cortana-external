@@ -73,6 +73,7 @@ const CORTANA_EXTERNAL_WORKSPACE = DEFAULT_WORKSPACE;
 const CORTANA_WORKSPACE = path.resolve(DEFAULT_WORKSPACE, "..", "cortana");
 const DEFAULT_WORKSPACE_KEY = "cortana-external";
 const STREAM_RETENTION_MS = 10 * 60_000;
+const CODEX_NO_SANDBOX_FLAG = "--dangerously-bypass-approvals-and-sandbox";
 
 const approvedWorkspaces = new Map<string, ApprovedWorkspace>([
   ["repo-root", { key: "repo-root", cwd: CORTANA_EXTERNAL_WORKSPACE }],
@@ -195,7 +196,7 @@ async function finalizeRunSession(record: CodexRunRecord, sessionId: string, pro
 
 async function runCreate(record: CodexRunRecord, model?: string | null) {
   try {
-    const args = ["exec", "--json", "--full-auto", "-C", record.cwd] as string[];
+    const args = ["exec", "--json", CODEX_NO_SANDBOX_FLAG, "-C", record.cwd] as string[];
     const normalizedModel = normalizeModelArg(model);
     if (normalizedModel) {
       args.push("-m", normalizedModel);
@@ -203,6 +204,7 @@ async function runCreate(record: CodexRunRecord, model?: string | null) {
     args.push(record.prompt);
 
     const events = await streamCodexJson(args, {
+      cwd: record.cwd,
       onEvent: (event) => {
         appendEvent(record, "codex_event", event);
 
@@ -241,7 +243,7 @@ async function runReply(record: CodexRunRecord, sessionId: string, model?: strin
   activeSessionRuns.set(sessionId, record.streamId);
 
   try {
-    const args = ["exec", "resume", "--json", "--full-auto"] as string[];
+    const args = ["exec", "resume", "--json", CODEX_NO_SANDBOX_FLAG] as string[];
     const normalizedModel = normalizeModelArg(model);
     if (normalizedModel) {
       args.push("-m", normalizedModel);
@@ -255,6 +257,7 @@ async function runReply(record: CodexRunRecord, sessionId: string, model?: strin
     });
 
     await streamCodexJson(args, {
+      cwd: record.cwd,
       onEvent: (event) => {
         appendEvent(record, "codex_event", event);
       },
