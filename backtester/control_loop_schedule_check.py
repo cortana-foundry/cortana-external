@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from readiness.freshness_policy import freshness_policy
 
@@ -16,6 +17,14 @@ ARTIFACTS = {
     "actual_state": "actual_state.json",
     "reconciliation_actions": "reconciliation_actions.json",
 }
+MARKET_TZ = ZoneInfo("America/New_York")
+ACTIONABLE_WEEKDAYS = {0, 1, 2, 3, 4}
+ACTIONABLE_START = time(hour=8, minute=20)
+ACTIONABLE_END = time(hour=16, minute=0)
+
+
+def current_time() -> datetime:
+    return datetime.now(UTC)
 
 
 def evaluate_control_loop_schedule(
@@ -24,33 +33,56 @@ def evaluate_control_loop_schedule(
     now: datetime | None = None,
     max_age_seconds: int | None = None,
 ) -> dict[str, Any]:
-    now = now or datetime.now(UTC)
+    now = now or current_time()
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
+    actionable = is_control_loop_schedule_actionable(now)
     max_age = max_age_seconds or freshness_policy("control_loop").max_age_seconds
     lifecycle_root = root.expanduser() / ".cache" / "trade_lifecycle"
     rows = [
-        _artifact_row(name=name, path=lifecycle_root / filename, now=now, max_age_seconds=max_age)
+        _artifact_row(
+            name=name,
+            path=lifecycle_root / filename,
+            now=now,
+            max_age_seconds=max_age,
+            actionable=actionable,
+        )
         for name, filename in ARTIFACTS.items()
     ]
-    late_count = sum(1 for row in rows if row["state"] != "fresh")
+    late_count = sum(1 for row in rows if row["state"] != "fresh") if actionable else 0
     return {
         "artifact_family": "control_loop_schedule_check",
         "schema_version": 1,
         "generated_at": now.isoformat(),
         "status": "ok" if late_count == 0 else "degraded",
+        "actionable": actionable,
         "max_age_seconds": max_age,
         "late_count": late_count,
         "rows": rows,
         "warnings": [
             f"{row['name']}:{row['state']}"
             for row in rows
-            if row["state"] != "fresh"
+            if actionable and row["state"] != "fresh"
         ],
     }
 
 
-def _artifact_row(*, name: str, path: Path, now: datetime, max_age_seconds: int) -> dict[str, Any]:
+def is_control_loop_schedule_actionable(now: datetime) -> bool:
+    local_now = now.astimezone(MARKET_TZ)
+    if local_now.weekday() not in ACTIONABLE_WEEKDAYS:
+        return False
+    current_time = local_now.time()
+    return ACTIONABLE_START <= current_time <= ACTIONABLE_END
+
+
+def _artifact_row(
+    *,
+    name: str,
+    path: Path,
+    now: datetime,
+    max_age_seconds: int,
+    actionable: bool,
+) -> dict[str, Any]:
     payload = _read_json(path)
     generated_at = payload.get("generated_at") or payload.get("known_at") if payload else None
     timestamp = _parse_time(generated_at)
@@ -62,7 +94,7 @@ def _artifact_row(*, name: str, path: Path, now: datetime, max_age_seconds: int)
         age_seconds = None
     else:
         age_seconds = max(0, int((now - timestamp).total_seconds()))
-        state = "fresh" if age_seconds <= max_age_seconds else "stale"
+        state = "fresh" if (not actionable or age_seconds <= max_age_seconds) else "stale"
     return {
         "name": name,
         "path": str(path),
