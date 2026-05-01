@@ -1062,7 +1062,13 @@ check_heartbeat_health() {
   elif [[ "$count" -eq 0 ]]; then
     state_probe="$(probe_heartbeat_state_health)"
     if [[ -n "$state_probe" ]]; then
-      state_age_ms=$(echo "$state_probe" | jq -r '.lastHeartbeatAgeMs // empty' 2>/dev/null || true)
+      local state_ok
+      state_ok=$(echo "$state_probe" | jq -r '.ok // false' 2>/dev/null || true)
+      if [[ "$state_ok" == "true" ]]; then
+        state_age_ms=0
+      else
+        state_age_ms=$(echo "$state_probe" | jq -r '.lastHeartbeatAgeMs // empty' 2>/dev/null || true)
+      fi
     fi
 
     if [[ -n "$state_age_ms" && "$state_age_ms" =~ ^[0-9]+$ ]]; then

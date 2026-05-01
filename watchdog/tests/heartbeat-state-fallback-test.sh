@@ -44,7 +44,7 @@ npx() {
     return 1
   fi
   cat <<'JSON'
-{"ok":true,"status":"healthy","lastHeartbeatAgeMs":600000,"summary":"canonical heartbeat state is fresh and valid"}
+{"ok":true,"status":"healthy","lastHeartbeatAgeMs":27343000,"summary":"canonical heartbeat state is stale during post-quiet grace"}
 JSON
 }
 
