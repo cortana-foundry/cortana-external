@@ -51,7 +51,7 @@ describe("notify approval routing", () => {
       ok: true,
       text: async () => "",
     }));
-    vi.stubGlobal("fetch", fetchSpy as any);
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
 
     const { sendApprovalTelegramNotification } = await import("./notify");
     await sendApprovalTelegramNotification({

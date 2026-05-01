@@ -797,6 +797,8 @@ export default function SessionsPage() {
     setSelectedCodexSession(null);
     setSelectedCodexPagination(null);
     void loadCodexSessionDetail(selectedCodexSessionId);
+  // loadCodexSessionDetail intentionally closes over current selected session state for prepend merges.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCodexSessionId, selectedCodexSessionCacheEntry]);
 
   useEffect(() => {

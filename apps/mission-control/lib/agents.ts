@@ -4,7 +4,7 @@ import { getTaskPrisma } from "@/lib/task-prisma";
 import { deriveEvidenceGrade, deriveLaunchPhase, extractProviderPath } from "@/lib/run-intelligence";
 import { AgentOperationalStats, AgentRecentRun, computeHealthScore, deriveHealthBand } from "@/lib/agent-health";
 import { getAgentModelDisplay, getAgentProfiles } from "@/lib/agent-models";
-import { normalizeIdentity, refreshOpenClawState, latestRunOrder, type AgentSummary } from "@/lib/data-helpers";
+import { normalizeIdentity, refreshOpenClawState, latestRunOrder } from "@/lib/data-helpers";
 
 export const getAgents = async (options?: { refreshRuns?: boolean }) => {
   noStore();

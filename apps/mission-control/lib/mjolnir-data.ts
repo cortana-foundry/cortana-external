@@ -311,8 +311,6 @@ function buildTonalSummary(data?: TonalDataLike) {
     .map((w) => {
       const movementCount = pickNumber(w, ["totalMovements"]) ?? 0;
       const totalVolume = pickNumber(w, ["totalVolume"]) ?? 0;
-      const totalReps = pickNumber(w, ["totalReps"]) ?? 0;
-
       // Extract top movements from workoutSetActivity (group by movementId, aggregate)
       const sets = Array.isArray(w.workoutSetActivity) ? w.workoutSetActivity as Array<Record<string, unknown>> : [];
       const byMovement = new Map<string, { name: string; reps: number; maxWeight: number; volume: number }>();

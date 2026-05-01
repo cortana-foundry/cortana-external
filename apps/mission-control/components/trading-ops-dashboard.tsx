@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Gauge, Landmark, Radar, ShieldCheck } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2121,12 +2123,6 @@ function RosterChangeSummary({
       ) : null}
     </div>
   );
-}
-
-function formatSignedMoney(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "n/a";
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${formatMoney(Math.abs(value))}`;
 }
 
 function formatDetailedMoney(value: number | null | undefined): string {

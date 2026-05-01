@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readTradingJsonArtifact } from "@/lib/trading-artifacts";
-import type { AlertDeliveryOverview, ArtifactState, LoadState, ScheduleRegistryOverview } from "@/lib/trading-ops-contract";
+import type { AlertDeliveryOverview, ArtifactState, ScheduleRegistryOverview } from "@/lib/trading-ops-contract";
 
 export async function loadAlertDeliveryOverview(repoPath: string): Promise<ArtifactState<AlertDeliveryOverview>> {
   const repoRoot = path.basename(repoPath) === "backtester" ? path.dirname(repoPath) : repoPath;

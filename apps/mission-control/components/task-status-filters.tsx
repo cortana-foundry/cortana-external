@@ -120,7 +120,7 @@ export function TaskStatusFilters({
   const [localActiveTasks, setLocalActiveTasks] = useState<TaskBoardTask[]>(activeTasks);
   const [localCompletedTasks, setLocalCompletedTasks] = useState<TaskBoardTask[]>(initialCompletedTasks);
   const [activeTask, setActiveTask] = useState<TaskBoardTask | null>(null);
-  const [activeColumn, setActiveColumn] = useState<string | null>(null);
+  const [, setActiveColumn] = useState<string | null>(null);
 
   // Keep local state in sync when props change (server revalidation)
   const prevActiveRef = useRef(activeTasks);

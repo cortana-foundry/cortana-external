@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +35,6 @@ export function RecoveryRingAnimated({ score, status }: { score: number | null; 
   const r = 42;
   const circumference = 2 * Math.PI * r;
   const targetPct = score != null ? Math.max(0, Math.min(100, score)) : 0;
-  const targetOffset = circumference - (targetPct / 100) * circumference;
 
   useEffect(() => {
     if (score == null) {

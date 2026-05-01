@@ -2,9 +2,10 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FeedbackCard } from "@/components/feedback-card";
+import type { FeedbackItem } from "@/lib/feedback";
 
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...props }: any) => (
+  default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -34,7 +35,7 @@ const baseFeedback = {
   resolvedAt: null,
   resolvedBy: null,
   actions: [],
-} as const;
+} satisfies FeedbackItem;
 
 describe("FeedbackCard", () => {
   beforeEach(() => {
@@ -73,7 +74,7 @@ describe("FeedbackCard", () => {
       throw new Error(`Unhandled request: ${method} ${url}`);
     });
 
-    render(<FeedbackCard feedback={baseFeedback as any} highlighted={false} initiallyExpanded />);
+    render(<FeedbackCard feedback={baseFeedback} highlighted={false} initiallyExpanded />);
 
     fireEvent.change(screen.getByPlaceholderText("Document context, fix details, and follow-up steps"), {
       target: { value: "saved note" },
@@ -124,7 +125,7 @@ describe("FeedbackCard", () => {
       throw new Error(`Unhandled request: ${method} ${url}`);
     });
 
-    render(<FeedbackCard feedback={baseFeedback as any} highlighted={false} initiallyExpanded />);
+    render(<FeedbackCard feedback={baseFeedback} highlighted={false} initiallyExpanded />);
 
     fireEvent.change(screen.getByPlaceholderText("Action ref (optional)"), {
       target: { value: "local-test" },

@@ -610,10 +610,8 @@ WHERE vacation_window_id = ${latestWindowRow.id}
 
 export async function getVacationOpsSnapshot(): Promise<VacationOpsSnapshot> {
   const config = readVacationConfig();
-  let [latestWindowRow, activeWindowRow] = await Promise.all([
-    queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows ORDER BY updated_at DESC LIMIT 1`),
-    queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows WHERE status = 'active' ORDER BY start_at DESC LIMIT 1`),
-  ]);
+  let latestWindowRow = await queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows ORDER BY updated_at DESC LIMIT 1`);
+  const activeWindowRow = await queryFirst<RawWindowRow>(`SELECT * FROM cortana_vacation_windows WHERE status = 'active' ORDER BY start_at DESC LIMIT 1`);
 
   const initialRelevantWindowId = activeWindowRow?.id ?? latestWindowRow?.id ?? null;
   let latestReadinessRow = initialRelevantWindowId

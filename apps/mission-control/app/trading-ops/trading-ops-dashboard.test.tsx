@@ -298,6 +298,8 @@ const fixture: TradingOpsDashboardData = {
       interventionTypes: ["manual_pause"],
       topAction: "rebalance_posture",
       topActionStatus: "proposed",
+      buyReadinessDecision: "BUY_BLOCKED",
+      buyReadinessBlockers: ["manual_pause"],
       operatorAction: "Resolve visible interventions before restoring authority. Review the pending reconciliation actions before widening posture.",
       scheduleRows: [
         {
@@ -348,6 +350,38 @@ const fixture: TradingOpsDashboardData = {
     },
   },
   financialServices: financialServicesFixture,
+  alertDelivery: {
+    state: "ok",
+    label: "Alert delivery",
+    message: "Latest alert delivered.",
+    updatedAt: "2026-04-03T23:27:00.000Z",
+    source: "/tmp/alert-delivery.jsonl",
+    warnings: [],
+    data: {
+      sentCount: 1,
+      failedCount: 0,
+      lastSentAt: "2026-04-03T23:27:00.000Z",
+      lastStatus: "sent",
+      lastChannel: "telegram",
+      lastDedupeKey: "trading_advisor:20260403-163103",
+      rows: [],
+    },
+  },
+  scheduleRegistry: {
+    state: "ok",
+    label: "Schedule registry",
+    message: "4 schedules registered.",
+    updatedAt: "2026-04-03T23:27:00.000Z",
+    source: "/tmp/schedule-registry.json",
+    warnings: [],
+    data: {
+      scheduleCount: 4,
+      launchdCount: 1,
+      artifactCount: 2,
+      cronRegistryCount: 1,
+      rows: [],
+    },
+  },
   tradingRun: {
     state: "ok",
     label: "20260403-163103",

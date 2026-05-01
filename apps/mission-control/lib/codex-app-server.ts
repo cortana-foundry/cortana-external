@@ -5,15 +5,6 @@ const CLIENT_TITLE = "Mission Control";
 const CLIENT_VERSION = "0.0.0";
 const DEFAULT_REASONING_EFFORT = "low";
 
-type JsonRpcResponse = {
-  id?: number;
-  result?: unknown;
-  error?: {
-    code?: number;
-    message?: string;
-  };
-};
-
 type JsonRpcNotification = {
   method?: string;
   params?: Record<string, unknown>;
@@ -442,7 +433,6 @@ class CodexAppServerClient {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __missionControlCodexAppServer__: CodexAppServerClient | undefined;
 }
 

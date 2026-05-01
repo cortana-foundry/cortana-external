@@ -130,15 +130,6 @@ function asDateFromSeconds(value: unknown): Date | null {
   return new Date(seconds * 1000);
 }
 
-function asDate(value: unknown): Date | null {
-  if (value instanceof Date) return value;
-  if (typeof value === "string") {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
-}
-
 function truncatePreview(value: string, maxLength = 160) {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
@@ -159,11 +150,6 @@ function buildSessionSummary(row: CodexMirrorThreadRow): CodexSessionSummary {
   };
 }
 
-function extractSessionIdFromTranscriptFile(entry: string) {
-  const match = entry.match(/([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/i);
-  return match?.[1] ?? null;
-}
-
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -171,38 +157,6 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function findActiveTranscriptPath(
-  sessionId: string,
-  updatedAt: number | null,
-  sessionsRoot: string,
-) {
-  if (!updatedAt) return null;
-
-  const updatedDate = new Date(updatedAt);
-  if (Number.isNaN(updatedDate.getTime())) {
-    return null;
-  }
-
-  const dailyDir = path.join(
-    sessionsRoot,
-    String(updatedDate.getUTCFullYear()),
-    String(updatedDate.getUTCMonth() + 1).padStart(2, "0"),
-    String(updatedDate.getUTCDate()).padStart(2, "0"),
-  );
-
-  try {
-    const entries = await fs.readdir(dailyDir);
-    const match = entries.find((entry) => entry.includes(sessionId) && entry.endsWith(".jsonl"));
-    return match ? path.join(dailyDir, match) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function readCodexThreadStateRows(stateDbPath: string) {
-  return readCodexThreadStateRowsWithOptions(stateDbPath);
 }
 
 async function readCodexThreadStateRowsWithOptions(
@@ -583,7 +537,6 @@ export async function reconcileCodexMirrorSessions(options: ReconcileCodexMirror
     listCodexMirrorThreadRows(),
   ]);
 
-  const mirroredIds = new Set(mirrorRows.map((row) => row.id));
   const activeIds = new Set(activeEntries.map((entry) => entry.id));
   const mirrorLookupIds = mirrorRows
     .map((row) => row.id)
