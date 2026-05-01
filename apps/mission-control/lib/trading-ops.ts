@@ -1916,7 +1916,7 @@ async function runBacktesterJsonScript(
   args: string[],
 ): Promise<unknown> {
   const { stdout } = await execFileAsync("uv", ["run", "python", scriptPath, ...args], {
-    cwd: path.dirname(repoPath),
+    cwd: repoPath,
     timeout: JSON_TIMEOUT_MS,
     maxBuffer: 1024 * 1024 * 4,
   });
