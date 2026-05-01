@@ -1,10 +1,10 @@
-import { Activity, Dumbbell, Moon, Scale, TrendingUp, Weight } from "lucide-react";
+import { Activity, Dumbbell, Moon, TrendingUp, Weight } from "lucide-react";
 import { Animate } from "@/components/animate";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatPercent, formatNumber, formatDecimal, formatDuration, formatTimestamp } from "@/lib/format-utils";
+import { formatPercent, formatNumber, formatDuration, formatTimestamp } from "@/lib/format-utils";
 import { StrengthProfile } from "@/components/mjolnir/strength-profile";
 import { RecoveryRingAnimated } from "@/components/mjolnir/recovery-ring";
 import { AnimatedValue } from "@/components/mjolnir/animated-value";
@@ -772,7 +772,8 @@ function StrainGauge({ strain }: { strain: number | null }) {
 }
 
 /* ── StrengthBars ── */
-function StrengthBars({ scores }: { scores: Array<{ label: string; value: number }> }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _StrengthBars({ scores }: { scores: Array<{ label: string; value: number }> }) {
   const maxScore = scores.reduce((max, s) => Math.max(max, s.value), 0);
 
   return (
@@ -890,7 +891,8 @@ function VolumeBar({ value, max }: { value: number; max: number }) {
 }
 
 /* ── RecoveryRing (smaller, inline style for size) ── */
-function RecoveryRing({ score, status }: { score: number | null; status: string }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _RecoveryRing({ score, status }: { score: number | null; status: string }) {
   const pct = score != null ? Math.max(0, Math.min(100, score)) : 0;
   const r = 42;
   const circumference = 2 * Math.PI * r;
@@ -958,7 +960,8 @@ function SleepLegendItem({ color, label, value }: { color: string; label: string
 }
 
 /* ── TrendChart ── */
-function TrendChart({
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _TrendChart({
   data,
   tone,
   colorByValue,

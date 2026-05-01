@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  parseEnvFileContent,
   readEnvFile,
   updateEnvContent,
   writeEnvFileAtomically,
@@ -10,7 +9,7 @@ import {
 import type { ParsedEnv } from "@/lib/workspace-io";
 
 import { getAllHealthItems } from "@/lib/workspace-health";
-import type { WorkspaceHealthItem, WorkspaceHealthTone } from "@/lib/workspace-health";
+import type { WorkspaceHealthItem } from "@/lib/workspace-health";
 
 import {
   WORKSPACE_FILES,

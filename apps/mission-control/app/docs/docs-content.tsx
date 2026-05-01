@@ -130,7 +130,6 @@ export function DocsContent({
           </Tag>
         );
       };
-      Comp.displayName = Tag;
       return Comp;
     };
 
@@ -144,8 +143,6 @@ export function DocsContent({
       }
       return <pre {...props}>{children}</pre>;
     };
-    DocPre.displayName = "DocPre";
-
     const DocLink = ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
       if (href && !href.startsWith("http") && !href.startsWith("#") && href.endsWith(".md")) {
         return (
@@ -167,8 +164,6 @@ export function DocsContent({
       }
       return <a href={href} {...props}>{children}</a>;
     };
-    DocLink.displayName = "DocLink";
-
     return {
       h1: make("h1"), h2: make("h2"), h3: make("h3"), h4: make("h4"), h5: make("h5"), h6: make("h6"),
       a: DocLink,

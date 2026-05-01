@@ -117,7 +117,7 @@ export default function ServicesClient() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [isSaving, startSaving] = React.useTransition();
-  const [isRefreshing, startRefreshing] = React.useTransition();
+  const [, startRefreshing] = React.useTransition();
   const [authAction, setAuthAction] = React.useState<ServicesAction | null>(null);
   const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
 

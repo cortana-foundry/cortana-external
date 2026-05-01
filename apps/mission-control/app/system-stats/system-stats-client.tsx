@@ -436,13 +436,6 @@ function vacationReadinessVariant(outcome: string | null | undefined): HealthBad
   return "outline";
 }
 
-function formatVacationSummaryTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 function formatVacationCountdown(value: string | null | undefined) {
   if (!value) return "—";
   const parsed = new Date(value);

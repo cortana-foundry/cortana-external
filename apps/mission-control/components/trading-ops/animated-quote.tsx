@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LiveQuoteRow, LoadState } from "@/lib/trading-ops-contract";
@@ -249,7 +251,7 @@ export function LiveTapeGrid({ rows }: { rows: LiveQuoteRow[] }) {
   );
 }
 
-function LiveWatchlistRowCard({ row, groupLabel }: { row: LiveQuoteRow; groupLabel: string }) {
+function LiveWatchlistRowCard({ row }: { row: LiveQuoteRow; groupLabel: string }) {
   const animatedPrice = useAnimatedValue(row.price);
   const animatedChange = useAnimatedValue(row.changePercent);
   const flash = useFlashClass(row.price);

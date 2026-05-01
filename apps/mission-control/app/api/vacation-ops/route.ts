@@ -4,7 +4,8 @@ import { getVacationOpsSnapshot } from "@/lib/vacation-ops";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(_request: Request) {
+export async function GET(request?: Request) {
+  void request;
   try {
     const data = await getVacationOpsSnapshot();
     return NextResponse.json({ status: "ok", data });

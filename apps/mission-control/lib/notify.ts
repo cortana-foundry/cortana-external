@@ -20,6 +20,24 @@ type ApprovalTelegramRouting = {
   chatId: string | null;
 };
 
+type OpenClawTelegramConfig = {
+  channels?: {
+    telegram?: {
+      allowFrom?: unknown[];
+      accounts?: Record<string, { botToken?: unknown }>;
+    };
+  };
+};
+
+type SystemRoutingConfig = {
+  telegram?: {
+    approvals?: {
+      accountId?: unknown;
+      chatId?: unknown;
+    };
+  };
+};
+
 const escapeHtml = (value: string): string =>
   value
     .replaceAll("&", "&amp;")
@@ -31,9 +49,9 @@ const escapeHtml = (value: string): string =>
 const getMissionControlBaseUrl = (): string =>
   process.env.MISSION_CONTROL_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
 
-const readJson = (filePath: string): any | null => {
+const readJson = <T,>(filePath: string): T | null => {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
   } catch {
     return null;
   }
@@ -46,8 +64,8 @@ const readApprovalTelegramRouting = (): ApprovalTelegramRouting => {
     return { botToken: envToken, chatId: envChatId };
   }
 
-  const cfg = readJson(OPENCLAW_CONFIG_PATH);
-  const routing = readJson(SYSTEM_ROUTING_PATH);
+  const cfg = readJson<OpenClawTelegramConfig>(OPENCLAW_CONFIG_PATH);
+  const routing = readJson<SystemRoutingConfig>(SYSTEM_ROUTING_PATH);
   const accountId = String(routing?.telegram?.approvals?.accountId || "default");
   const botToken = envToken
     ?? cfg?.channels?.telegram?.accounts?.[accountId]?.botToken
