@@ -55,9 +55,21 @@ pnpm --filter mission-control typecheck
 
 ---
 
+## Restart Path
+
+For launchd-managed Mission Control verification, use the canonical restart script:
+
+```bash
+apps/mission-control/scripts/restart-mission-control.sh
+```
+
+That path rebuilds Mission Control, restarts the launchd-managed service, and waits for the health endpoint. Use an alternate-port server only for isolated PR smoke testing when the live operator session should not be restarted.
+
+---
+
 ## End-To-End Smoke Test
 
-If a local Mission Control dev instance can be run without disrupting the active operator session:
+If a local Mission Control instance can be restarted safely, use `apps/mission-control/scripts/restart-mission-control.sh` and test against the normal operator URL. If the live operator session should not be restarted, an isolated alternate-port smoke test is acceptable:
 
 1. Start Mission Control on an alternate port, for example `3002`.
 2. Fetch `/api/codex/sessions`.
