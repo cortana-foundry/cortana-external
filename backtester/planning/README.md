@@ -211,6 +211,20 @@ Covers:
 - approval modes and kill switch
 - broker boundary and execution audit trail
 
+
+### W15. Market Lab V0 Forward-Looking Trust Reviews
+
+- PRD: [15-market-lab-v0-forward-looking-trust-reviews.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/15-market-lab-v0-forward-looking-trust-reviews.md)
+
+Status: draft PRD for review.
+
+Covers:
+- new isolated Market Lab product direction
+- one-symbol forward-looking reviews from Mission Control
+- TradingAgents as a second-opinion research lane
+- Trust Verdict artifacts with facts separated from interpretation
+- passive 1D/5D/20D outcome tracking with raw P/L and alpha vs SPY
+
 ## Recommended Order
 
 Execution order:
@@ -229,6 +243,7 @@ Execution order:
 12. W12 Backtester V5 Evidence-Gated Operator Evaluation
 13. W13 Mission Control Advisor Cockpit And Telegram Actions
 14. W14 Supervised Real Execution Readiness
+15. W15 Market Lab V0 Forward-Looking Trust Reviews
 
 This order is deliberate:
 - W1 makes the system truthful and stable
@@ -245,6 +260,7 @@ This order is deliberate:
 - W12 stays blocked until W11 evidence proves the system is ready for post-hardening feature work
 - W13 turns the proven evidence into a usable advisor cockpit and alerting product
 - W14 defines the guarded path from advisor recommendations to supervised real execution
+- W15 starts a cleaner Market Lab product surface for forward-looking trust reviews before alerts or execution candidates
 
 ## Authoring Rules
 
