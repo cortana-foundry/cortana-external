@@ -14,6 +14,7 @@ Raw source docs for Mission Control live here.
 - [Trading Ops QA runbook](../../../backtester/docs/source/runbook/trading-ops-qa-runbook.md)
 - [Council background jobs](./source/architecture/council-background-jobs.md)
 - [Vacation Ops regression notes](./source/architecture/vacation-ops-regression-notes.md)
+- [Spartan WHOOP Live Events PRD](./source/planning/prd-spartan-whoop-live-events.md)
 - [Codex CLI chat surface PRD](./source/planning/prd-codex-cli-chat-surface.md)
 - [Codex CLI chat surface Tech Spec](./source/planning/techspec-codex-cli-chat-surface.md)
 - [Codex CLI chat surface Implementation Plan](./source/planning/implementation-codex-cli-chat-surface.md)
