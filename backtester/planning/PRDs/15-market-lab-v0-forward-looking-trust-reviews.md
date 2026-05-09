@@ -40,6 +40,8 @@ Market Lab intentionally separates live forward-looking reviews from historical 
 
 Build an isolated `market_lab` module inside `cortana-external` plus a new Mission Control view/API. A v0 user enters one symbol, starts a background review job, watches a step timeline, and opens the resulting review artifact.
 
+The backend engine should be written in production-shaped Python that remains easy to read and debug. Market Lab should use typed functions, clear Pydantic contracts, explicit module boundaries, structured events/logs, pytest coverage, and small CLI debugging commands. It should avoid clever metaprogramming, deep inheritance, hidden globals, async-everywhere architecture, and god-object runners. The code should be advanced enough to be durable, but explainable enough that Hamel can learn and debug it.
+
 The artifact is the source of truth. Mission Control and APIs read from saved artifacts and a SQLite run index instead of duplicating verdict logic in the UI. Raw artifacts and logs live on the filesystem under `.cache/market_lab/`; SQLite indexes runs for listing, search, status, verdict, and settlement state.
 
 A v0 review uses live current data only. During market hours, core price data must be fresh within 5-10 minutes or the Trust Verdict is blocked. Outside market hours, Market Lab uses the latest available close or extended-hours price when available and labels the price basis clearly.
@@ -82,6 +84,7 @@ V0 measurement success:
 - Existing market-data infrastructure can provide live price data and SPY reference prices with enough freshness for v0.
 - Filesystem artifacts plus a SQLite index are sufficient before introducing a heavier database.
 - Settlement uses market close prices for consistency.
+- Hamel wants to learn and debug the Python code, so implementation should favor explicit, well-typed, well-tested modules over framework magic.
 
 ---
 
@@ -112,6 +115,7 @@ V0 explicitly does not include:
 | [Trust Verdict](#trust-verdict) | Produce `trusted`, `uncertain`, or `blocked` with explicit reasons. | `trusted` means eligible for alert consideration later, not buy now. |
 | [TradingAgents Second Opinion](#tradingagents-second-opinion) | Include TradingAgents review as research evidence. | It cannot override hard evidence blockers. |
 | [Outcome Settlement](#outcome-settlement) | Track 1D, 5D, and 20D outcomes using raw P/L and alpha vs SPY. | Settlements use market close prices. |
+| [Debuggable Python Architecture](#debuggable-python-architecture) | Build the Python core with clear modules, contracts, tests, logs, and CLI debugging tools. | Production-shaped, not toy Python. |
 
 ---
 
@@ -193,6 +197,32 @@ Suggested storage shape:
 | Accepted | As Hamel, I want both raw P/L and alpha vs SPY so that I can see whether the idea made money and whether it beat the market. | Alpha vs SPY is headline quality metric. |
 | Accepted | As Hamel, I want a manual settle-now action plus scheduled settlement so that normal measurement is automatic but still debuggable. | No Telegram in v0. |
 
+### Debuggable Python Architecture
+
+| Status | User story | Notes |
+|--------|------------|-------|
+| Accepted | As Hamel, I want the Python engine to use real production patterns so that the system is durable without hiding behavior behind magic. | Use typed functions, Pydantic models, pytest fixtures, structured logs, and explicit dependencies. |
+| Accepted | As Hamel, I want the module layout to explain the system so that each file has one obvious job. | Suggested modules: `models.py`, `runner.py`, `market_data.py`, `checks.py`, `tradingagents_adapter.py`, `verdict.py`, `storage.py`, `settlement.py`, `cli.py`. |
+| Accepted | As Hamel, I want CLI debugging commands so that I can inspect runs without relying only on the UI. | Example commands: `run SYMBOL`, `show RUN_ID`, `events RUN_ID`, `settle RUN_ID`. |
+| Accepted | As Hamel, I want tests to read like examples so that they teach the behavior while protecting the contracts. | Prioritize artifact, verdict, freshness, storage, and settlement tests. |
+
+Suggested module shape:
+
+```text
+market_lab/
+  README.md
+  models.py
+  runner.py
+  market_data.py
+  checks.py
+  tradingagents_adapter.py
+  verdict.py
+  storage.py
+  settlement.py
+  cli.py
+  tests/
+```
+
 ---
 
 ## Appendix
@@ -260,6 +290,7 @@ Technical implementation should still decide:
 - exact TradingAgents invocation mode and timeout policy
 - exact Mission Control route names
 - whether Market Lab needs a new nav item or lives under Trading Ops during the transition
+- exact Python package placement and CLI command names
 
 ### Non-Goals Repeated For Safety
 
