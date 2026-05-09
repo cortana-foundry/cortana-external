@@ -6,7 +6,7 @@ import type { WhoopWebhookEnqueueResult, WhoopWebhookEventRow, WhoopWebhookStore
 
 const SECRET = "webhook-secret";
 const NOW = new Date("2026-05-09T12:00:00.000Z");
-const TIMESTAMP = String(Math.floor(NOW.getTime() / 1000));
+const TIMESTAMP = String(NOW.getTime());
 
 function eventRow(overrides?: Partial<WhoopWebhookEventRow>): WhoopWebhookEventRow {
   return {
@@ -67,7 +67,7 @@ describe("WHOOP webhook signature", () => {
 
   it("rejects stale timestamps before payload processing", () => {
     const rawBody = JSON.stringify({ trace_id: "trace-1" });
-    const oldTimestamp = String(Math.floor(new Date("2026-05-09T11:00:00.000Z").getTime() / 1000));
+    const oldTimestamp = String(new Date("2026-05-09T11:00:00.000Z").getTime());
 
     expect(verifyWhoopWebhookSignature({
       rawBody,

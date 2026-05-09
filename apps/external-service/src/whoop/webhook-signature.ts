@@ -38,7 +38,7 @@ export function verifyWhoopWebhookSignature(input: WhoopSignatureInput): WhoopSi
     return { ok: false, reason: "missing_header" };
   }
 
-  const timestampMs = Number(input.timestamp) * 1000;
+  const timestampMs = Number(input.timestamp);
   if (!Number.isFinite(timestampMs)) {
     return { ok: false, reason: "invalid_timestamp" };
   }
