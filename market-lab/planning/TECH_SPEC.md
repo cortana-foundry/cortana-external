@@ -8,7 +8,7 @@
 |------|----------|
 | Owner(s) | Hamel |
 | Epic | Market Lab V0 |
-| PRD | [market-lab-v0-forward-looking-trust-reviews.md](../PRDs/market-lab-v0-forward-looking-trust-reviews.md) |
+| PRD | [PRD.md](PRD.md) |
 
 ---
 

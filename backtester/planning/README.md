@@ -214,12 +214,12 @@ Covers:
 
 ### Market Lab V0 Forward-Looking Trust Reviews
 
-- PRD: [market-lab-v0-forward-looking-trust-reviews.md](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/market-lab-v0-forward-looking-trust-reviews.md)
-- Tech Spec: [market-lab-v0-forward-looking-trust-reviews.md](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/market-lab-v0-forward-looking-trust-reviews.md)
-- Implementation Plan: [market-lab-v0-forward-looking-trust-reviews.md](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/market-lab-v0-forward-looking-trust-reviews.md)
-- QA Plan: [market-lab-v0-forward-looking-trust-reviews.md](/Users/hd/Developer/cortana-external/backtester/planning/QA/market-lab-v0-forward-looking-trust-reviews.md)
+- PRD: [PRD.md](/Users/hd/Developer/cortana-external/market-lab/planning/PRD.md)
+- Tech Spec: [TECH_SPEC.md](/Users/hd/Developer/cortana-external/market-lab/planning/TECH_SPEC.md)
+- Implementation Plan: [IMPLEMENTATION_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/IMPLEMENTATION_PLAN.md)
+- QA Plan: [QA_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/QA_PLAN.md)
 
-Status: new application planning draft for review. Not a numbered backtester workstream.
+Status: new application planning draft for review. Not a numbered backtester workstream. Canonical docs live under `market-lab/planning/`.
 
 Covers:
 - new isolated Market Lab product direction
