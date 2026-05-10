@@ -211,6 +211,24 @@ Covers:
 - approval modes and kill switch
 - broker boundary and execution audit trail
 
+
+### Market Lab V0 Forward-Looking Trust Reviews
+
+- PRD: [PRD.md](/Users/hd/Developer/cortana-external/market-lab/planning/PRDs/v0-forward-looking-trust-reviews.md)
+- Tech Spec: [TECH_SPEC.md](/Users/hd/Developer/cortana-external/market-lab/planning/TechSpecs/v0-forward-looking-trust-reviews.md)
+- Implementation Plan: [IMPLEMENTATION_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/Implementation/v0-forward-looking-trust-reviews.md)
+- QA Plan: [QA_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/QA/v0-forward-looking-trust-reviews.md)
+
+Status: new application planning draft for review. Not a numbered backtester workstream. Canonical docs live under `market-lab/planning/`.
+
+Covers:
+- new isolated Market Lab product direction
+- one-symbol forward-looking reviews from Mission Control
+- TradingAgents as a second-opinion research lane
+- Trust Verdict artifacts with facts separated from interpretation
+- passive 1D/5D/20D outcome tracking with raw P/L and alpha vs SPY
+- production-shaped Python that remains explainable and debuggable
+
 ## Recommended Order
 
 Execution order:
@@ -230,7 +248,7 @@ Execution order:
 13. W13 Mission Control Advisor Cockpit And Telegram Actions
 14. W14 Supervised Real Execution Readiness
 
-This order is deliberate:
+This order is deliberate for the numbered backtester workstreams:
 - W1 makes the system truthful and stable
 - W2 creates the measurement loop
 - W3 turns signals into lifecycle decisions
@@ -245,6 +263,8 @@ This order is deliberate:
 - W12 stays blocked until W11 evidence proves the system is ready for post-hardening feature work
 - W13 turns the proven evidence into a usable advisor cockpit and alerting product
 - W14 defines the guarded path from advisor recommendations to supervised real execution
+
+Market Lab V0 is intentionally listed separately above because it is a new application direction, not W15 or a continuation of the old backtester sequence.
 
 ## Authoring Rules
 
