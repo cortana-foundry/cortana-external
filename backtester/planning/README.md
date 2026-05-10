@@ -214,10 +214,10 @@ Covers:
 
 ### Market Lab V0 Forward-Looking Trust Reviews
 
-- PRD: [PRD.md](/Users/hd/Developer/cortana-external/market-lab/planning/PRD.md)
-- Tech Spec: [TECH_SPEC.md](/Users/hd/Developer/cortana-external/market-lab/planning/TECH_SPEC.md)
-- Implementation Plan: [IMPLEMENTATION_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/IMPLEMENTATION_PLAN.md)
-- QA Plan: [QA_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/QA_PLAN.md)
+- PRD: [PRD.md](/Users/hd/Developer/cortana-external/market-lab/planning/PRDs/v0-forward-looking-trust-reviews.md)
+- Tech Spec: [TECH_SPEC.md](/Users/hd/Developer/cortana-external/market-lab/planning/TechSpecs/v0-forward-looking-trust-reviews.md)
+- Implementation Plan: [IMPLEMENTATION_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/Implementation/v0-forward-looking-trust-reviews.md)
+- QA Plan: [QA_PLAN.md](/Users/hd/Developer/cortana-external/market-lab/planning/QA/v0-forward-looking-trust-reviews.md)
 
 Status: new application planning draft for review. Not a numbered backtester workstream. Canonical docs live under `market-lab/planning/`.
 

@@ -8,8 +8,8 @@
 |------|----------|
 | Owner(s) | Hamel |
 | Epic | Market Lab V0 |
-| Tech Spec | [TECH_SPEC.md](TECH_SPEC.md) |
-| PRD | [PRD.md](PRD.md) |
+| Tech Spec | [v0-forward-looking-trust-reviews.md](../TechSpecs/v0-forward-looking-trust-reviews.md) |
+| PRD | [v0-forward-looking-trust-reviews.md](../PRDs/v0-forward-looking-trust-reviews.md) |
 
 ---
 

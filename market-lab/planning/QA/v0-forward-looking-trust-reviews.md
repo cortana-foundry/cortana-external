@@ -8,9 +8,9 @@
 |------|----------|
 | Owner(s) | Hamel |
 | Epic | Market Lab V0 |
-| PRD | [PRD.md](PRD.md) |
-| Tech Spec | [TECH_SPEC.md](TECH_SPEC.md) |
-| Implementation Plan | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) |
+| PRD | [v0-forward-looking-trust-reviews.md](../PRDs/v0-forward-looking-trust-reviews.md) |
+| Tech Spec | [v0-forward-looking-trust-reviews.md](../TechSpecs/v0-forward-looking-trust-reviews.md) |
+| Implementation Plan | [v0-forward-looking-trust-reviews.md](../Implementation/v0-forward-looking-trust-reviews.md) |
 
 ---
 
