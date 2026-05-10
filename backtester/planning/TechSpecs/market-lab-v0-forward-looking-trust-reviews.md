@@ -33,6 +33,84 @@ Mission Control /market-lab
   -> User can inspect artifact, timeline, logs, and outcome status
 ```
 
+### Order Of Operations For An AAPL Review
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User as Hamel
+  participant UI as Mission Control Market Lab UI
+  participant API as Next.js Market Lab API
+  participant Bridge as market-lab.ts bridge
+  participant Py as Python market_lab runner
+  participant Store as SQLite and run files
+  participant MDS as TS market-data service
+  participant TA as TradingAgents fork
+
+  User->>UI: Enter AAPL and click Run Review
+  UI->>API: POST /api/market-lab/runs with symbol AAPL
+  API->>Bridge: Validate symbol and resolve Market Lab paths
+  Bridge->>Py: Spawn uv run --project market_lab python -m market_lab.cli run AAPL --json
+  Py->>Store: Create run mlab_timestamp_AAPL with status queued
+  Py->>Store: Append event queued to events.jsonl
+  Py->>Store: Mark run status running
+  Py->>MDS: GET /market-data/quote/AAPL
+  MDS-->>Py: AAPL quote with price, timestamp, volume, source metadata
+  Py->>MDS: GET /market-data/quote/SPY
+  MDS-->>Py: SPY reference quote
+  Py->>MDS: GET /market-data/history/AAPL and optional fundamentals
+  MDS-->>Py: Recent candles, indicators input, optional evidence status
+  Py->>Py: Run deterministic checks for freshness, fields, momentum, risk flags
+
+  alt Market is open and AAPL quote is stale
+    Py->>Store: Write review.json with Trust Verdict blocked
+    Py->>Store: Append event blocked with reason price_data_stale
+    Py->>Store: Mark run status done
+  else Price data is fresh or off-hours latest available is labeled
+    Py->>TA: Run TradingAgents review for AAPL
+    TA-->>Py: Analyst, bull, bear, trader, risk, portfolio opinion
+    Py->>Store: Write tradingagents.md
+    Py->>Py: Combine deterministic checks with TradingAgents opinion
+    Py->>Store: Write review.json with facts, interpretation, Trust Verdict, pending settlements
+    Py->>Store: Append event artifact_written
+    Py->>Store: Mark run status done
+  end
+
+  loop UI polls run detail
+    UI->>API: GET /api/market-lab/runs/mlab_timestamp_AAPL
+    API->>Bridge: Load run index, review.json, settlements
+    Bridge->>Store: Read SQLite row and artifact files
+    Store-->>Bridge: Run metadata, review artifact, settlement windows
+    Bridge-->>API: Normalized Market Lab response
+    API-->>UI: Status, timeline, Trust Verdict, facts, interpretation, outcomes
+  end
+
+  User->>UI: Review AAPL result and inspect logs if needed
+  UI->>API: GET /api/market-lab/runs/mlab_timestamp_AAPL/events
+  API->>Bridge: Read events.jsonl and logs.txt
+  Bridge->>Store: Load event stream and log tail
+  Store-->>Bridge: Events and logs
+  Bridge-->>API: Debug payload
+  API-->>UI: Timeline and logs
+
+  User->>UI: Click Settle Now when a window is due
+  UI->>API: POST /api/market-lab/runs/mlab_timestamp_AAPL/settle
+  API->>Bridge: Spawn Python settle command
+  Bridge->>Py: uv run --project market_lab python -m market_lab.cli settle mlab_timestamp_AAPL
+  Py->>MDS: Fetch AAPL close and SPY close for due window
+  MDS-->>Py: Settlement close prices
+  Py->>Py: Calculate raw P/L, SPY return, alpha vs SPY, score
+  Py->>Store: Update market_lab_settlements and review.json outcome fields
+  UI->>API: Poll run detail after settlement
+  API->>Bridge: Reload settled outcome
+  Bridge->>Store: Read updated settlements and review.json
+  Store-->>Bridge: Settled raw P/L and alpha vs SPY
+  Bridge-->>API: Updated run detail
+  API-->>UI: Updated outcome panel
+
+  Note over Py,Store: Python owns verdict and settlement truth, TypeScript renders artifacts only.
+```
+
 ---
 
 ## Data Storage Changes
