@@ -1,6 +1,6 @@
 # QA Plan - Market Lab V1 Codex Analyst Committee
 
-**Document Status:** Draft  
+**Document Status:** Implemented QA plan  
 **PRD:** [v1-codex-analyst-committee.md](../PRDs/v1-codex-analyst-committee.md)  
 **Tech Spec:** [v1-codex-analyst-committee.md](../TechSpecs/v1-codex-analyst-committee.md)  
 **Implementation Plan:** [v1-codex-analyst-committee.md](../Implementation/v1-codex-analyst-committee.md)
@@ -56,6 +56,14 @@ Run from Mission Control:
 cd apps/mission-control
 pnpm test app/market-lab/market-lab-client.test.tsx
 pnpm build
+```
+
+Local verification completed during implementation:
+
+```bash
+uv run --project market_lab pytest market_lab/tests
+cd apps/mission-control && ./node_modules/.bin/vitest run app/market-lab/market-lab-client.test.tsx lib/market-lab.test.ts
+cd apps/mission-control && ./node_modules/.bin/next build
 ```
 
 Optional focused tests if added:

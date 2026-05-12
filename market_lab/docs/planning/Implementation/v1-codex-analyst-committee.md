@@ -1,6 +1,6 @@
 # Implementation Plan - Market Lab V1 Codex Analyst Committee
 
-**Document Status:** Draft  
+**Document Status:** Implemented in PR #344  
 **PRD:** [v1-codex-analyst-committee.md](../PRDs/v1-codex-analyst-committee.md)  
 **Tech Spec:** [v1-codex-analyst-committee.md](../TechSpecs/v1-codex-analyst-committee.md)
 
@@ -173,6 +173,8 @@ Manual smoke:
 5. Confirm Codex writes `codex-review.md`.
 6. Confirm attach updates `review.json`.
 7. Confirm UI renders final judge, context quality, missing context, role confidence, and role panels.
+
+Implementation note: V1 is implemented as the structured Codex schema, richer bounded packet, attach parser, manual `Ask Codex` guardrail, and Mission Control role rendering. The Mac mini smoke should still be run after the branch is deployed there because it depends on the live market-data and Codex-session environment.
 
 ---
 

@@ -70,6 +70,8 @@ uv run --project market_lab python -m market_lab.cli attach-codex-review <run_id
 
 Codex writes `codex-review.md`, then runs the attach command so Mission Control can render the review summary without requiring OpenAI API keys.
 
+V1 expects `codex-review.md` to include a fenced `json market-lab-codex-review/v1` block. That block records the analyst roles (`price_action`, `fundamentals`, `news_sentiment`, `risk`, `final_judge`), confidence, missing context, and what would change the verdict. Markdown-only reviews still attach as a fallback, but the structured block is the durable contract.
+
 ## Module Map
 
 - `models.py`: Pydantic contracts

@@ -101,7 +101,16 @@ class ReviewRunner:
             artifact_paths=artifact_paths,
         )
         self.store.write_review(artifact)
-        self.store.write_codex_packet(run.run_id, build_codex_packet(artifact))
+        prior_runs = [
+            item
+            for item in self.store.list_runs(limit=25)
+            if item.symbol == run.symbol and item.run_id != run.run_id
+        ]
+        prior_settlements = {item.run_id: self.store.list_settlements(item.run_id) for item in prior_runs[:5]}
+        self.store.write_codex_packet(
+            run.run_id,
+            build_codex_packet(artifact, prior_runs=prior_runs, prior_settlements=prior_settlements),
+        )
         self.store.append_event(run.run_id, "codex_packet_written", "Codex review packet written.")
         for window in settlements:
             self.store.upsert_settlement(
