@@ -11,7 +11,7 @@ type AgentStatusRow = {
   last_active: Date | null;
 };
 
-const COVENANT_AGENTS = [
+const OPENCLAW_AGENTS = [
   { name: "Monitor", role: "patterns" },
   { name: "Librarian", role: "knowledge" },
 ] as const;
@@ -75,7 +75,7 @@ export async function GET() {
     }
 
     const byName = new Map(rows.map((row) => [row.name, row]));
-    const agents = COVENANT_AGENTS.map(({ name, role }) => {
+    const agents = OPENCLAW_AGENTS.map(({ name, role }) => {
       const row = byName.get(name);
       const lastActive = row?.last_active ?? null;
 
