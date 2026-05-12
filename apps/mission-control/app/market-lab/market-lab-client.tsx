@@ -542,29 +542,30 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               </ol>
             )}
           </Panel>
-
-          <details className="group rounded-lg border border-border/70 bg-card/60 px-4 py-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FileJson2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Collapsed by default</div>
-                  <div className="text-sm font-semibold">Debug artifacts</div>
-                </div>
-              </div>
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground group-open:hidden">Open</span>
-              <span className="hidden text-[10px] uppercase tracking-widest text-muted-foreground group-open:inline">Close</span>
-            </summary>
-            <div className="mt-3 grid gap-1 text-[11px] text-muted-foreground md:grid-cols-2">
-              <DebugPath label="review" value={review?.artifact_paths?.review ?? selectedRun?.run_id ?? "n/a"} />
-              <DebugPath label="events" value={review?.artifact_paths?.events ?? "n/a"} />
-              <DebugPath label="logs" value={review?.artifact_paths?.logs ?? "n/a"} />
-              <DebugPath label="codex packet" value={review?.artifact_paths?.codex_packet ?? "n/a"} />
-              <DebugPath label="codex review" value={review?.artifact_paths?.codex_review ?? "n/a"} />
-            </div>
-          </details>
         </div>
       </section>
+
+      {/* Debug artifacts — page-level footer, spans both columns */}
+      <details className="group mt-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FileJson2 className="h-3.5 w-3.5 text-muted-foreground" />
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Collapsed by default</div>
+              <div className="text-sm font-semibold">Debug artifacts</div>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground group-open:hidden">Open</span>
+          <span className="hidden text-[10px] uppercase tracking-widest text-muted-foreground group-open:inline">Close</span>
+        </summary>
+        <div className="mt-3 grid gap-1 text-[11px] text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
+          <DebugPath label="review" value={review?.artifact_paths?.review ?? selectedRun?.run_id ?? "n/a"} />
+          <DebugPath label="events" value={review?.artifact_paths?.events ?? "n/a"} />
+          <DebugPath label="logs" value={review?.artifact_paths?.logs ?? "n/a"} />
+          <DebugPath label="codex packet" value={review?.artifact_paths?.codex_packet ?? "n/a"} />
+          <DebugPath label="codex review" value={review?.artifact_paths?.codex_review ?? "n/a"} />
+        </div>
+      </details>
     </div>
   );
 }
