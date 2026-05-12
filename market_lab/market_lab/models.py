@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class RunStatus(StrEnum):
@@ -92,10 +92,47 @@ class TradingAgentsReview(Model):
     error_message: str | None = None
 
 
+CODEX_REVIEW_ROLES = {"price_action", "fundamentals", "news_sentiment", "risk", "final_judge"}
+
+
+class CodexRoleReview(Model):
+    role: Literal["price_action", "fundamentals", "news_sentiment", "risk", "final_judge"]
+    stance: Literal["bullish", "bearish", "neutral", "mixed"]
+    confidence: float = Field(ge=0, le=1)
+    summary: str
+    evidence_used: list[str] = Field(default_factory=list)
+    bull_points: list[str] = Field(default_factory=list)
+    bear_points: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+
+
+class CodexStructuredReview(Model):
+    schema_version: Literal["market-lab-codex-review/v1"] = "market-lab-codex-review/v1"
+    verdict: TrustVerdict
+    confidence: float = Field(ge=0, le=1)
+    horizon: Literal["1d", "5d", "20d", "mixed"]
+    summary: str
+    hard_gate_assessment: str
+    context_quality: str
+    missing_context: list[str] = Field(default_factory=list)
+    roles: list[CodexRoleReview] = Field(default_factory=list)
+    what_would_change_verdict: list[str] = Field(default_factory=list)
+    operator_note: str
+
+    @model_validator(mode="after")
+    def require_all_roles(self) -> "CodexStructuredReview":
+        roles = {item.role for item in self.roles}
+        missing = sorted(CODEX_REVIEW_ROLES - roles)
+        if missing:
+            raise ValueError(f"missing Codex review roles: {', '.join(missing)}")
+        return self
+
+
 class CodexReview(Model):
     status: Literal["pending", "attached"]
     summary: str
     verdict: TrustVerdict | None = None
+    structured: CodexStructuredReview | None = None
     output_path: str | None = None
     session_id: str | None = None
 

@@ -1,31 +1,90 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from .models import ReviewArtifact
+from .models import ReviewArtifact, RunRecord
+
+CODEX_SCHEMA = "market-lab-codex-review/v1"
 
 
-def build_codex_packet(artifact: ReviewArtifact) -> str:
+def _missing_context(artifact: ReviewArtifact) -> list[str]:
+    missing: list[str] = []
+    if artifact.price_facts is None:
+        missing.append("symbol_price")
+    if artifact.spy_facts is None:
+        missing.append("spy_reference")
+    for label, status in [
+        ("history", artifact.optional_evidence.history_status),
+        ("fundamentals", artifact.optional_evidence.fundamentals_status),
+        ("news", artifact.optional_evidence.news_status),
+        ("sentiment", artifact.optional_evidence.sentiment_status),
+    ]:
+        if status != "available":
+            missing.append(label)
+    return missing
+
+
+def _settlement_summary(settlements: list[dict[str, Any]]) -> str:
+    rows = []
+    for settlement in settlements[:3]:
+        window = settlement.get("window", "n/a")
+        status = settlement.get("status", "n/a")
+        score = settlement.get("score") or "n/a"
+        alpha = settlement.get("alpha_vs_spy_pct")
+        alpha_text = f"{float(alpha):.2f}%" if isinstance(alpha, (int, float)) else "n/a"
+        rows.append(f"{window}:{status}, score={score}, alpha_vs_spy={alpha_text}")
+    return "; ".join(rows) if rows else "none"
+
+
+def _prior_runs_text(
+    prior_runs: list[RunRecord] | None,
+    prior_settlements: dict[str, list[dict[str, Any]]] | None,
+) -> str:
+    if not prior_runs:
+        return "- none available"
+    rows = []
+    for run in prior_runs[:5]:
+        settlements = _settlement_summary((prior_settlements or {}).get(run.run_id, []))
+        rows.append(
+            f"- {run.run_id}: verdict={run.trust_verdict or 'n/a'}, status={run.status}, requested_at={run.requested_at.isoformat()}, settlements={settlements}"
+        )
+    return "\n".join(rows)
+
+
+def build_codex_packet(
+    artifact: ReviewArtifact,
+    *,
+    prior_runs: list[RunRecord] | None = None,
+    prior_settlements: dict[str, list[dict[str, Any]]] | None = None,
+) -> str:
     price = artifact.price_facts
     spy = artifact.spy_facts
     checks = "\n".join(f"- {item.severity}: {item.code} - {item.message}" for item in artifact.checks) or "- none"
     reasons = ", ".join(artifact.verdict_reasons) or "none"
+    blockers = [item.code for item in artifact.checks if item.severity == "blocker"]
+    missing_context = _missing_context(artifact)
 
     return f"""# Market Lab Codex Review Packet: {artifact.symbol}
 
 ## Task
 
-Review this Market Lab run and write a Codex-assisted trading trust review.
+Review this Market Lab run as a structured Codex analyst committee.
 
 Return a clear verdict: `trusted`, `blocked`, or `uncertain`.
 
 Do not recommend placing a trade. This is review-only.
+
+Codex is not trusted because the response sounds confident. Trust comes from cited evidence, admitted missing context, calibrated confidence, and later settlement performance.
 
 Verdict guidance:
 
 - `blocked`: use only when a blocker check exists, required price evidence is unusable, or the artifact is internally inconsistent.
 - `trusted`: use when required live/latest price evidence is usable and the review is coherent, even if optional v0 news or sentiment evidence is missing.
 - `uncertain`: use when evidence is mixed, contradictory, materially thin beyond known optional v0 gaps, or needs a human decision.
+- Deterministic blocker checks must force `blocked`.
+- Missing optional news/sentiment/fundamentals must be listed as missing context. Do not infer unavailable facts.
+- The old free-form `Summary / Bull Case / Bear Case / Decision` shape is not the primary contract. The JSON block below is the contract.
 
 ## Run
 
@@ -35,25 +94,42 @@ Verdict guidance:
 - Current reasons: {reasons}
 - Review artifact: `{artifact.artifact_paths.review}`
 - Codex review output path: `{artifact.artifact_paths.codex_review}`
+- Hard blockers: {", ".join(blockers) or "none"}
 
-## Market Facts
+## Benchmark And Settlement Logic
+
+- SPY is the benchmark because it represents the broad market alternative.
+- A trusted review is later scored over 1D, 5D, and 20D by comparing {artifact.symbol} return against SPY return.
+- Alpha versus SPY = {artifact.symbol} return minus SPY return.
+- A review is more useful if the stock-specific idea beats SPY, not just if the stock rises with the market.
+
+## Context Inventory
+
+### Market Facts
 
 - {artifact.symbol} price: {price.price if price else "n/a"}
 - {artifact.symbol} source: {price.source if price else "n/a"}
 - {artifact.symbol} timestamp: {price.timestamp.isoformat() if price else "n/a"}
+- {artifact.symbol} price basis: {price.price_basis if price else "n/a"}
 - SPY price: {spy.price if spy else "n/a"}
 - SPY source: {spy.source if spy else "n/a"}
 - SPY timestamp: {spy.timestamp.isoformat() if spy else "n/a"}
+- SPY price basis: {spy.price_basis if spy else "n/a"}
 
-## Evidence Status
+### Evidence Status
 
 - History: {artifact.optional_evidence.history_status}
 - Fundamentals: {artifact.optional_evidence.fundamentals_status}
 - News: {artifact.optional_evidence.news_status}
 - Sentiment: {artifact.optional_evidence.sentiment_status}
 - Notes: {", ".join(artifact.optional_evidence.notes) or "none"}
+- Missing context: {", ".join(missing_context) or "none"}
 
-## Checks
+### Prior Same-Symbol Runs
+
+{_prior_runs_text(prior_runs, prior_settlements)}
+
+### Checks
 
 {checks}
 
@@ -68,22 +144,76 @@ Use this shape:
 ```markdown
 # Codex Review: {artifact.symbol}
 
-Verdict: trusted|blocked|uncertain
+```json {CODEX_SCHEMA}
+{{
+  "schema_version": "{CODEX_SCHEMA}",
+  "verdict": "trusted|blocked|uncertain",
+  "confidence": 0.0,
+  "horizon": "1d|5d|20d|mixed",
+  "summary": "One concise operator-readable conclusion.",
+  "hard_gate_assessment": "State whether deterministic blockers exist and how they affect the verdict.",
+  "context_quality": "State what context is strong, weak, or missing.",
+  "missing_context": ["news", "sentiment"],
+  "roles": [
+    {{
+      "role": "price_action",
+      "stance": "bullish|bearish|neutral|mixed",
+      "confidence": 0.0,
+      "summary": "Price action view.",
+      "evidence_used": ["symbol_price", "spy_reference", "market_hours_state"],
+      "bull_points": [],
+      "bear_points": [],
+      "missing_evidence": []
+    }},
+    {{
+      "role": "fundamentals",
+      "stance": "bullish|bearish|neutral|mixed",
+      "confidence": 0.0,
+      "summary": "Fundamentals view.",
+      "evidence_used": [],
+      "bull_points": [],
+      "bear_points": [],
+      "missing_evidence": []
+    }},
+    {{
+      "role": "news_sentiment",
+      "stance": "bullish|bearish|neutral|mixed",
+      "confidence": 0.0,
+      "summary": "News and sentiment view.",
+      "evidence_used": [],
+      "bull_points": [],
+      "bear_points": [],
+      "missing_evidence": []
+    }},
+    {{
+      "role": "risk",
+      "stance": "bullish|bearish|neutral|mixed",
+      "confidence": 0.0,
+      "summary": "Risk view.",
+      "evidence_used": [],
+      "bull_points": [],
+      "bear_points": [],
+      "missing_evidence": []
+    }},
+    {{
+      "role": "final_judge",
+      "stance": "bullish|bearish|neutral|mixed",
+      "confidence": 0.0,
+      "summary": "Final committee judgment.",
+      "evidence_used": [],
+      "bull_points": [],
+      "bear_points": [],
+      "missing_evidence": []
+    }}
+  ],
+  "what_would_change_verdict": [],
+  "operator_note": "Review-only note. Do not execute from this review."
+}}
+```
 
-Summary:
-...
+## Human Notes
 
-Bull Case:
-- ...
-
-Bear Case:
-- ...
-
-Missing Evidence:
-- ...
-
-Decision:
-...
+Add concise prose only after the JSON block if useful.
 ```
 
 Then attach it to the run:
