@@ -175,11 +175,19 @@ export const isValidArtifactKind = (kind: string): kind is MarketLabArtifactKind
 
 const MAX_ARTIFACT_BYTES = 512 * 1024;
 
+export class MarketLabArtifactMissingError extends Error {
+  readonly code = "artifact_missing";
+  constructor(public readonly artifactPath: string | null, message: string) {
+    super(message);
+    this.name = "MarketLabArtifactMissingError";
+  }
+}
+
 export const readMarketLabArtifact = async (runId: string, kind: MarketLabArtifactKind) => {
   const detail = await getMarketLabRun(runId);
   const artifactPath = detail.review?.artifact_paths?.[kind] ?? null;
   if (!artifactPath) {
-    throw new Error(`No ${kind} artifact for this run`);
+    throw new MarketLabArtifactMissingError(null, `No ${kind} artifact registered for this run yet.`);
   }
 
   const resolved = path.resolve(artifactPath);
@@ -188,7 +196,15 @@ export const readMarketLabArtifact = async (runId: string, kind: MarketLabArtifa
     throw new Error("Artifact path is outside the Market Lab cache");
   }
 
-  const stats = await stat(resolved);
+  let stats;
+  try {
+    stats = await stat(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new MarketLabArtifactMissingError(resolved, "Artifact file has not been generated yet.");
+    }
+    throw error;
+  }
   if (!stats.isFile()) {
     throw new Error("Artifact is not a regular file");
   }

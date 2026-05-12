@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isValidArtifactKind, readMarketLabArtifact } from "@/lib/market-lab";
+import { MarketLabArtifactMissingError, isValidArtifactKind, readMarketLabArtifact } from "@/lib/market-lab";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,9 +23,15 @@ export async function GET(
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof MarketLabArtifactMissingError) {
+      return NextResponse.json(
+        { status: "error", error: error.message, code: error.code },
+        { status: 404, headers: { "cache-control": "no-store" } },
+      );
+    }
     return NextResponse.json(
       { status: "error", error: error instanceof Error ? error.message : "Failed to read Market Lab artifact" },
-      { status: 404 },
+      { status: 500 },
     );
   }
 }

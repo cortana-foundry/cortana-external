@@ -379,7 +379,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
         </aside>
 
         {/* Decision area */}
-        <div className="min-w-0 space-y-3">
+        <div className="min-w-0 space-y-3 self-start">
           {/* Hero: verdict + price ribbon */}
           <section className={cn("overflow-hidden rounded-lg border bg-card/70", meta.ribbon)}>
             <div className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start md:justify-between">
@@ -646,20 +646,24 @@ function ArtifactViewer({
       {open ? (
         <div className="border-t border-border/60 px-2.5 py-2">
           {loadError ? (
-            <p className="text-xs text-red-600 dark:text-red-400">{loadError}</p>
+            <p className="text-xs text-muted-foreground">{loadError}</p>
           ) : loading ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
           ) : contents != null ? (
-            <>
-              {meta?.truncated ? (
-                <p className="mb-1 text-[10px] text-amber-600 dark:text-amber-400">
-                  Truncated · file is {meta.size.toLocaleString()} bytes, showing first 512 KB.
-                </p>
-              ) : null}
-              <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap break-words rounded bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-foreground/85">
-                {contents}
-              </pre>
-            </>
+            contents.length === 0 ? (
+              <p className="text-xs italic text-muted-foreground">(empty file · 0 bytes)</p>
+            ) : (
+              <>
+                {meta?.truncated ? (
+                  <p className="mb-1 text-[10px] text-amber-600 dark:text-amber-400">
+                    Truncated · file is {meta.size.toLocaleString()} bytes, showing first 512 KB.
+                  </p>
+                ) : null}
+                <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap break-words rounded bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-foreground/85">
+                  {contents}
+                </pre>
+              </>
+            )
           ) : null}
         </div>
       ) : null}
