@@ -31,12 +31,6 @@ export function TerminalHeader({ data }: { data: TradingOpsDashboardData }) {
           </div>
           <span className="text-[10px] text-muted-foreground">{formatRelativeAge(data.generatedAt)}</span>
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <HeaderMetricMobile label="Regime" value={data.market.data?.regime.toUpperCase() ?? "N/A"} state={data.market.state} />
-          <HeaderMetricMobile label="Sizing" value={formatPercent(data.market.data?.positionSizingPct ?? null)} state={data.market.state} />
-          <HeaderMetricMobile label="Snapshots" value={String(data.prediction.data?.snapshotCount ?? 0)} state={data.prediction.state} />
-          <HeaderMetricMobile label="1d Matured" value={String(data.prediction.data?.oneDayMatured ?? 0)} state={data.prediction.state} />
-        </div>
       </div>
     </section>
   );

@@ -1,7 +1,7 @@
 import type { MarketDataHistoryPoint, MarketDataQuote } from "./types.js";
 
 export type HistoryInterval = "1d" | "1wk" | "1mo";
-export type HistoryProvider = "service" | "schwab" | "alpaca";
+export type HistoryProvider = "service" | "schwab";
 
 export function normalizeHistoryInterval(rawInterval: string | undefined): HistoryInterval | undefined {
   const normalized = (rawInterval ?? "1d").trim().toLowerCase();
@@ -13,7 +13,7 @@ export function normalizeHistoryInterval(rawInterval: string | undefined): Histo
 
 export function normalizeHistoryProvider(rawProvider: string | undefined): HistoryProvider | undefined {
   const normalized = (rawProvider ?? "service").trim().toLowerCase();
-  if (normalized === "service" || normalized === "schwab" || normalized === "alpaca") {
+  if (normalized === "service" || normalized === "schwab") {
     return normalized;
   }
   return undefined;
@@ -56,16 +56,6 @@ export function mapSchwabPeriod(period: string, interval: HistoryInterval): Reco
     needExtendedHoursData: "false",
     needPreviousClose: "true",
   };
-}
-
-export function mapAlpacaTimeframe(interval: HistoryInterval): "1Day" | "1Week" | "1Month" {
-  if (interval === "1wk") {
-    return "1Week";
-  }
-  if (interval === "1mo") {
-    return "1Month";
-  }
-  return "1Day";
 }
 
 export function compareHistoryRows(primaryRows: MarketDataHistoryPoint[], comparisonRows: MarketDataHistoryPoint[]): string {

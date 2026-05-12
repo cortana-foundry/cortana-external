@@ -90,6 +90,7 @@ describe("MarketLabClient", () => {
   it("starts a Codex-assisted review for the selected run", async () => {
     render(<MarketLabClient />);
 
+    await screen.findByText("Blocked because price data is stale.");
     fireEvent.click(await screen.findByRole("button", { name: /ask codex/i }));
 
     await waitFor(() => {

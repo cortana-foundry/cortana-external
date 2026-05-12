@@ -1,7 +1,6 @@
 export type MarketDataStatus = "ok" | "degraded" | "error" | "unavailable";
 export type MarketDataProviderMode =
   | "schwab_primary"
-  | "alpaca_fallback"
   | "cache_fallback"
   | "coinmarketcap_primary"
   | "multi_mode"

@@ -16,15 +16,7 @@ import type {
 import type { ProviderChain, ProviderRouteContext, QuoteFetchResult } from "./provider-chain.js";
 
 const DEFAULT_INTERVAL = "1d";
-const QUOTE_ALPACA_FALLBACK_SUBSYSTEMS = new Set([
-  "market_brief_tape",
-  "intraday_breadth",
-  "clive",
-  "cwatch",
-  "pre_open_canary",
-]);
 const QUOTE_LIVE_SCHWAB_LANE_SUBSYSTEMS = new Set(["live_watchlists"]);
-const HISTORY_ALPACA_FALLBACK_SUBSYSTEMS = new Set(["market_regime"]);
 
 interface QueryRoutesConfig {
   providerChain: ProviderChain;
@@ -113,50 +105,16 @@ export class MarketDataQueryRoutes {
       );
     }
 
-    if (!context.allowAlpacaFallback) {
-      return Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const primary = await this.providerChain.fetchPrimaryQuote(symbol, context);
-            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
-          } catch (error) {
-            return this.buildQuoteBatchErrorItem(
-              symbol,
-              error,
-              "Quote batch could not produce a provider mode for this symbol.",
-            );
-          }
-        }),
-      );
-    }
-
-    const restUnavailable = !this.providerChain.isSchwabRestAvailable();
-    if (!restUnavailable) {
-      return Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const primary = await this.providerChain.fetchPrimaryQuote(symbol, { ...context, allowAlpacaFallback: false });
-            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
-          } catch (error) {
-            return this.buildQuoteBatchErrorItem(
-              symbol,
-              error,
-              "Quote batch could not produce a provider mode for this symbol.",
-            );
-          }
-        }),
-      );
-    }
     return Promise.all(
       symbols.map(async (symbol) => {
         try {
-          const fallback = await this.providerChain.fetchAlpacaQuoteFallback(symbol, context);
-          return this.buildQuoteBatchItem(symbol, fallback, compareProvider);
+          const primary = await this.providerChain.fetchPrimaryQuote(symbol, context);
+          return this.buildQuoteBatchItem(symbol, primary, compareProvider);
         } catch (error) {
           return this.buildQuoteBatchErrorItem(
             symbol,
             error,
-            "Quote batch could not keep a live provider lane for this symbol.",
+            "Quote batch could not produce a provider mode for this symbol.",
           );
         }
       }),
@@ -185,7 +143,7 @@ export class MarketDataQueryRoutes {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: "unsupported provider 'yahoo'; supported providers are service, schwab, and alpaca",
+          reason: "unsupported provider 'yahoo'; supported providers are service and schwab",
         }),
       };
     }
@@ -194,7 +152,7 @@ export class MarketDataQueryRoutes {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, and alpaca`,
+          reason: `unsupported provider '${rawProvider}'; supported providers are service and schwab`,
         }),
       };
     }
@@ -345,7 +303,7 @@ export class MarketDataQueryRoutes {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: "unsupported provider 'yahoo'; supported providers are service, schwab, and alpaca",
+          reason: "unsupported provider 'yahoo'; supported providers are service and schwab",
         }),
       };
     }
@@ -354,7 +312,7 @@ export class MarketDataQueryRoutes {
       return {
         status: 400,
         body: marketDataErrorResponse("invalid provider", "error", {
-          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, and alpaca`,
+          reason: `unsupported provider '${rawProvider}'; supported providers are service and schwab`,
         }),
       };
     }
@@ -363,20 +321,12 @@ export class MarketDataQueryRoutes {
       symbols.map(async (symbol) => {
         try {
           const subsystem = resolveSubsystem(request.url);
-          const effectiveProvider =
-            provider === "service" &&
-            HISTORY_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? "") &&
-            !this.providerChain.isSchwabRestAvailable()
-              ? "alpaca"
-              : provider;
           const primary = await this.providerChain.fetchPrimaryHistory(
             symbol,
             period,
             interval,
-            effectiveProvider,
-            effectiveProvider === "service"
-              ? { subsystem, allowAlpacaFallback: false }
-              : buildHistoryRouteContext(subsystem),
+            provider,
+            buildHistoryRouteContext(subsystem),
           );
           this.providerChain.recordSourceUsage(primary.source);
           const compare = await this.providerChain.buildHistoryComparison(symbol, period, interval, compareWith, primary.rows);
@@ -495,7 +445,7 @@ function resolveCompareProvider(rawCompareWith: string | undefined): string | nu
   if (!candidate) {
     return undefined;
   }
-  if (!["alpaca", "schwab"].includes(candidate)) {
+  if (candidate !== "schwab") {
     return null;
   }
   return candidate;
@@ -505,7 +455,7 @@ function invalidCompareProvider<T>(): MarketDataRouteResult<T> {
   return {
     status: 400,
     body: marketDataErrorResponse("invalid compare provider", "error", {
-      reason: "unsupported compare_with provider; supported providers are schwab and alpaca",
+      reason: "unsupported compare_with provider; supported provider is schwab",
     }),
   };
 }
@@ -522,7 +472,6 @@ function resolveSubsystem(rawUrl: string): string | undefined {
 function buildQuoteRouteContext(subsystem?: string): ProviderRouteContext {
   return {
     subsystem,
-    allowAlpacaFallback: QUOTE_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? ""),
     preferLiveSchwabLane: QUOTE_LIVE_SCHWAB_LANE_SUBSYSTEMS.has(subsystem ?? ""),
   };
 }
@@ -530,6 +479,5 @@ function buildQuoteRouteContext(subsystem?: string): ProviderRouteContext {
 function buildHistoryRouteContext(subsystem?: string): ProviderRouteContext {
   return {
     subsystem,
-    allowAlpacaFallback: HISTORY_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? ""),
   };
 }

@@ -431,9 +431,11 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByRole("tab", { name: "Polymarket" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
-    expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Portfolio posture").length).toBeGreaterThan(0);
-    expect(container).toHaveTextContent("Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.");
+    expect(screen.getByText("Schwab live now")).toBeInTheDocument();
+    expect(screen.getByText("Polymarket status")).toBeInTheDocument();
+    expect(container).toHaveTextContent("Waiting for the first Schwab live quote poll.");
+    expect(container).toHaveTextContent("Waiting for Polymarket services to settle after page load.");
+    expect(container).toHaveTextContent("provider_cooldown: Wait.");
     expect(container).not.toHaveTextContent("Operator checklist");
 
     const systemHealthTab = screen.getByRole("tab", { name: "System Health" });
@@ -443,8 +445,6 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Schwab REST");
     expect(container).toHaveTextContent("Polymarket streamer");
     expect(container).toHaveTextContent("Schwab streamer");
-    expect(container).not.toHaveTextContent("Alpaca");
-    expect(container).not.toHaveTextContent("FRED");
 
     const deepDiveTab = screen.getByRole("tab", { name: "Deep Dive" });
     fireEvent.mouseDown(deepDiveTab);

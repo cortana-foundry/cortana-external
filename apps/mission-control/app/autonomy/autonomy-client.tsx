@@ -46,7 +46,7 @@ function routeForText(value: string, fallback = "/services"): string {
   if (text.includes("task")) return "/task-board";
   if (text.includes("approval")) return "/approvals";
   if (text.includes("feedback") || text.includes("remediation")) return "/feedback";
-  if (text.includes("trading") || text.includes("market") || text.includes("schwab") || text.includes("alpaca") || text.includes("polymarket")) return "/trading-ops";
+  if (text.includes("trading") || text.includes("market") || text.includes("schwab") || text.includes("polymarket")) return "/trading-ops";
   if (text.includes("memory")) return "/memories";
   if (text.includes("doc")) return "/docs";
   if (text.includes("gateway") || text.includes("browser") || text.includes("channel") || text.includes("runtime") || text.includes("service")) return "/services";

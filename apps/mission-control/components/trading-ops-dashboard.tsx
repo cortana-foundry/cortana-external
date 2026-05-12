@@ -583,52 +583,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       {/* ── Zone B: Alert Banner (conditional) ── */}
       {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
-      {/* ── Zone C: Four Summary Cells ── */}
-      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <TerminalCell
-          title="Market posture"
-          value={data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
-          detail={data.market.data ? `Sizing ${formatPercent(data.market.data.positionSizingPct)}` : "No market data"}
-          state={data.market.state}
-          icon={<Gauge className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Runtime health"
-          value={data.runtime.data?.operatorState ?? data.runtime.label}
-          detail={
-            data.runtime.data?.cooldownSummary ??
-            (data.runtime.data ? `${data.runtime.data.incidents.length} active incidents` : "No runtime snapshot")
-          }
-          state={data.runtime.state}
-          icon={<ShieldCheck className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Prediction loop"
-          value={data.prediction.data ? `${data.prediction.data.snapshotCount} snapshots` : data.prediction.label}
-          detail={
-            data.prediction.data
-              ? `1d matured ${data.prediction.data.oneDayMatured} · ${data.prediction.data.freshnessLabel ?? "unknown trust"}`
-              : "No accuracy artifact"
-          }
-          state={data.prediction.state}
-          icon={<Radar className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Portfolio posture"
-          value={data.lifecycle.data?.postureState ? formatLabel(data.lifecycle.data.postureState) : data.lifecycle.label}
-          detail={
-            data.lifecycle.data
-              ? compactValue([
-                  data.lifecycle.data.autonomyMode ? formatLabel(data.lifecycle.data.autonomyMode) : null,
-                  data.lifecycle.data.grossExposurePct != null ? `gross ${formatPercent(data.lifecycle.data.grossExposurePct)}` : null,
-                ])
-              : "No lifecycle posture"
-          }
-          state={data.lifecycle.state}
-          icon={<Landmark className="h-3.5 w-3.5" />}
-        />
-      </section>
-
       {/* ── Zone E: Tabs ── */}
       <Tabs defaultValue="overview" className="space-y-3">
         <TabsList className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
@@ -640,6 +594,78 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           <TabsTrigger value="health">System Health</TabsTrigger>
           <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
         </TabsList>
+
+        {/* ── Overview ── */}
+        <TabsContent value="overview" className="space-y-3">
+          <ArtifactPanel title="Schwab live now" artifact={liveArtifact}>
+            {liveData ? (
+              <div className="space-y-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
+                    {liveData.streamer.connected ? "Streamer connected" : "Streamer disconnected"}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {liveData.tape.freshnessMessage}
+                  </span>
+                </div>
+                <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <Metric label="Decision" value={liveData.meta.decision ?? "No decision yet"} />
+                  <Metric label="Focus" value={liveData.meta.focusTicker ?? "No focus ticker"} />
+                  <Metric label="Mode" value={liveData.meta.isAfterHours ? "After hours" : "Market hours"} />
+                  <Metric label="Last refresh" value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "Waiting for first poll"} />
+                </dl>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Waiting for the first Schwab live quote poll.
+              </p>
+            )}
+          </ArtifactPanel>
+
+          <ArtifactPanel title="Polymarket status" artifact={polymarketStatusArtifact}>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                <Metric
+                  label="Account"
+                  value={
+                    displayPolymarketData?.account.data
+                      ? `${displayPolymarketData.account.data.positionCount} positions · ${displayPolymarketData.account.data.openOrdersCount} orders`
+                      : "Waiting for account read"
+                  }
+                />
+                <Metric
+                  label="Overlay"
+                  value={displayPolymarketData?.signal.data?.overlaySummary ?? displayPolymarketData?.signal.data?.alignment ?? "Loading"}
+                />
+                <Metric label="Linked symbols" value={String(displayPolymarketData?.watchlist.data?.totalCount ?? 0)} />
+                <Metric
+                  label="Pinned"
+                  value={displayPolymarketLiveData ? String(polymarketPinnedRows.length) : "Waiting"}
+                />
+                <Metric
+                  label="Stream"
+                  value={
+                    displayPolymarketLiveData
+                      ? displayPolymarketLiveData.streamer.marketsConnected && displayPolymarketLiveData.streamer.privateConnected
+                        ? `${displayPolymarketLiveData.markets.length} live markets`
+                        : formatLabel(displayPolymarketLiveData.streamer.operatorState)
+                      : "Waiting for stream"
+                  }
+                />
+              </div>
+              {displayPolymarketData?.signal.data?.compactLines[0] ? (
+                <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                  {displayPolymarketData.signal.data.compactLines[0]}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Waiting for the Polymarket overlay snapshot.
+                </p>
+              )}
+            </div>
+          </ArtifactPanel>
+        </TabsContent>
 
         {/* ── Live ── */}
         <TabsContent value="live" className="space-y-3">

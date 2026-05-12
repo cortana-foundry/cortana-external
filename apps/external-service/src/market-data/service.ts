@@ -13,7 +13,6 @@ import type { WebSocketFactory } from "./streamer.js";
 import type { PendingSchwabAuthState } from "./schwab-auth.js";
 import type { SchwabStreamerPreferences } from "./schwab-market-client.js";
 import { SchwabStreamerRuntime } from "./schwab-streamer-runtime.js";
-import { AlpacaClient } from "./alpaca-client.js";
 import { ProviderChain } from "./provider-chain.js";
 import { buildHealthReport, buildOpsPayload, getServiceOperatorAction, getServiceOperatorState } from "./ops-reporter.js";
 import { MarketDataGovernanceReporter } from "./governance-reporter.js";
@@ -147,7 +146,6 @@ export class MarketDataService {
       SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
       SCHWAB_STREAMER_ACCOUNT_ACTIVITY_ENABLED: "1",
       SCHWAB_STREAMER_RECONNECT_JITTER_MS: 500,
-      FRED_API_KEY: "",
       WHOOP_CLIENT_ID: "",
       WHOOP_CLIENT_SECRET: "",
       WHOOP_REDIRECT_URL: "http://localhost:3033/auth/callback",
@@ -180,8 +178,6 @@ export class MarketDataService {
       POLYMARKET_API_BASE_URL: "https://api.polymarket.us",
       POLYMARKET_REQUEST_TIMEOUT_MS: 15_000,
       POLYMARKET_PINNED_MARKETS_PATH: ".cache/polymarket/pinned-markets.json",
-      ALPACA_KEYS_PATH: "",
-      ALPACA_TARGET_ENVIRONMENT: "live",
       CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",
       EXTERNAL_SERVICE_TLS_PORT: 8182,
       EXTERNAL_SERVICE_TLS_CERT_PATH: "",
@@ -237,14 +233,9 @@ export class MarketDataService {
       preferencesProvider: () => this.fetchSchwabStreamerPreferences(),
       websocketFactory: config.websocketFactory,
     });
-    const alpacaClient = new AlpacaClient({
-      config: this.config,
-      fetchJson: this.fetchJson.bind(this),
-    });
     this.providerChain = new ProviderChain({
       coinMarketCap: this.coinMarketCap,
       schwabRestClient: this.schwabRestClient,
-      alpacaClient,
       streamerRuntime: this.streamerRuntime,
       providerMetrics: this.providerMetrics,
     });
@@ -469,9 +460,7 @@ export class MarketDataService {
   private async buildRiskPayload(days: number): Promise<RiskPayloadResult> {
     return buildRiskPayload({
       days,
-      fredApiKey: this.config.FRED_API_KEY,
       fetchSchwabHistory: (symbol, period, interval) => this.schwabRestClient.fetchHistory(symbol, period, interval),
-      fetchJson: this.fetchJson.bind(this),
       fetchResponse: this.fetchResponse.bind(this),
     });
   }

@@ -35,20 +35,18 @@ export interface RiskPayloadResult {
 
 interface RiskStackOptions {
   days: number;
-  fredApiKey: string;
   fetchSchwabHistory: (symbol: string, period: string, interval: "1d" | "1wk" | "1mo") => Promise<MarketDataHistoryPoint[]>;
-  fetchJson: <T>(url: string, init?: RequestInit) => Promise<T>;
   fetchResponse: (input: string | URL, init?: RequestInit, timeoutMs?: number) => Promise<Response>;
 }
 
 export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskPayloadResult> {
   const lookbackDays = Math.max(options.days, 160) * 2;
-  const [vixHistory, spyHistory, hySeries, putCallSeries] = await Promise.all([
+  const [vixHistory, spyHistory, putCallSeries] = await Promise.all([
     options.fetchSchwabHistory("^VIX", "1y", "1d").catch(() => []),
     options.fetchSchwabHistory("SPY", "1y", "1d").catch(() => []),
-    fetchFredSeries(options.fetchJson, options.fredApiKey, "BAMLH0A0HYM2", lookbackDays).catch(() => []),
     fetchPutCallHistory(options.fetchResponse, lookbackDays).catch(() => []),
   ]);
+  const hySeries: Array<{ date: string; value: number }> = [];
   const vixProxySeries = vixHistory.length ? [] : deriveVixProxySeries(spyHistory);
   const vixSourceRows = vixHistory.length
     ? vixHistory.map((row) => ({ date: row.timestamp.slice(0, 10), value: row.close }))
@@ -76,7 +74,7 @@ export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskP
   let lastHy = 450;
   let lastPutCall = 1;
   const hySpreadFallback = !hySeries.length;
-  const warning = hySpreadFallback ? "FRED HY spread unavailable; using neutral 450 bps fallback." : "";
+  const warning = hySpreadFallback ? "HY spread unavailable; using neutral 450 bps fallback." : "";
   for (const date of baseDates) {
     lastVix = vixMap.get(date) ?? lastVix;
     lastSpy = spyMap.get(date) ?? lastSpy;
@@ -114,32 +112,9 @@ export async function buildRiskPayload(options: RiskStackOptions): Promise<RiskP
       stalenessSeconds: 0,
     },
     warning: hySpreadFallback ? warning : !vixHistory.length ? "Schwab VIX history unavailable; using SPY realized-vol proxy." : "",
-    hySpreadSource: hySpreadFallback ? "fallback_default_450" : "fred",
+    hySpreadSource: "fallback_default_450",
     hySpreadFallback,
   };
-}
-
-async function fetchFredSeries(
-  fetchJson: <T>(url: string, init?: RequestInit) => Promise<T>,
-  fredApiKey: string,
-  seriesId: string,
-  lookbackDays: number,
-): Promise<Array<{ date: string; value: number }>> {
-  const end = new Date();
-  const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-  const url = new URL("https://api.stlouisfed.org/fred/series/observations");
-  url.searchParams.set("series_id", seriesId);
-  url.searchParams.set("file_type", "json");
-  url.searchParams.set("observation_start", start.toISOString().slice(0, 10));
-  url.searchParams.set("observation_end", end.toISOString().slice(0, 10));
-  if (fredApiKey.trim()) {
-    url.searchParams.set("api_key", fredApiKey.trim());
-  }
-  const payload = await fetchJson<Record<string, unknown>>(url.toString(), { headers: { accept: "application/json" } });
-  const observations = ((payload.observations as Record<string, unknown>[] | undefined) ?? [])
-    .map((row) => ({ date: String(row.date ?? ""), value: toNumber(row.value) }))
-    .filter((row): row is { date: string; value: number } => Boolean(row.date) && row.value != null);
-  return observations;
 }
 
 async function fetchPutCallHistory(
