@@ -351,6 +351,41 @@ function asObject(value: unknown): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 }
 
+const RETIRED_VACATION_DETAIL_TERMS = ["alpaca", "fred", "backtester"];
+
+function isRetiredVacationDetailTerm(value: unknown): boolean {
+  return typeof value === "string" && RETIRED_VACATION_DETAIL_TERMS.some((term) => value.toLowerCase().includes(term));
+}
+
+function sanitizeVacationValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => {
+        const object = asObject(item);
+        return !isRetiredVacationDetailTerm(object.key) && !isRetiredVacationDetailTerm(object.label);
+      })
+      .map(sanitizeVacationValue);
+  }
+
+  const object = asObject(value);
+  if (Object.keys(object).length === 0 || object !== value) return value;
+
+  const sanitized: JsonObject = {};
+  for (const [key, currentValue] of Object.entries(object)) {
+    if (isRetiredVacationDetailTerm(key)) continue;
+    sanitized[key] = sanitizeVacationValue(currentValue);
+  }
+  return sanitized;
+}
+
+export function sanitizeVacationDetail(systemKey: string, detail: JsonObject): JsonObject {
+  const sanitized = sanitizeVacationValue(detail) as JsonObject;
+  if (systemKey === "financial_external_services") {
+    sanitized.summary = "Schwab market-data ops readiness checked.";
+  }
+  return sanitized;
+}
+
 function readVacationConfig(): VacationConfig {
   return JSON.parse(fs.readFileSync(VACATION_CONFIG_PATH, "utf8")) as VacationConfig;
 }
@@ -428,7 +463,7 @@ function mapCheck(row: RawCheckRow, config: VacationConfig): VacationCheck {
     remediationSucceeded: Boolean(row.remediation_succeeded),
     autonomyIncidentId: row.autonomy_incident_id,
     incidentKey: row.incident_key,
-    detail: asObject(row.detail),
+    detail: sanitizeVacationDetail(row.system_key, asObject(row.detail)),
   };
 }
 

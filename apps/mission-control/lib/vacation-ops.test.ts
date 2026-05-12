@@ -5,6 +5,7 @@ import {
   deriveVacationDisplayMode,
   formatVacationSystemLabel,
   formatVacationWindowLabel,
+  sanitizeVacationDetail,
 } from "@/lib/vacation-ops";
 
 describe("vacation ops helpers", () => {
@@ -16,6 +17,41 @@ describe("vacation ops helpers", () => {
   it("formats vacation window labels into operator dates", () => {
     expect(formatVacationWindowLabel("vacation-2026-04-13")).toBe("04-13-2026");
     expect(formatVacationWindowLabel("custom-label")).toBe("custom-label");
+  });
+
+  it("removes retired trading providers from vacation readiness details", () => {
+    expect(sanitizeVacationDetail("financial_external_services", {
+      summary: "Alpaca, CoinMarketCap, and FRED are healthy or configured.",
+      services: [
+        { key: "alpaca", label: "Alpaca", status: "green" },
+        { key: "coinmarketcap", label: "CoinMarketCap", status: "green" },
+        { key: "fred", label: "FRED", status: "green" },
+      ],
+      marketDataOps: {
+        status: "ok",
+        providerMode: "schwab_primary",
+        providerMetrics: {
+          sourceUsage: {
+            alpaca: 5,
+            schwab: 10,
+          },
+        },
+      },
+    })).toEqual({
+      summary: "Schwab market-data ops readiness checked.",
+      services: [
+        { key: "coinmarketcap", label: "CoinMarketCap", status: "green" },
+      ],
+      marketDataOps: {
+        status: "ok",
+        providerMode: "schwab_primary",
+        providerMetrics: {
+          sourceUsage: {
+            schwab: 10,
+          },
+        },
+      },
+    });
   });
 
   it("treats completed windows as inactive display state", () => {
