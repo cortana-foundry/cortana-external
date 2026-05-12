@@ -31,7 +31,33 @@ type Settlement = Record<string, unknown> & {
   window?: string;
   status?: string;
   alpha_vs_spy_pct?: number;
+  raw_return_pct?: number;
   return_pct?: number;
+};
+
+type CodexRoleReview = {
+  role: "price_action" | "fundamentals" | "news_sentiment" | "risk" | "final_judge";
+  stance: "bullish" | "bearish" | "neutral" | "mixed";
+  confidence: number;
+  summary: string;
+  evidence_used: string[];
+  bull_points: string[];
+  bear_points: string[];
+  missing_evidence: string[];
+};
+
+type CodexStructuredReview = {
+  schema_version?: "market-lab-codex-review/v1";
+  verdict: "trusted" | "uncertain" | "blocked";
+  confidence: number;
+  horizon: "1d" | "5d" | "20d" | "mixed";
+  summary: string;
+  hard_gate_assessment: string;
+  context_quality: string;
+  missing_context: string[];
+  roles: CodexRoleReview[];
+  what_would_change_verdict: string[];
+  operator_note: string;
 };
 
 type RunDetail = {
@@ -46,6 +72,7 @@ type RunDetail = {
       status?: string;
       summary?: string;
       verdict?: "trusted" | "uncertain" | "blocked" | null;
+      structured?: CodexStructuredReview | null;
       output_path?: string | null;
       session_id?: string | null;
     } | null;
@@ -119,6 +146,30 @@ const severityChip = (severity?: string, code?: string) => {
 const asMoney = (value?: number) =>
   typeof value === "number" ? `$${value.toFixed(2)}` : "—";
 
+const asPercent = (value?: number) =>
+  typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
+
+const roleLabel = (role: CodexRoleReview["role"]) =>
+  ({
+    price_action: "Price action",
+    fundamentals: "Fundamentals",
+    news_sentiment: "News and sentiment",
+    risk: "Risk",
+    final_judge: "Final judge",
+  })[role];
+
+const describeSettlements = (settlements: Settlement[]) => {
+  if (settlements.length === 0) return "Settlement checked. No settlement windows were returned.";
+  const counts = settlements.reduce<Record<string, number>>((acc, settlement) => {
+    const status = String(settlement.status ?? "unknown");
+    acc[status] = (acc[status] ?? 0) + 1;
+    return acc;
+  }, {});
+  return `Settlement checked: ${Object.entries(counts)
+    .map(([status, count]) => `${count} ${status}`)
+    .join(", ")}.`;
+};
+
 const formatRunTime = (iso?: string) => {
   if (!iso) return "—";
   const date = new Date(iso);
@@ -168,6 +219,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [codexStatus, setCodexStatus] = useState<string | null>(null);
+  const [settlementStatus, setSettlementStatus] = useState<string | null>(null);
   const [tapeMode, setTapeMode] = useState<TapeMode>("recent");
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 
@@ -230,6 +282,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
+    setSettlementStatus(null);
     try {
       await loadRuns();
       if (selectedRunId) {
@@ -264,6 +317,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     setLoading(true);
     setError(null);
     setCodexStatus(null);
+    setSettlementStatus(null);
     try {
       const result = await api<{ run_id: string }>("/api/market-lab/runs", {
         method: "POST",
@@ -283,11 +337,35 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     if (!selectedRunId) return;
     setLoading(true);
     setError(null);
+    setSettlementStatus(null);
     try {
-      await api(`/api/market-lab/runs/${encodeURIComponent(selectedRunId)}/settle`, { method: "POST" });
+      const result = await api<{ settlements: Settlement[] }>(
+        `/api/market-lab/runs/${encodeURIComponent(selectedRunId)}/settle`,
+        { method: "POST" },
+      );
+      setSettlementStatus(describeSettlements(result.settlements ?? []));
       await loadRunDetail(selectedRunId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to settle run");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const settleDue = async () => {
+    setLoading(true);
+    setError(null);
+    setSettlementStatus(null);
+    try {
+      const result = await api<{ settled_run_ids: string[] }>("/api/market-lab/settle-due", { method: "POST" });
+      const count = result.settled_run_ids?.length ?? 0;
+      setSettlementStatus(count === 0 ? "Settle due checked: no due windows right now." : `Settle due updated ${count} run${count === 1 ? "" : "s"}.`);
+      await loadRuns();
+      if (selectedRunId) {
+        await loadRunDetail(selectedRunId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to settle due windows");
     } finally {
       setLoading(false);
     }
@@ -298,6 +376,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     setLoading(true);
     setError(null);
     setCodexStatus(null);
+    setSettlementStatus(null);
     try {
       const result = await api<{ streamId: string; packet_path: string }>(
         `/api/market-lab/runs/${encodeURIComponent(selectedRunId)}/codex-review`,
@@ -312,6 +391,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   };
 
   const review = detail?.review;
+  const structuredCodex = review?.codex_review?.structured ?? null;
   const verdict: Verdict = (review?.trust_verdict ?? selectedRun?.trust_verdict ?? "uncertain") as Verdict;
   const meta = verdictMeta[verdict];
   const VerdictIcon = meta.icon;
@@ -326,7 +406,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const priceSource = review?.price_facts?.source;
   const priceBasis = review?.price_facts?.price_basis;
   const spySource = review?.spy_facts?.source;
-  const codexState = review?.codex_review?.verdict ?? review?.codex_review?.status ?? "not requested";
+  const codexState = structuredCodex?.verdict ?? review?.codex_review?.verdict ?? review?.codex_review?.status ?? "not requested";
 
   return (
     <div
@@ -370,6 +450,16 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
               Refresh
             </Button>
+            <Button
+              variant="outline"
+              onClick={settleDue}
+              disabled={loading}
+              size="sm"
+              className="h-8 gap-1.5 px-3 font-mono text-xs uppercase tracking-wider"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              Settle due
+            </Button>
           </div>
         </div>
       </section>
@@ -379,6 +469,9 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
       ) : null}
       {codexStatus ? (
         <div className="mt-3 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200">{codexStatus}</div>
+      ) : null}
+      {settlementStatus ? (
+        <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">{settlementStatus}</div>
       ) : null}
 
       {/* ── Body: tape + decision area ── */}
@@ -597,14 +690,39 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</span>
-                  <span className="text-xs font-semibold">{codexState}</span>
+                  <span className="text-xs font-semibold">
+                    {codexState}
+                    {structuredCodex ? ` · ${asPercent(structuredCodex.confidence)} · ${structuredCodex.horizon.toUpperCase()}` : ""}
+                  </span>
                 </div>
                 <p className="font-sans text-xs leading-5 text-muted-foreground">
-                  {review?.codex_review?.summary ?? "Use Ask Codex to request an operator-readable critique."}
+                  {structuredCodex?.summary ?? review?.codex_review?.summary ?? "Use Ask Codex to request an operator-readable critique."}
                 </p>
                 {review?.codex_review?.session_id ? (
                   <div className="truncate text-[10px] text-muted-foreground/80">
                     session: {review.codex_review.session_id}
+                  </div>
+                ) : null}
+                {structuredCodex ? (
+                  <div className="space-y-2 pt-2">
+                    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Context quality</div>
+                      <p className="mt-1 font-sans text-xs leading-5 text-muted-foreground">{structuredCodex.context_quality}</p>
+                      {structuredCodex.missing_context.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {structuredCodex.missing_context.map((item) => (
+                            <span key={item} className="rounded border border-border/60 px-1.5 py-px text-[9px] uppercase tracking-wider text-muted-foreground">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-1">
+                      {structuredCodex.roles.map((role) => (
+                        <CodexRoleRow key={role.role} role={role} />
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -619,8 +737,8 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                   >
                     <span className="text-xs font-bold uppercase">{String(settlement.window)}</span>
                     <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {settlement.return_pct != null
-                        ? `${Number(settlement.return_pct).toFixed(2)}% · vs SPY ${
+                      {settlement.raw_return_pct != null || settlement.return_pct != null
+                        ? `${Number(settlement.raw_return_pct ?? settlement.return_pct).toFixed(2)}% · vs SPY ${
                             settlement.alpha_vs_spy_pct != null
                               ? `${Number(settlement.alpha_vs_spy_pct).toFixed(2)}%`
                               : "—"
@@ -971,6 +1089,25 @@ function SymbolHistory({
   );
 }
 
+function CodexRoleRow({ role }: { role: CodexRoleReview }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold">{roleLabel(role.role)}</span>
+        <span className="rounded border border-border/60 px-1.5 py-px text-[9px] uppercase tracking-wider text-muted-foreground">
+          {role.stance} · {asPercent(role.confidence)}
+        </span>
+      </div>
+      <p className="mt-1 font-sans text-xs leading-5 text-muted-foreground">{role.summary}</p>
+      {role.missing_evidence.length ? (
+        <div className="mt-1 truncate text-[10px] text-muted-foreground/80">
+          missing: {role.missing_evidence.join(", ")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function InsightList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
     <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
@@ -989,4 +1126,3 @@ function InsightList({ title, items, empty }: { title: string; items: string[]; 
     </div>
   );
 }
-

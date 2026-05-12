@@ -9,9 +9,13 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from .models import CodexReview, ReviewArtifact, RunRecord, RunStatus, TimelineEvent, TrustVerdict, model_to_json
+from .models import CodexReview, CodexStructuredReview, ReviewArtifact, RunRecord, RunStatus, TimelineEvent, TrustVerdict, model_to_json
 
 _CODEX_VERDICT_RE = re.compile(r"^\s*Verdict\s*:\s*(trusted|blocked|uncertain)\b", re.IGNORECASE | re.MULTILINE)
+_CODEX_STRUCTURED_RE = re.compile(
+    r"```json\s+market-lab-codex-review/v1\s*(\{.*?\})\s*```",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def utc_now() -> datetime:
@@ -47,6 +51,14 @@ def parse_codex_verdict(text: str) -> TrustVerdict | None:
     if not match:
         return None
     return TrustVerdict(match.group(1).lower())
+
+
+def parse_structured_codex_review(text: str) -> CodexStructuredReview | None:
+    match = _CODEX_STRUCTURED_RE.search(text)
+    if not match:
+        return None
+    payload = json.loads(match.group(1))
+    return CodexStructuredReview.model_validate(payload)
 
 
 class MarketLabStore:
@@ -287,12 +299,20 @@ class MarketLabStore:
         text = path.read_text(encoding="utf-8").strip()
         first_line = next((line.strip() for line in text.splitlines() if line.strip()), "Codex review attached.")
         artifact = ReviewArtifact.model_validate(raw)
+        structured: CodexStructuredReview | None = None
+        parse_warning: str | None = None
+        try:
+            structured = parse_structured_codex_review(text)
+        except Exception as exc:
+            parse_warning = str(exc)
+        verdict = structured.verdict if structured else parse_codex_verdict(text)
         artifact = artifact.model_copy(
             update={
                 "codex_review": CodexReview(
                     status="attached",
-                    summary=first_line[:240],
-                    verdict=parse_codex_verdict(text),
+                    summary=(structured.summary if structured else first_line)[:240],
+                    verdict=verdict,
+                    structured=structured,
                     output_path=str(path),
                     session_id=session_id,
                 ),
@@ -301,6 +321,12 @@ class MarketLabStore:
         )
         self.write_review(artifact)
         self.append_event(run_id, "codex_review_attached", f"Codex review attached from {path}.")
+        if parse_warning:
+            self.append_event(
+                run_id,
+                "codex_review_parse_warning",
+                f"Structured Codex review was not parsed: {parse_warning}",
+            )
         return artifact
 
     def upsert_settlement(self, run_id: str, window: str, values: dict[str, Any]) -> None:

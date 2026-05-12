@@ -22,7 +22,31 @@ const detail = {
     interpretation: { summary: "Blocked because price data is stale." },
     price_facts: { price: 123.45, source: "fake", price_basis: "live" },
     spy_facts: { price: 500.0, source: "fake" },
-    codex_review: { status: "attached", summary: "Codex says keep this blocked.", session_id: "session-1" },
+    codex_review: {
+      status: "attached",
+      summary: "Codex says keep this blocked.",
+      verdict: "blocked",
+      session_id: "session-1",
+      structured: {
+        schema_version: "market-lab-codex-review/v1",
+        verdict: "blocked",
+        confidence: 0.86,
+        horizon: "5d",
+        summary: "Codex says keep this blocked.",
+        hard_gate_assessment: "A deterministic stale-price blocker is present.",
+        context_quality: "Price evidence is stale, so the review is blocked before analyst debate.",
+        missing_context: ["fresh_price"],
+        roles: [
+          { role: "price_action", stance: "bearish", confidence: 0.9, summary: "Price is stale.", evidence_used: ["price_data_stale"], bull_points: [], bear_points: ["Fresh price gate failed."], missing_evidence: ["fresh_price"] },
+          { role: "fundamentals", stance: "neutral", confidence: 0.4, summary: "Fundamentals are not decisive.", evidence_used: [], bull_points: [], bear_points: [], missing_evidence: ["fundamentals"] },
+          { role: "news_sentiment", stance: "neutral", confidence: 0.4, summary: "News is not decisive.", evidence_used: [], bull_points: [], bear_points: [], missing_evidence: ["news"] },
+          { role: "risk", stance: "bearish", confidence: 0.92, summary: "Risk blocks this review.", evidence_used: ["checks"], bull_points: [], bear_points: ["Blocker check exists."], missing_evidence: [] },
+          { role: "final_judge", stance: "bearish", confidence: 0.86, summary: "The committee blocks the review.", evidence_used: ["price_action", "risk"], bull_points: [], bear_points: ["Required data is stale."], missing_evidence: ["fresh_price"] },
+        ],
+        what_would_change_verdict: ["Fresh Schwab price evidence."],
+        operator_note: "Review-only note. Do not execute from this review.",
+      },
+    },
     artifact_paths: {
       review: "/tmp/review.json",
       events: "/tmp/events.jsonl",
@@ -40,6 +64,12 @@ describe("MarketLabClient", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes("/settle-due") && init?.method === "POST") {
+        return Response.json({ status: "ok", data: { settled_run_ids: ["mlab_test_AAPL"] } });
+      }
+      if (String(url).includes("/settle") && init?.method === "POST") {
+        return Response.json({ status: "ok", data: { settlements: [{ window: "1d", status: "not_due" }] } });
+      }
       if (String(url).includes("/codex-review") && init?.method === "POST") {
         return Response.json(
           { status: "ok", data: { streamId: "stream-1", packet_path: "/tmp/codex-review-packet.md" } },
@@ -67,6 +97,8 @@ describe("MarketLabClient", () => {
     expect(screen.getAllByText("blocked").length).toBeGreaterThan(0);
     expect(screen.getByText("Run done")).toBeInTheDocument();
     expect(screen.getByText("Codex says keep this blocked.")).toBeInTheDocument();
+    expect(screen.getByText("Price action")).toBeInTheDocument();
+    expect(screen.getByText("Price evidence is stale, so the review is blocked before analyst debate.")).toBeInTheDocument();
     expect(screen.getByText("/tmp/review.json")).toBeInTheDocument();
     expect(screen.getByText("/tmp/codex-review-packet.md")).toBeInTheDocument();
   });
@@ -85,6 +117,46 @@ describe("MarketLabClient", () => {
         }),
       );
     });
+  });
+
+  it("does not ask Codex automatically after a run starts", async () => {
+    render(<MarketLabClient />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/market-lab/runs",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const codexPosts = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url, init]) => String(url).includes("/codex-review") && init?.method === "POST");
+    expect(codexPosts).toHaveLength(0);
+  });
+
+  it("reports per-run settlement results", async () => {
+    render(<MarketLabClient />);
+
+    await screen.findByText("Blocked because price data is stale.");
+    fireEvent.click(screen.getByRole("button", { name: /^settle$/i }));
+
+    expect(await screen.findByText("Settlement checked: 1 not_due.")).toBeInTheDocument();
+  });
+
+  it("runs settle-due from the UI", async () => {
+    render(<MarketLabClient />);
+
+    await screen.findByText("Blocked because price data is stale.");
+    fireEvent.click(screen.getByRole("button", { name: /settle due/i }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/market-lab/settle-due",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Settle due updated 1 run.")).toBeInTheDocument();
   });
 
   it("starts a Codex-assisted review for the selected run", async () => {
