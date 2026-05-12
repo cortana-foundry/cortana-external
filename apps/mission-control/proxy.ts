@@ -8,7 +8,6 @@ type MachineRule = {
 
 const MACHINE_RULES = new Map<string, MachineRule>([
   ["/api/openclaw/subagent-events", { methods: ["POST"], additionalTokens: () => [process.env.OPENCLAW_EVENT_TOKEN] }],
-  ["/api/github/post-merge-task-autoclose", { methods: ["POST"], additionalTokens: () => [process.env.GITHUB_MERGE_HOOK_TOKEN] }],
   ["/api/council/jobs/deliberate", { methods: ["POST"], additionalTokens: () => [process.env.MISSION_CONTROL_CRON_TOKEN] }],
   ["/api/feedback/ingest", { methods: ["POST"] }],
   ["/api/approvals/ingest", { methods: ["POST"] }],

@@ -56,8 +56,6 @@ This runs Mission Control through the launchd-managed local app path instead of 
 - `pnpm db:deploy` — deploy migrations in production
 - `pnpm db:seed` — load starter agents/runs/events
 - `pnpm db:generate` — regenerate Prisma client
-- `pnpm task-autoclose:post-merge` — close mapped `cortana_tasks` for a merged PR and enforce verification gate
-- `pnpm test:task-autoclose` — regression test for PR→task mapping
 
 Use `scripts/restart-mission-control.sh` for the launchd-managed local app.
 That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears stale Mission Control `next-server` processes, waits for `/api/heartbeat-status`, and can run the Trading Ops smoke guard.
@@ -121,7 +119,6 @@ That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears s
 - `GET /api/trading-ops/polymarket/live/stream` — Polymarket SSE stream
 - `POST /api/trading-ops/polymarket/pins` / `DELETE /api/trading-ops/polymarket/pins/:marketSlug` — pinned-market mutations
 - `POST /api/openclaw/subagent-events` — OpenClaw sub-agent lifecycle ingestion (queued/running/done/failed/timeout/killed)
-- `POST /api/github/post-merge-task-autoclose` — webhook endpoint for merged PR task auto-closure + verification gate
 
 ## Pages
 - `/` — Dashboard with stats, agent health widgets, runs table, and alerts feed
