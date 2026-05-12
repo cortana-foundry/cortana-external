@@ -11,11 +11,8 @@ type AgentStatusRow = {
   last_active: Date | null;
 };
 
-const COVENANT_AGENTS = [
-  { name: "Huragok", role: "systems engineering" },
-  { name: "Researcher", role: "research" },
+const OPENCLAW_AGENTS = [
   { name: "Monitor", role: "patterns" },
-  { name: "Oracle", role: "prediction" },
   { name: "Librarian", role: "knowledge" },
 ] as const;
 
@@ -39,10 +36,7 @@ const toRelativeTime = (lastActive: Date | null) => {
 const QUERY = `
   WITH agents(name, role) AS (
     VALUES
-      ('Huragok', 'systems engineering'),
-      ('Researcher', 'research'),
       ('Monitor', 'patterns'),
-      ('Oracle', 'prediction'),
       ('Librarian', 'knowledge')
   )
   SELECT
@@ -81,7 +75,7 @@ export async function GET() {
     }
 
     const byName = new Map(rows.map((row) => [row.name, row]));
-    const agents = COVENANT_AGENTS.map(({ name, role }) => {
+    const agents = OPENCLAW_AGENTS.map(({ name, role }) => {
       const row = byName.get(name);
       const lastActive = row?.last_active ?? null;
 
