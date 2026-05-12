@@ -124,7 +124,7 @@ Tests:
 
 ## Vertical 4 - Mission Control Rendering
 
-Outcome: Market Lab UI reads the structured schema and shows a useful analyst committee.
+Outcome: Market Lab UI reads the structured schema, shows a useful analyst committee, and keeps Codex review as an explicit operator action.
 
 Files:
 
@@ -139,6 +139,8 @@ Tasks:
 - Add context quality strip: what Codex used and what was missing.
 - Add role cards: price action, fundamentals, news/sentiment, risk, final judge.
 - Add role confidence and evidence-used rendering.
+- Keep `Ask Codex` manual by default.
+- Show Codex review state as not requested, requested, attached, or failed.
 - Keep current markdown summary fallback for old runs.
 - Keep debug artifact paths collapsed by default.
 
@@ -181,6 +183,7 @@ In scope:
 - structured Codex review schema
 - richer bounded Codex context packet
 - role-based prompt output
+- manual `Ask Codex` guardrail
 - parsing/attachment
 - Mission Control rendering
 - tests and manual smoke
@@ -193,3 +196,4 @@ Out of scope:
 - batch scanner
 - historical backtesting
 - paid API mode for TradingAgents
+- automatic Codex review by default

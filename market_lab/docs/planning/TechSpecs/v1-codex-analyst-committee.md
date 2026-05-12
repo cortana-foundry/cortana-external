@@ -200,6 +200,14 @@ No scheduler change. V1 remains operator-triggered:
 3. Codex writes and attaches `codex-review.md`.
 4. Mission Control refreshes and renders structured committee output.
 
+Automation policy:
+
+- V1 must not automatically ask Codex after every run.
+- `Ask Codex` remains a deliberate operator action.
+- Automatic Codex review can be considered later only behind an explicit opt-in setting such as `auto_codex_review: false`.
+- Future auto-review must require hard gates to pass and should skip blocked runs unless explicitly debugging.
+- Mission Control should expose review state clearly: `not_requested`, `requested`, `attached`, or `failed`.
+
 ---
 
 ## Test Plan
@@ -245,6 +253,7 @@ Manual:
 | UI becomes too dense | Render final judge first; collapse raw/debug content. |
 | Codex over-trusts thin data | Deterministic blockers remain authoritative; optional gaps remain visible. |
 | Codex invents missing facts | Packet explicitly forbids inference; schema requires `missing_context` and `evidence_used`. |
+| Codex burns context on low-value runs | Keep V1 operator-triggered; defer auto-review until settlement data supports it. |
 | Schema changes break older runs | Treat `structured` as optional and maintain fallback rendering. |
 
 ---

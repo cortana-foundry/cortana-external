@@ -35,6 +35,8 @@ Prove that Codex-assisted Market Lab reviews are structured, role-based, context
 | UI | Structured review loaded | Final judge, confidence, horizon, and role cards render. |
 | UI | Structured review loaded | Context quality and missing context render. |
 | UI | Old review loaded | Existing markdown summary fallback still renders. |
+| UI | Run completes without clicking `Ask Codex` | Codex review remains `not_requested`; no session is started automatically. |
+| UI | Operator clicks `Ask Codex` | Codex review state moves through requested/attached or failed. |
 | Safety | Deterministic blocker exists | UI/prompt preserves blocked hard-gate state. |
 | Safety | Codex review sounds optimistic with thin context | UI still exposes missing context and does not hide hard gates. |
 
@@ -92,7 +94,21 @@ Expected:
 
 ---
 
-### Scenario 2 - Markdown Fallback
+### Scenario 2 - Codex Is Not Automatic
+
+1. Run a new review.
+2. Do not click `Ask Codex`.
+3. Refresh Market Lab.
+
+Expected:
+
+- No Codex session starts automatically.
+- `codex_review` remains empty or `not_requested`.
+- UI makes the manual `Ask Codex` action obvious.
+
+---
+
+### Scenario 3 - Markdown Fallback
 
 1. Create or use a run.
 2. Attach a markdown-only Codex review with a `Verdict:` line.
@@ -106,7 +122,7 @@ Expected:
 
 ---
 
-### Scenario 3 - Hard Gate Cannot Be Overridden
+### Scenario 4 - Hard Gate Cannot Be Overridden
 
 1. Use a fixture or fake market-data client that produces a stale market-hours quote.
 2. Build a Codex packet.
@@ -120,7 +136,7 @@ Expected:
 
 ---
 
-### Scenario 4 - Thin Context Is Not Over-Trusted
+### Scenario 5 - Thin Context Is Not Over-Trusted
 
 1. Use a run with fresh price data but missing optional news/sentiment/fundamental context.
 2. Build the Codex packet.
@@ -139,6 +155,7 @@ Expected:
 
 - Existing V0 runs without structured Codex data still render.
 - `Ask Codex` route still starts sessions.
+- Market Lab run creation does not automatically start Codex sessions.
 - `attach-codex-review` still supports existing markdown reviews.
 - Settlement display still works.
 - No old backtester dependency is introduced.
@@ -158,3 +175,4 @@ V1 is ready for implementation review when:
 - old markdown-only artifacts remain readable
 - hard-gate precedence is demonstrated in tests
 - thin-context behavior is visible and test-covered
+- auto-Codex is proven disabled by default

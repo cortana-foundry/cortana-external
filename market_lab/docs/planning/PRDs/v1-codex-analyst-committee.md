@@ -105,6 +105,7 @@ V1 does not include:
 - broker execution
 - paper trading
 - Telegram alerts
+- automatic Codex review on every run
 - multi-symbol scans
 - historical backtesting
 - old backtester resurrection
@@ -123,6 +124,7 @@ V1 does not include:
 | Evidence Context Packet | Codex must receive a bounded context packet with price, SPY reference, market-hours basis, recent movement, risk flags, missing evidence, and prior same-symbol runs when available. |
 | Evidence-Cited Roles | Each role must cite the evidence it used, what evidence is missing, and what would change its stance. |
 | Packet Shape Replacement | V1 must replace the current free-form markdown packet with a role-based structured JSON packet/output contract. |
+| Operator-Triggered Codex | V1 must keep Codex review manual by default through `Ask Codex`; automatic review is a future opt-in, not default behavior. |
 | Artifact Persistence | Parsed Codex schema must be saved into `review.json`, not only markdown. |
 | Mission Control Rendering | Market Lab UI must show role panels and final judge details. |
 | Comparison-Ready Fields | Review artifacts must expose fields that later comparison/scoring code can aggregate. |
@@ -143,6 +145,7 @@ V1 does not include:
 | Accepted | As Hamel, I want the fields stored in a way future settlement analytics can use. | Prepare for V2 comparison/scoring. |
 | Accepted | As Hamel, I want the product to state plainly that Codex is not automatically trusted. | Trust comes from evidence, admitted gaps, confidence, and later performance. |
 | Accepted | As Hamel, I want Codex to see richer context before giving a verdict. | Context should stay bounded and review-only. |
+| Accepted | As Hamel, I want Codex review to stay operator-triggered until the system proves it deserves automation. | Prevents context waste and premature trust. |
 
 ---
 
@@ -202,5 +205,6 @@ V1 must force the analyst-role contract instead.
 - No paper trading.
 - No stale data trust.
 - No trusting Codex because it sounds persuasive.
+- No automatic Codex review by default.
 - No hidden prompt-only schema. If the UI depends on it, the artifact contract must define it.
 - No old backtester imports or artifacts.
