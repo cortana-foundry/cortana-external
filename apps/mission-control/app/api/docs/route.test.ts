@@ -20,8 +20,6 @@ import { GET } from "@/app/api/docs/route";
 const makeRequest = (query = "") => new Request(`http://localhost/api/docs${query}`);
 const repoRoot = path.resolve(process.cwd(), "..", "..");
 const externalDocsRoot = path.join(repoRoot, "docs");
-const backtesterRoot = path.join(repoRoot, "backtester");
-const backtesterDocsRoot = path.join(backtesterRoot, "docs");
 const openClawDocsRoot = "/Users/hd/Developer/cortana/docs";
 
 const fileEntry = (name: string) => ({
@@ -204,31 +202,5 @@ describe("GET /api/docs", () => {
       name: "a.md",
       content: "content",
     });
-  });
-
-  it("keeps backtester root README and docs README distinct", async () => {
-    mockDirectoryTree({
-      [backtesterDocsRoot]: [fileEntry("README.md")],
-    });
-    fsMocks.stat.mockResolvedValueOnce({ isFile: () => true });
-
-    const response = await GET(makeRequest());
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.files).toEqual([
-      {
-        id: "Backtester Docs:backtester-README.md",
-        name: "backtester-README.md",
-        path: path.join(backtesterRoot, "README.md"),
-        section: "Backtester Docs",
-      },
-      {
-        id: "Backtester Docs:README.md",
-        name: "README.md",
-        path: path.join(backtesterDocsRoot, "README.md"),
-        section: "Backtester Docs",
-      },
-    ]);
   });
 });

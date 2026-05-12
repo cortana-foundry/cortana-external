@@ -126,7 +126,6 @@ function listFailingProviders(body: Record<string, unknown>): string[] {
   const providers: Array<[string, string]> = [
     ["whoop", "Whoop"],
     ["tonal", "Tonal"],
-    ["alpaca", "Alpaca"],
     ["appleHealth", "Apple Health"],
     ["marketData", "Market data"],
     ["polymarket", "Polymarket"],
@@ -203,7 +202,7 @@ export async function getExternalHealth(baseUrl: string): Promise<WorkspaceHealt
           const failingProviders = listFailingProviders(body);
           return failingProviders.length > 0
             ? `Failing providers: ${failingProviders.join(", ")}.`
-            : "Aggregate health across Whoop, Tonal, Alpaca, and market data.";
+            : "Aggregate health across Whoop, Tonal, market data, and Polymarket.";
         })()
       : result.error ?? "Health endpoint returned an error.",
     checkedAt: new Date().toISOString(),
@@ -460,28 +459,6 @@ export async function getSchwabStreamerHealth(baseUrl: string): Promise<Workspac
   };
 }
 
-export async function getAlpacaHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
-  const result = await fetchJson(`${baseUrl}/alpaca/health`);
-  const body = readObject(result.body);
-  const status = String(body.status ?? (result.ok ? "healthy" : "unknown"));
-
-  return {
-    id: "alpaca",
-    label: "Alpaca",
-    tone: toneFromExternalStatus(status),
-    summary:
-      status === "healthy"
-        ? `${String(body.environment ?? "connected")} · ${String(body.target_environment ?? "target unset")}`
-        : status,
-    detail:
-      typeof body.error === "string"
-        ? body.error
-        : "Execution-side broker health and account reachability.",
-    checkedAt: new Date().toISOString(),
-    raw: body,
-  };
-}
-
 export async function getPolymarketHealth(baseUrl: string): Promise<WorkspaceHealthItem> {
   const result = await fetchJson(`${baseUrl}/polymarket/health`);
   const body = readObject(result.body);
@@ -515,7 +492,6 @@ export async function getAllHealthItems(baseUrl: string): Promise<WorkspaceHealt
     getSchwabStreamerHealth(baseUrl),
     getWhoopHealth(baseUrl),
     getTonalHealth(baseUrl),
-    getAlpacaHealth(baseUrl),
     getPolymarketHealth(baseUrl),
   ]);
 }

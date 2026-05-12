@@ -23,7 +23,7 @@ Mission Control should introduce a `TradingOpsReadModel` boundary that owns the 
 
 None required for the first refactor.
 
-The refactor should continue reading existing Mission Control DB state through `apps/mission-control/lib/trading-run-state.ts`, including the current `mc_trading_runs` backing store. If future work needs persistent read-model snapshots, that should be proposed separately after the boundary is in place.
+The legacy `mc_trading_runs` adapter has been retired with the old backtester surface. If future work needs persistent Market Lab read-model snapshots, that should be proposed separately after the boundary is in place.
 
 ---
 
@@ -51,7 +51,7 @@ None.
 
 ### Network/Security Changes
 
-None. Mission Control continues to read live trading data through the existing external-service boundary. The browser must not call Schwab, Alpaca, Polymarket, or backtester files directly.
+None. Mission Control continues to read live trading data through the existing external-service boundary. The browser must not call Schwab, Polymarket, or backtester files directly.
 
 ---
 
@@ -150,12 +150,6 @@ Target role: Polymarket aggregate adapter behind the read-model boundary.
 Current role: Polymarket live endpoint loader and normalization.
 
 Target role: Polymarket live adapter behind the read-model boundary.
-
-#### `apps/mission-control/lib/trading-run-state.ts`
-
-Current role: DB-backed latest-run state store, artifact sync, and DB-vs-artifact source resolution.
-
-Target role: completed-run source adapter used by the read model.
 
 #### `apps/mission-control/components/trading-ops-dashboard.tsx`
 

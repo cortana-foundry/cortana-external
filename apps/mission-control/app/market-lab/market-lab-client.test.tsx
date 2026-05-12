@@ -90,6 +90,7 @@ describe("MarketLabClient", () => {
   it("starts a Codex-assisted review for the selected run", async () => {
     render(<MarketLabClient />);
 
+    await screen.findByText("Blocked because price data is stale.");
     fireEvent.click(await screen.findByRole("button", { name: /ask codex/i }));
 
     await waitFor(() => {
@@ -99,5 +100,13 @@ describe("MarketLabClient", () => {
       );
     });
     expect(await screen.findByText("Codex review started: stream-1")).toBeInTheDocument();
+  });
+
+  it("renders inside a parent dashboard without page chrome", async () => {
+    render(<MarketLabClient embedded />);
+
+    await screen.findByText("Blocked because price data is stale.");
+
+    expect(screen.getByText("Forward-looking trust reviews")).toBeInTheDocument();
   });
 });

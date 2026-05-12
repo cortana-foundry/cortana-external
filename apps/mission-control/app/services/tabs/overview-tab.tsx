@@ -47,9 +47,7 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loadi
           <ServiceTile name="Schwab" description="Market data & brokerage" onClick={() => onSwitchTab("config")} />
           <ServiceTile name="Whoop" description="Recovery & sleep tracking" onClick={() => onSwitchTab("config")} />
           <ServiceTile name="Tonal" description="Strength training data" onClick={() => onSwitchTab("config")} />
-          <ServiceTile name="Alpaca" description="Paper/live trade execution" onClick={() => onSwitchTab("config")} />
           <ServiceTile name="CoinMarketCap" description="Crypto market data" onClick={() => onSwitchTab("config")} />
-          <ServiceTile name="FRED" description="Federal Reserve economic data" onClick={() => onSwitchTab("config")} />
         </div>
       </SectionCard>
 

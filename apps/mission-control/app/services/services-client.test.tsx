@@ -35,7 +35,6 @@ describe("ServicesClient", () => {
               item("schwab-streamer", "Schwab Streamer"),
               item("whoop", "Whoop"),
               item("tonal", "Tonal"),
-              item("alpaca", "Alpaca"),
               item("polymarket", "Polymarket"),
             ],
           },
@@ -54,7 +53,6 @@ describe("ServicesClient", () => {
     expect(await screen.findByText("Schwab REST")).toBeInTheDocument();
     expect(screen.getByText("Schwab Streamer")).toBeInTheDocument();
     expect(screen.getByText("Polymarket")).toBeInTheDocument();
-    expect(screen.getByText("Alpaca")).toBeInTheDocument();
     expect(screen.queryByText(/more health checks/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /schwab streamer oauth/i }));

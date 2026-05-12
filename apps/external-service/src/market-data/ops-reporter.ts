@@ -8,7 +8,6 @@ import type { SchwabStreamerRuntime } from "./schwab-streamer-runtime.js";
 interface HealthReportArgs {
   coinMarketCapConfigured: boolean;
   schwabConfigured: boolean;
-  fredConfigured: boolean;
   streamerRuntime: SchwabStreamerRuntime;
   providerMetrics: ProviderMetrics;
   universeSourceLadder: string[];
@@ -46,7 +45,6 @@ export async function buildHealthReport(args: HealthReportArgs): Promise<Record<
       schwabStreamerSharedStateUpdatedAt: sharedState?.updatedAt ?? null,
       schwabTokenStatus: args.providerMetrics.schwabTokenStatus,
       schwabTokenReason: args.providerMetrics.schwabTokenReason,
-      fred: args.fredConfigured ? "configured" : "unauthenticated",
       universeSourceLadder: args.universeSourceLadder,
       universeRemoteJsonUrl: args.universeRemoteJsonUrl || null,
       universeLocalJsonPath: args.universeLocalJsonPath,
@@ -69,9 +67,9 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
   const streamerConnected = Boolean((streamerHealth as { connected?: unknown } | null)?.connected);
   const restCooldownActive =
     args.serviceOperatorState === "provider_cooldown" || Boolean(args.providerMetrics.schwabCooldownUntil);
-  const historyLaneMode = restCooldownActive ? "cache_or_alpaca_fallback" : "schwab_primary";
+  const historyLaneMode = restCooldownActive ? "cache_fallback" : "schwab_primary";
   const historyLaneReason = restCooldownActive
-    ? "Schwab REST is cooling down, so history callers should prefer recent Schwab cache first and Alpaca only where explicitly allowed."
+    ? "Schwab REST is cooling down, so history callers should prefer recent Schwab cache where available."
     : "Schwab REST is healthy enough for primary history reads.";
   const liveQuoteLaneMode = streamerConnected ? "schwab_primary" : "schwab_streamer_stale_or_unavailable";
   const liveQuoteLaneReason = streamerConnected

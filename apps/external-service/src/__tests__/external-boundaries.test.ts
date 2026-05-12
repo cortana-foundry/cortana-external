@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateExitPerformance, mapTradeLedgerRow } from "../alpaca/trade-ledger.js";
 import { isFreshCache, jsonErrorResponse } from "../lib/cached-connector.js";
 import { providerLaneResult } from "../market-data/provider-lane.js";
 import {
@@ -20,20 +19,20 @@ describe("external service boundary helpers", () => {
   it("builds market-data lane envelopes", () => {
     const result = providerLaneResult(
       {
-        source: "alpaca",
+        source: "schwab",
         status: "ok",
         stalenessSeconds: 0,
-        providerMode: "alpaca_fallback",
-        fallbackEngaged: true,
-        providerModeReason: "fallback",
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "primary",
       },
       { rows: [{ close: 12 }] },
     );
 
     expect(result).toMatchObject({
-      source: "alpaca",
-      providerMode: "alpaca_fallback",
-      fallbackEngaged: true,
+      source: "schwab",
+      providerMode: "schwab_primary",
+      fallbackEngaged: false,
       rows: [{ close: 12 }],
     });
   });
@@ -61,38 +60,6 @@ describe("external service boundary helpers", () => {
     const response = jsonErrorResponse(error);
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "expired" });
-  });
-
-  it("maps Alpaca ledger rows and exit performance", () => {
-    const performance = calculateExitPerformance(10, 3, 12);
-    expect(performance.pnl).toBe(6);
-    expect(performance.pnlPct).toBeCloseTo(20);
-    expect(mapTradeLedgerRow({
-      id: 7,
-      timestamp: new Date("2026-01-02T03:04:05Z"),
-      symbol: "AAPL",
-      side: "buy",
-      qty: 1,
-      notional: null,
-      entry_price: 10,
-      target_price: null,
-      stop_loss: null,
-      thesis: null,
-      signal_source: null,
-      status: "open",
-      exit_price: null,
-      exit_timestamp: null,
-      pnl: null,
-      pnl_pct: null,
-      outcome: null,
-      metadata: { source: "test" },
-    })).toMatchObject({
-      id: 7,
-      timestamp: "2026-01-02T03:04:05.000Z",
-      thesis: "",
-      signal_source: "",
-      status: "open",
-    });
   });
 
   it("supervises startup, maintenance, and shutdown without route/server state", async () => {

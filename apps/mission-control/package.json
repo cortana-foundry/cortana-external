@@ -11,10 +11,6 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "verify:score-progress": "tsx scripts/verify-score-progress.ts",
-    "check:trading-ops-smoke": "tsx scripts/check-trading-ops-smoke.ts",
-    "task-autoclose:post-merge": "tsx scripts/post-merge-task-autoclose.ts",
-    "test:task-autoclose": "tsx scripts/post-merge-task-autoclose.test.ts",
     "test": "NODE_ENV=test vitest run",
     "test:watch": "vitest"
   },

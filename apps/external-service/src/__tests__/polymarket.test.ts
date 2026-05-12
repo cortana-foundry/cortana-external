@@ -134,9 +134,6 @@ function createServices(overrides?: Partial<ExternalServices>): ExternalServices
       warmup: async () => {},
       proactiveRefreshIfExpiring: async () => {},
     } as unknown as ExternalServices["tonal"],
-    alpaca: {
-      checkHealth: async () => ({ status: "healthy" }),
-    } as unknown as ExternalServices["alpaca"],
     appleHealth: {
       handleHealth: async () => ({ status: 200, body: { status: "healthy" } }),
     } as unknown as ExternalServices["appleHealth"],
@@ -200,7 +197,6 @@ describe("buildAggregateHealth", () => {
     const result = buildAggregateHealth({
       whoop: { status: "healthy" },
       tonal: { status: "healthy" },
-      alpaca: { status: "healthy" },
       appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
       polymarket: { status: "unconfigured" },

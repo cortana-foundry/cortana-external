@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { getBacktesterRepoPath } from "@/lib/runtime-paths";
+import { getRepoRoot } from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,7 +43,7 @@ function resolveExternalServiceBaseUrl(): string {
     return explicit.replace(/\/+$/u, "");
   }
 
-  const repoRoot = path.resolve(getBacktesterRepoPath(), "..");
+  const repoRoot = getRepoRoot();
   const envPath = path.join(repoRoot, ".env");
   if (!fs.existsSync(envPath)) {
     return "http://127.0.0.1:3033";

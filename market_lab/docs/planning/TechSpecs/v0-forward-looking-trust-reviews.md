@@ -364,7 +364,7 @@ Update:
 apps/mission-control/components/sidebar.tsx
 ```
 
-Add a `Market Lab` nav item separate from `Trading Ops` so the new application does not inherit old backtester framing.
+Expose `Market Lab` as a first-class tab inside `Trading Ops` so the operator cockpit has one trading surface while the implementation stays isolated from legacy backtester internals.
 
 ---
 
@@ -431,7 +431,7 @@ Add a `Market Lab` nav item separate from `Trading Ops` so the new application d
 ## Process Changes
 
 - Add docs that Market Lab is a new application direction, not W15.
-- Keep old backtester runtime untouched for v0.
+- Keep legacy backtester runtime retired/deprecated; Market Lab owns the new trust-review path.
 - Use `uv run --project market_lab ...` for local Python execution.
 - Use existing Mission Control build/test flow after UI/API implementation:
 

@@ -51,7 +51,6 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
   SCHWAB_STREAMER_ACCOUNT_ACTIVITY_ENABLED: "1",
   SCHWAB_STREAMER_RECONNECT_JITTER_MS: 0,
-  FRED_API_KEY: "",
   WHOOP_CLIENT_ID: "",
   WHOOP_CLIENT_SECRET: "",
   WHOOP_REDIRECT_URL: "http://localhost:3033/auth/callback",
@@ -84,13 +83,21 @@ const TEST_CONFIG: AppConfig = {
   POLYMARKET_API_BASE_URL: "https://api.polymarket.us",
   POLYMARKET_REQUEST_TIMEOUT_MS: 15_000,
   POLYMARKET_PINNED_MARKETS_PATH: path.join(TEST_TEMP_ROOT, "pinned-markets.json"),
-  ALPACA_KEYS_PATH: "",
-  ALPACA_TARGET_ENVIRONMENT: "live",
   CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",
   EXTERNAL_SERVICE_TLS_PORT: 8182,
   EXTERNAL_SERVICE_TLS_CERT_PATH: "",
   EXTERNAL_SERVICE_TLS_KEY_PATH: "",
 };
+
+function createLocalUniverseConfig(count = 501): Partial<AppConfig> {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-universe-"));
+  const universePath = path.join(tempDir, "universe.json");
+  const symbols = Array.from({ length: count }, (_, index) => `T${index.toString().padStart(3, "0")}`);
+  fs.writeFileSync(universePath, JSON.stringify({ symbols }, null, 2));
+  return {
+    MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: universePath,
+  };
+}
 
 class FakeWebSocket implements WebSocketLike {
   static createdCount = 0;
@@ -1400,7 +1407,12 @@ describe("market-data routes", () => {
   });
 
   it("refreshes universe artifact from the bundled local S&P source", async () => {
-    const service = new MarketDataService({ config: TEST_CONFIG });
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        ...createLocalUniverseConfig(),
+      },
+    });
     const result = await service.handleUniverseRefresh();
 
     expect(result.status).toBe(200);
@@ -1463,6 +1475,7 @@ describe("market-data routes", () => {
     const service = new MarketDataService({
       config: {
         ...TEST_CONFIG,
+        ...createLocalUniverseConfig(),
         MARKET_DATA_CACHE_DIR: tempDir,
         SCHWAB_CLIENT_ID: "",
         SCHWAB_CLIENT_SECRET: "",
@@ -2030,84 +2043,6 @@ describe("market-data routes", () => {
     expect(readyBody.data.operatorState).toBe("human_action_required");
   });
 
-  it("returns alpaca comparison metadata without changing the primary quote source", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
-    const app = new Hono();
-    const service = new MarketDataService({
-      config: {
-        ...TEST_CONFIG,
-        SCHWAB_STREAMER_ENABLED: "0",
-      },
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(
-            JSON.stringify({
-              access_token: "access-token",
-              expires_in: 1800,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("/marketdata/v1/quotes")) {
-          return new Response(
-            JSON.stringify({
-              AAPL: {
-                quote: {
-                  symbol: "AAPL",
-                  lastPrice: 200.12,
-                  tradeTimeInLong: 1_710_000_000_000,
-                },
-                reference: {
-                  description: "Apple Inc.",
-                  currency: "USD",
-                },
-                fundamental: {
-                  marketCap: 3_000_000_000_000,
-                },
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("data.alpaca.markets") && url.includes("/trades/latest")) {
-          return new Response(
-            JSON.stringify({
-              trade: {
-                p: 199.5,
-                t: "2026-03-21T14:30:00Z",
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    registerMarketDataRoutes(app, service);
-
-    const response = await app.request("/market-data/quote/AAPL?compare_with=alpaca");
-    const body = (await response.json()) as {
-      source: string;
-      data: { price: number };
-      compare_with?: { source: string; available: boolean; mismatchSummary?: string };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.source).toBe("schwab");
-    expect(body.data.price).toBe(200.12);
-    expect(body.compare_with?.source).toBe("alpaca");
-    expect(body.compare_with?.available).toBe(true);
-    expect(body.compare_with?.mismatchSummary).toContain("delta");
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
-  });
-
   it("serves batch quotes through a single route response", async () => {
     const app = new Hono();
     const service = new MarketDataService({
@@ -2219,78 +2154,6 @@ describe("market-data routes", () => {
       expect.objectContaining({ symbol: "AAPL", providerMode: "unavailable", source: "service" }),
       expect.objectContaining({ symbol: "MSFT", providerMode: "schwab_primary", source: "schwab" }),
     ]);
-  });
-
-  it("uses Alpaca fallback for approved quote-batch subsystems when Schwab REST cooldown is open", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
-    const app = new Hono();
-    const service = new MarketDataService({
-      config: {
-        ...TEST_CONFIG,
-        SCHWAB_STREAMER_ENABLED: "0",
-        MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 1,
-      },
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("/marketdata/v1/quotes")) {
-          return new Response(JSON.stringify({ error: "schwab unavailable" }), {
-            status: 503,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("data.alpaca.markets") && url.includes("/trades/latest")) {
-          const symbol = url.includes("/MSFT/") ? "MSFT" : "AAPL";
-          return new Response(
-            JSON.stringify({
-              trade: {
-                t: "2026-04-10T17:30:00Z",
-                p: symbol === "MSFT" ? 410.25 : 201.5,
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    registerMarketDataRoutes(app, service);
-
-    await app.request("/market-data/quote/AAPL");
-
-    const response = await app.request("/market-data/quote/batch?symbols=AAPL,MSFT&subsystem=intraday_breadth");
-    const body = (await response.json()) as {
-      providerMode: string;
-      fallbackEngaged: boolean;
-      data: {
-        items: Array<{
-          symbol: string;
-          source: string;
-          providerMode: string;
-          fallbackEngaged: boolean;
-          data: { price?: number };
-        }>;
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.providerMode).toBe("alpaca_fallback");
-    expect(body.fallbackEngaged).toBe(true);
-    expect(body.data.items).toHaveLength(2);
-    expect(body.data.items.every((item) => item.source === "alpaca")).toBe(true);
-    expect(body.data.items.every((item) => item.providerMode === "alpaca_fallback")).toBe(true);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
   });
 
   it("keeps the live-watchlist batch streamer-only when some symbols are missing streamer/shared coverage", async () => {
@@ -2517,69 +2380,9 @@ describe("market-data routes", () => {
   });
 
   it("serves batch history with shared interval/provider inputs", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
     const app = new Hono();
     const service = new MarketDataService({
-      config: { ...TEST_CONFIG, SCHWAB_CLIENT_ID: "", SCHWAB_CLIENT_SECRET: "", SCHWAB_REFRESH_TOKEN: "" },
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("data.alpaca.markets") && url.includes("/bars")) {
-          const symbol = url.includes("/MSFT/") ? "MSFT" : "AAPL";
-          return new Response(
-            JSON.stringify({
-              bars: [{ t: "2026-03-20T00:00:00Z", o: 10, h: 12, l: 9, c: symbol === "MSFT" ? 11.5 : 10.5, v: 1000 }],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    registerMarketDataRoutes(app, service);
-
-    const response = await app.request("/market-data/history/batch?symbols=AAPL,MSFT&period=1mo&interval=1wk&provider=alpaca");
-    const body = (await response.json()) as {
-      providerMode: string;
-      fallbackEngaged: boolean;
-      data: {
-        items: Array<{
-          symbol: string;
-          source: string;
-          providerMode: string;
-          fallbackEngaged: boolean;
-          data: { interval: string; rows: Array<unknown> };
-        }>;
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.providerMode).toBe("alpaca_fallback");
-    expect(body.fallbackEngaged).toBe(true);
-    expect(body.data.items).toHaveLength(2);
-    expect(body.data.items.every((item) => item.source === "alpaca")).toBe(true);
-    expect(body.data.items.every((item) => item.providerMode === "alpaca_fallback")).toBe(true);
-    expect(body.data.items.every((item) => item.data.interval === "1wk")).toBe(true);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
-  });
-
-  it("uses Alpaca fallback for approved history subsystems when Schwab REST cooldown is open", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
-    const app = new Hono();
-    const service = new MarketDataService({
-      config: {
-        ...TEST_CONFIG,
-        SCHWAB_STREAMER_ENABLED: "0",
-        MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 1,
-      },
+      config: TEST_CONFIG,
       fetchImpl: async (input) => {
         const url = String(input);
         if (url.includes("/oauth/token")) {
@@ -2589,16 +2392,9 @@ describe("market-data routes", () => {
           });
         }
         if (url.includes("/marketdata/v1/pricehistory")) {
-          return new Response(JSON.stringify({ error: "schwab unavailable" }), {
-            status: 503,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("data.alpaca.markets") && url.includes("/bars")) {
-          const symbol = url.includes("/MSFT/") ? "MSFT" : "AAPL";
           return new Response(
             JSON.stringify({
-              bars: [{ t: "2026-03-20T00:00:00Z", o: 10, h: 12, l: 9, c: symbol === "MSFT" ? 11.5 : 10.5, v: 1000 }],
+              candles: [{ datetime: 1_741_027_200_000, open: 10, high: 12, low: 9, close: 10.5, volume: 1000 }],
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -2608,11 +2404,7 @@ describe("market-data routes", () => {
     });
     registerMarketDataRoutes(app, service);
 
-    await app.request("/market-data/history/AAPL?period=1mo&interval=1wk");
-
-    const response = await app.request(
-      "/market-data/history/batch?symbols=AAPL,MSFT&period=1mo&interval=1wk&subsystem=market_regime",
-    );
+    const response = await app.request("/market-data/history/batch?symbols=AAPL,MSFT&period=1mo&interval=1wk&provider=schwab");
     const body = (await response.json()) as {
       providerMode: string;
       fallbackEngaged: boolean;
@@ -2628,22 +2420,15 @@ describe("market-data routes", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(body.providerMode).toBe("alpaca_fallback");
-    expect(body.fallbackEngaged).toBe(true);
-    expect(body.data.items.every((item) => item.source === "alpaca")).toBe(true);
-    expect(body.data.items.every((item) => item.providerMode === "alpaca_fallback")).toBe(true);
+    expect(body.providerMode).toBe("schwab_primary");
+    expect(body.fallbackEngaged).toBe(false);
+    expect(body.data.items).toHaveLength(2);
+    expect(body.data.items.every((item) => item.source === "schwab")).toBe(true);
+    expect(body.data.items.every((item) => item.providerMode === "schwab_primary")).toBe(true);
     expect(body.data.items.every((item) => item.data.interval === "1wk")).toBe(true);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
   });
 
-  it("keeps fundamentals on the Schwab-only lane even for fallback-approved subsystems", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
+  it("keeps fundamentals on the Schwab-only lane when Schwab REST cooldown is open", async () => {
     const app = new Hono();
     const service = new MarketDataService({
       config: {
@@ -2662,12 +2447,6 @@ describe("market-data routes", () => {
         if (url.includes("/marketdata/v1/quotes")) {
           return new Response(JSON.stringify({ error: "schwab unavailable" }), {
             status: 503,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        if (url.includes("data.alpaca.markets")) {
-          return new Response(JSON.stringify({ trade: { t: "2026-04-10T17:30:00Z", p: 201.5 } }), {
-            status: 200,
             headers: { "content-type": "application/json" },
           });
         }
@@ -2691,10 +2470,6 @@ describe("market-data routes", () => {
     expect(body.status).toBe("error");
     expect(body.providerMode).toBe("unavailable");
     expect(body.fallbackEngaged).toBe(false);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
   });
 
   it("exposes a readiness route with operator state", async () => {
@@ -2796,41 +2571,21 @@ describe("market-data routes", () => {
     expect(requestedUrls.some((url) => url.includes("frequencyType=weekly"))).toBe(true);
   });
 
-  it("honors explicit history provider overrides", async () => {
-    process.env.ALPACA_KEY = "test-key";
-    process.env.ALPACA_SECRET_KEY = "test-secret";
-    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
-
+  it("rejects unknown history provider overrides", async () => {
     const app = new Hono();
     const service = new MarketDataService({
       config: TEST_CONFIG,
       fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.includes("data.alpaca.markets") && url.includes("/bars")) {
-          return new Response(
-            JSON.stringify({
-              bars: [
-                { t: "2026-03-20T00:00:00Z", o: 10, h: 11, l: 9, c: 10.5, v: 1000 },
-              ],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
         return new Response("not found", { status: 404 });
       },
     });
     registerMarketDataRoutes(app, service);
 
-    const response = await app.request("/market-data/history/AAPL?provider=alpaca");
-    const body = (await response.json()) as { source: string; data: { rows: Array<unknown> } };
+    const response = await app.request("/market-data/history/AAPL?provider=polygon");
+    const body = (await response.json()) as { data: { error: string } };
 
-    expect(response.status).toBe(200);
-    expect(body.source).toBe("alpaca");
-    expect(body.data.rows).toHaveLength(1);
-
-    delete process.env.ALPACA_KEY;
-    delete process.env.ALPACA_SECRET_KEY;
-    delete process.env.ALPACA_DATA_URL;
+    expect(response.status).toBe(400);
+    expect(body.data.error).toContain("supported providers are service and schwab");
   });
 
   it("normalizes market symbols", () => {

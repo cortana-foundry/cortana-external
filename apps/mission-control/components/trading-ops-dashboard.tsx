@@ -24,10 +24,10 @@ import { Metric, StageChip, StrategyWatchlistSection, ArtifactPanel } from "./tr
 import { TerminalHeader } from "./trading-ops/terminal-header";
 import { TerminalCell } from "./trading-ops/terminal-cell";
 import { AlertBanner } from "./trading-ops/alert-banner";
-import { OperatorChecklist } from "./trading-ops/operator-checklist";
 import { CompactTapeStrip, LiveTapeGrid, LiveWatchlistGroup, useAnimatedValue, useFlashClass } from "./trading-ops/animated-quote";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MarketLabClient } from "@/app/market-lab/market-lab-client";
 
 const LIVE_POLL_MS = 15_000;
 const LIVE_STREAM_RETRY_MS = 2_000;
@@ -583,60 +583,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       {/* ── Zone B: Alert Banner (conditional) ── */}
       {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
-      {/* ── Zone C: Four Summary Cells ── */}
-      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <TerminalCell
-          title="Market posture"
-          value={data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
-          detail={data.market.data ? `Sizing ${formatPercent(data.market.data.positionSizingPct)}` : "No market data"}
-          state={data.market.state}
-          icon={<Gauge className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Runtime health"
-          value={data.runtime.data?.operatorState ?? data.runtime.label}
-          detail={
-            data.runtime.data?.cooldownSummary ??
-            (data.runtime.data ? `${data.runtime.data.incidents.length} active incidents` : "No runtime snapshot")
-          }
-          state={data.runtime.state}
-          icon={<ShieldCheck className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Prediction loop"
-          value={data.prediction.data ? `${data.prediction.data.snapshotCount} snapshots` : data.prediction.label}
-          detail={
-            data.prediction.data
-              ? `1d matured ${data.prediction.data.oneDayMatured} · ${data.prediction.data.freshnessLabel ?? "unknown trust"}`
-              : "No accuracy artifact"
-          }
-          state={data.prediction.state}
-          icon={<Radar className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Portfolio posture"
-          value={data.lifecycle.data?.postureState ? formatLabel(data.lifecycle.data.postureState) : data.lifecycle.label}
-          detail={
-            data.lifecycle.data
-              ? compactValue([
-                  data.lifecycle.data.autonomyMode ? formatLabel(data.lifecycle.data.autonomyMode) : null,
-                  data.lifecycle.data.grossExposurePct != null ? `gross ${formatPercent(data.lifecycle.data.grossExposurePct)}` : null,
-                ])
-              : "No lifecycle posture"
-          }
-          state={data.lifecycle.state}
-          icon={<Landmark className="h-3.5 w-3.5" />}
-        />
-      </section>
-
-      {/* ── Zone D: Collapsible Operator Checklist ── */}
-      <OperatorChecklist />
-
       {/* ── Zone E: Tabs ── */}
       <Tabs defaultValue="overview" className="space-y-3">
         <TabsList className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="live">Live</TabsTrigger>
+          <TabsTrigger value="market-lab">Market Lab</TabsTrigger>
           <TabsTrigger value="watchlists">Watchlists</TabsTrigger>
           <TabsTrigger value="polymarket">Polymarket</TabsTrigger>
           <TabsTrigger value="health">System Health</TabsTrigger>
@@ -645,37 +597,35 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Overview ── */}
         <TabsContent value="overview" className="space-y-3">
-          <ArtifactPanel title="Live now" artifact={liveArtifact}>
+          <ArtifactPanel title="Schwab live now" artifact={liveArtifact}>
             {liveData ? (
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
                     {liveData.streamer.connected ? "Streamer connected" : "Streamer disconnected"}
                   </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {liveData.tape.freshnessMessage}
+                  </span>
                 </div>
                 <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  <Metric
-                    label="Latest run"
-                    value={liveData.meta.runLabel ?? liveData.meta.runId ?? "No latest run"}
-                  />
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <Metric label="Decision" value={liveData.meta.decision ?? "No decision yet"} />
-                  <Metric
-                    label="Last refresh"
-                    value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "Waiting for first poll"}
-                  />
-                </div>
+                  <Metric label="Focus" value={liveData.meta.focusTicker ?? "No focus ticker"} />
+                  <Metric label="Mode" value={liveData.meta.isAfterHours ? "After hours" : "Market hours"} />
+                  <Metric label="Last refresh" value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "Waiting for first poll"} />
+                </dl>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Waiting for the first live quote poll.
+                Waiting for the first Schwab live quote poll.
               </p>
             )}
           </ArtifactPanel>
 
           <ArtifactPanel title="Polymarket status" artifact={polymarketStatusArtifact}>
             <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <Metric
                   label="Account"
                   value={
@@ -688,13 +638,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   label="Overlay"
                   value={displayPolymarketData?.signal.data?.overlaySummary ?? displayPolymarketData?.signal.data?.alignment ?? "Loading"}
                 />
+                <Metric label="Linked symbols" value={String(displayPolymarketData?.watchlist.data?.totalCount ?? 0)} />
                 <Metric
-                  label="Linked symbols"
-                  value={String(displayPolymarketData?.watchlist.data?.totalCount ?? 0)}
-                />
-                <Metric
-                  label="Trading Ops overlap"
-                  value={polymarketOverlap.length > 0 ? polymarketOverlap.slice(0, 4).join(", ") : "None yet"}
+                  label="Pinned"
+                  value={displayPolymarketLiveData ? String(polymarketPinnedRows.length) : "Waiting"}
                 />
                 <Metric
                   label="Stream"
@@ -718,158 +665,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               )}
             </div>
           </ArtifactPanel>
-
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-            {/* Column 1: Market Brief */}
-            <ArtifactPanel title="Market brief" artifact={data.market}>
-              {data.market.data ? (
-                <div className="space-y-2 text-sm">
-                  <p className="font-medium">{data.market.data.reason}</p>
-                  <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <Metric label="Regime" value={data.market.data.regime.toUpperCase()} />
-                    <Metric label="Sizing" value={formatPercent(data.market.data.positionSizingPct)} />
-                    <Metric
-                      label={data.market.data.isStale ? "Reference run" : "Focus"}
-                      value={
-                        data.market.data.isStale
-                          ? data.market.data.referenceRunLabel ?? "Latest trading run"
-                          : data.market.data.focusSymbols.join(", ") || "None yet"
-                      }
-                    />
-                    <Metric label="Next action" value={data.market.data.nextAction ?? "Wait for fresher data"} />
-                  </dl>
-                  {data.market.data.isStale ? (
-                    <p className="text-xs text-muted-foreground">
-                      Cached leader baskets are hidden here because the latest trading run is now the primary source of truth.
-                    </p>
-                  ) : null}
-                  <div className="rounded-md border border-border/50 bg-muted/30 p-2">
-                    <p className="terminal-metric-label">Latest strategy summary</p>
-                    <p className="mt-1 font-mono text-xs">{data.market.data.alertSummary || "No recent alert summary."}</p>
-                  </div>
-                </div>
-              ) : null}
-            </ArtifactPanel>
-
-            {/* Column 2: Latest Trading Run */}
-            <ArtifactPanel title="Latest trading run" artifact={data.tradingRun}>
-              {data.tradingRun.data ? (
-                <div className="space-y-2 text-sm">
-                  <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Completed" value={data.tradingRun.data.runLabel} />
-                    <Metric label="Status" value={data.tradingRun.data.status} />
-                    <Metric label="Decision" value={data.tradingRun.data.decision} />
-                    <Metric
-                      label="Delivered"
-                      value={
-                        data.tradingRun.data.notifiedAt
-                          ? formatOperatorTimestamp(data.tradingRun.data.notifiedAt)
-                          : data.tradingRun.data.deliveryStatus === "failed"
-                            ? "Failed"
-                            : "Pending notification"
-                      }
-                    />
-                    <Metric
-                      label="Counts"
-                      value={`BUY ${data.tradingRun.data.buyCount} · WATCH ${data.tradingRun.data.watchCount} · NO_BUY ${data.tradingRun.data.noBuyCount}`}
-                    />
-                  </dl>
-                  <p className="text-xs text-muted-foreground">
-                    {data.tradingRun.data.sourceType === "db" ? "DB-backed current-state record" : data.tradingRun.data.sourceType === "file_fallback" ? "File artifact fallback" : "Direct artifact read"}
-                    {" · "}
-                    Internal id {data.tradingRun.data.runId}
-                    {data.tradingRun.data.focusTicker
-                      ? ` · Focus ${data.tradingRun.data.focusTicker} · ${data.tradingRun.data.focusAction ?? "n/a"}`
-                      : ""}
-                  </p>
-                  {data.tradingRun.data.lastError ? (
-                    <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                      {data.tradingRun.data.lastError}
-                    </p>
-                  ) : null}
-                  <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                    Open the <span className="font-medium">Watchlists</span> tab to see the full latest run names.
-                    Dip Buyer currently has <span className="font-medium">{data.tradingRun.data.dipBuyerWatch.length}</span> watch names.
-                  </p>
-                  {data.tradingRun.data.messagePreview ? (
-                    <details className="rounded-md border border-border/50 bg-muted/30 p-2">
-                      <summary className="cursor-pointer text-xs font-medium">Telegram preview</summary>
-                      <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-                        {data.tradingRun.data.messagePreview}
-                      </pre>
-                    </details>
-                  ) : null}
-                </div>
-              ) : null}
-            </ArtifactPanel>
-
-            {/* Column 3: Workflow + Runtime stacked */}
-            <div className="space-y-3">
-              <ArtifactPanel title="Latest workflow" artifact={data.workflow}>
-                {data.workflow.data ? (
-                  <div className="space-y-2 text-sm">
-                    <dl className="grid grid-cols-2 gap-2">
-                      <Metric label="Completed" value={data.workflow.data.runLabel} />
-                      <Metric
-                        label={data.workflow.data.isStale ? "Status" : "Stage counts"}
-                        value={
-                          data.workflow.data.isStale
-                            ? `Historical context${data.workflow.data.referenceRunLabel ? ` · superseded by ${data.workflow.data.referenceRunLabel}` : ""}`
-                            : Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")
-                        }
-                      />
-                    </dl>
-                    {data.workflow.data.isStale ? (
-                      <details className="rounded-md border border-border/50 bg-muted/20 p-2">
-                        <summary className="cursor-pointer text-xs font-medium">Older workflow details</summary>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Internal id {data.workflow.data.runId}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Stage counts: {Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
-                            <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
-                          ))}
-                        </div>
-                      </details>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
-                          <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </ArtifactPanel>
-
-              <ArtifactPanel title="Runtime health" artifact={data.runtime}>
-                {data.runtime.data ? (
-                  <div className="space-y-2 text-sm">
-                    <Metric label="Operator action" value={data.runtime.data.operatorAction} />
-                    <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "Not reported"} />
-                    {data.runtime.data.preOpenGateDetail ? (
-                      <p className="text-xs text-muted-foreground">{data.runtime.data.preOpenGateDetail}</p>
-                    ) : null}
-                    {data.runtime.data.incidents.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {data.runtime.data.incidents.map((incident) => (
-                          <div key={`${incident.incidentType}-${incident.severity}`} className="terminal-alert-warning flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium">
-                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                            <span>{incident.incidentType} · {incident.severity}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">No active runtime incidents.</p>
-                    )}
-                  </div>
-                ) : null}
-              </ArtifactPanel>
-            </div>
-          </section>
         </TabsContent>
 
         {/* ── Live ── */}
@@ -913,43 +708,15 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 ) : null}
               </ArtifactPanel>
 
-              <ArtifactPanel title="Execution gate" artifact={liveExecutionGateArtifact}>
-                {liveExecutionGateArtifact.data ? (
-                  <div className="space-y-2 text-sm">
-                    <dl className="grid grid-cols-2 gap-2">
-                      <Metric label="Verdict" value={liveExecutionGateArtifact.data.verdictLabel} />
-                      <Metric label="BUY fresh" value={`${liveExecutionGateArtifact.data.freshBuyCount}/${liveExecutionGateArtifact.data.buyCount}`} />
-                      <Metric label="WATCH degraded" value={`${liveExecutionGateArtifact.data.degradedWatchCount}/${liveExecutionGateArtifact.data.watchCount}`} />
-                      <Metric label=">60s stale" value={String(liveExecutionGateArtifact.data.staleWatchCount)} />
-                    </dl>
-                    {liveExecutionGateArtifact.data.actionItems.map((item) => (
-                      <p key={item} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                        {item}
-                      </p>
-                    ))}
-                  </div>
-                ) : null}
-              </ArtifactPanel>
+
             </div>
 
-            <ArtifactPanel title="Dip Buyer live watchlist" artifact={liveArtifact}>
-              {liveData ? (
-                <div className="space-y-3">
-                  <LiveWatchlistGroup label="BUY" rows={liveData.watchlists.dipBuyer.buy} empty="No live Dip Buyer buy names." />
-                  <LiveWatchlistGroup label="WATCH" rows={liveData.watchlists.dipBuyer.watch} empty="No live Dip Buyer watch names." />
-                </div>
-              ) : null}
-            </ArtifactPanel>
-
-            <ArtifactPanel title="CANSLIM live watchlist" artifact={liveArtifact}>
-              {liveData ? (
-                <div className="space-y-3">
-                  <LiveWatchlistGroup label="BUY" rows={liveData.watchlists.canslim.buy} empty="No live CANSLIM buy names." />
-                  <LiveWatchlistGroup label="WATCH" rows={liveData.watchlists.canslim.watch} empty="No live CANSLIM watch names." />
-                </div>
-              ) : null}
-            </ArtifactPanel>
           </section>
+        </TabsContent>
+
+        {/* ── Market Lab ── */}
+        <TabsContent value="market-lab" className="space-y-3">
+          <MarketLabClient embedded />
         </TabsContent>
 
         {/* ── Watchlists ── */}

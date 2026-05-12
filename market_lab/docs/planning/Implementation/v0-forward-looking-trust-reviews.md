@@ -212,7 +212,7 @@ V1-V3 prove that the engine can create understandable artifacts from determinist
 #### Jira
 
 - Create `apps/mission-control/app/market-lab/page.tsx` and `apps/mission-control/app/market-lab/market-lab-client.tsx`.
-- Update `apps/mission-control/components/sidebar.tsx` with a `Market Lab` nav item separate from `Trading Ops`.
+- Embed `Market Lab` as a tab inside `Trading Ops` and keep the sidebar focused on the single trading cockpit.
 - UI sections: symbol input, run button, recent runs, timeline, Trust Verdict, facts, interpretation, TradingAgents summary, raw/log links, settlements.
 - Add `apps/mission-control/app/market-lab/market-lab-client.test.tsx` covering run submission, status polling, blocked verdict rendering, and settlement display.
 
@@ -258,7 +258,7 @@ V1-V3 prove that the engine can create understandable artifacts from determinist
 
 ### Vertical 9 - QA Closeout
 
-**cortana-external: prove the full vertical path and keep old backtester untouched.**
+**cortana-external: prove the full vertical path while retiring old backtester read paths.**
 
 *Dependencies: V7, V8*
 
@@ -333,5 +333,5 @@ The UI should render API responses and artifacts, not reach directly into Python
 ## Realistic Delivery Notes
 
 - **Biggest risks:** TradingAgents runtime latency, provider-key setup, ambiguous market-data quote timestamps, and accidentally copying old backtester complexity into the new module.
-- **Assumptions:** one-symbol reviews are enough for v0; SQLite and filesystem artifacts are enough; no launchd service is required; old backtester code remains untouched except possible read-only reference.
+- **Assumptions:** one-symbol reviews are enough for v0; SQLite and filesystem artifacts are enough; no launchd service is required; legacy backtester code can stay archived/deprecated while Market Lab replaces the operator-facing path.
 - **Smallest credible path:** build Python contracts/storage/checks first, then fake TradingAgents adapter, then Mission Control API/UI, then replace fake adapter with real TradingAgents invocation.

@@ -55,7 +55,7 @@ Mission Control should introduce a `TradingOpsReadModel` boundary that owns the 
 ## Assumptions
 
 - Mission Control remains the browser-facing boundary for Trading Ops.
-- external-service continues to own Schwab, Alpaca, Polymarket, streamer state, and provider-specific live endpoints.
+- external-service continues to own Schwab, Polymarket, streamer state, and provider-specific live endpoints.
 - Completed trading-run truth remains preferred from Mission Control DB state where available, with artifact/file fallback only when DB state is absent or contradicted.
 - Existing tests are good enough to serve as the behavior-preservation baseline.
 - This planning package is docs-only and should not change runtime behavior.
@@ -159,5 +159,5 @@ The read model should not hide that distinction. It should make the distinction 
 
 ### Technical Considerations
 
-- The current candidate files are `apps/mission-control/lib/trading-ops.ts`, `apps/mission-control/lib/trading-ops-live.ts`, `apps/mission-control/lib/trading-ops-polymarket.ts`, `apps/mission-control/lib/trading-ops-polymarket-live.ts`, `apps/mission-control/lib/trading-run-state.ts`, and `apps/mission-control/components/trading-ops-dashboard.tsx`.
+- The current candidate files are `apps/mission-control/lib/trading-ops.ts`, `apps/mission-control/lib/trading-ops-live.ts`, `apps/mission-control/lib/trading-ops-polymarket.ts`, `apps/mission-control/lib/trading-ops-polymarket-live.ts`, and `apps/mission-control/components/trading-ops-dashboard.tsx`.
 - Existing tests in `apps/mission-control/lib/trading-ops.test.ts`, `apps/mission-control/lib/trading-ops-live.test.ts`, and `apps/mission-control/app/trading-ops/trading-ops-dashboard.test.tsx` provide the baseline behavior inventory.

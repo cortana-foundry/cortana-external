@@ -2,7 +2,6 @@ import { providerLaneResult, type ProviderLaneMetadata } from "./provider-lane.j
 import { buildUnavailableCompare } from "./route-utils.js";
 import { extractCoinMarketCapSymbol } from "./coinmarketcap-client.js";
 import type { CoinMarketCapService } from "./coinmarketcap-service.js";
-import type { AlpacaClient } from "./alpaca-client.js";
 import type { SchwabRestClient, ProviderMetrics } from "./schwab-rest-client.js";
 import type { SchwabStreamerRuntime } from "./schwab-streamer-runtime.js";
 import { compareHistoryRows, compareQuotes, type HistoryInterval, type HistoryProvider } from "./history-utils.js";
@@ -32,14 +31,12 @@ export interface SnapshotFetchResult extends ServiceMetadata {
 
 export interface ProviderRouteContext {
   subsystem?: string;
-  allowAlpacaFallback?: boolean;
   preferLiveSchwabLane?: boolean;
 }
 
 interface ProviderChainConfig {
   coinMarketCap: CoinMarketCapService;
   schwabRestClient: SchwabRestClient;
-  alpacaClient: AlpacaClient;
   streamerRuntime: SchwabStreamerRuntime;
   providerMetrics: ProviderMetrics;
 }
@@ -47,14 +44,12 @@ interface ProviderChainConfig {
 export class ProviderChain {
   private readonly coinMarketCap: CoinMarketCapService;
   private readonly schwabRestClient: SchwabRestClient;
-  private readonly alpacaClient: AlpacaClient;
   private readonly streamerRuntime: SchwabStreamerRuntime;
   private readonly providerMetrics: ProviderMetrics;
 
   constructor(config: ProviderChainConfig) {
     this.coinMarketCap = config.coinMarketCap;
     this.schwabRestClient = config.schwabRestClient;
-    this.alpacaClient = config.alpacaClient;
     this.streamerRuntime = config.streamerRuntime;
     this.providerMetrics = config.providerMetrics;
   }
@@ -64,7 +59,7 @@ export class ProviderChain {
     period: string,
     interval: HistoryInterval,
     provider: HistoryProvider = "service",
-    context: ProviderRouteContext = {},
+    _context: ProviderRouteContext = {},
   ): Promise<HistoryFetchResult> {
     if (extractCoinMarketCapSymbol(symbol)) {
       if (provider !== "service") {
@@ -97,20 +92,6 @@ export class ProviderChain {
         providerModeReason: "History stayed on the explicit Schwab primary lane.",
       }, { rows });
     }
-    if (provider === "alpaca") {
-      const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
-      return providerLaneResult({
-        source: "alpaca",
-        status: "ok",
-        stalenessSeconds: 0,
-        providerMode: "alpaca_fallback",
-        fallbackEngaged: true,
-        providerModeReason: "History used the explicit Alpaca fallback lane.",
-      }, { rows });
-    }
-    if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
-      return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
-    }
     if (!this.schwabRestClient.isConfigured()) {
       throw new Error("Schwab credentials are not configured");
     }
@@ -130,9 +111,6 @@ export class ProviderChain {
       };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
-      if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
-        return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
-      }
       throw error;
     }
   }
@@ -215,9 +193,6 @@ export class ProviderChain {
         throw error;
       }
     }
-    if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
-      return this.fetchAlpacaQuoteFallback(symbol, context);
-    }
     if (isFuturesSymbol) {
       throw new Error(`No live Schwab futures quote available for ${symbol}`);
     }
@@ -237,9 +212,6 @@ export class ProviderChain {
       };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
-      if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
-        return this.fetchAlpacaQuoteFallback(symbol, context);
-      }
       throw error;
     }
   }
@@ -439,8 +411,6 @@ export class ProviderChain {
           return buildUnavailableCompare(source, "Schwab credentials are not configured");
         }
         rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
-      } else if (source === "alpaca") {
-        rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
       } else {
         return buildUnavailableCompare(source, "Unsupported comparison provider");
       }
@@ -467,8 +437,6 @@ export class ProviderChain {
           return buildUnavailableCompare(source, "Schwab credentials are not configured");
         }
         quote = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).quote;
-      } else if (source === "alpaca") {
-        quote = await this.alpacaClient.fetchQuote(symbol);
       } else {
         return buildUnavailableCompare(source, "Unsupported comparison provider");
       }
@@ -485,51 +453,6 @@ export class ProviderChain {
 
   recordSourceUsage(source: string): void {
     this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
-  }
-
-  private isAlpacaSupportedSymbol(symbol: string): boolean {
-    return !extractCoinMarketCapSymbol(symbol) && !symbol.startsWith("/");
-  }
-
-  private async fetchAlpacaHistoryFallback(
-    symbol: string,
-    period: string,
-    interval: HistoryInterval,
-    context: ProviderRouteContext,
-  ): Promise<HistoryFetchResult> {
-    if (!this.isAlpacaSupportedSymbol(symbol)) {
-      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
-    }
-    const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
-    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
-    return {
-      source: "alpaca",
-      status: "degraded",
-      degradedReason: `Schwab history was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
-      stalenessSeconds: 0,
-      providerMode: "alpaca_fallback",
-      fallbackEngaged: true,
-      providerModeReason: `History entered the declared Alpaca fallback lane${subsystemLabel}.`,
-      rows,
-    };
-  }
-
-  async fetchAlpacaQuoteFallback(symbol: string, context: ProviderRouteContext = {}): Promise<QuoteFetchResult> {
-    if (!this.isAlpacaSupportedSymbol(symbol)) {
-      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
-    }
-    const quote = await this.alpacaClient.fetchQuote(symbol);
-    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
-    return {
-      source: "alpaca",
-      status: "degraded",
-      degradedReason: `Schwab live quote was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
-      stalenessSeconds: 0,
-      providerMode: "alpaca_fallback",
-      fallbackEngaged: true,
-      providerModeReason: `Quote entered the declared Alpaca fallback lane${subsystemLabel}.`,
-      quote,
-    };
   }
 
   private async readAfterHoursStaleSchwabQuote(

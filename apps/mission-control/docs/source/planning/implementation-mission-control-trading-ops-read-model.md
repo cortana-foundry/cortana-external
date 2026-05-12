@@ -68,7 +68,7 @@ Sprint 3: V5 + V6
 #### Jira
 
 - Sub-task 1: Extract completed-run loading from `apps/mission-control/lib/trading-ops.ts` into a focused adapter, for example `apps/mission-control/lib/trading-ops-completed-runs.ts`.
-- Sub-task 2: Keep `apps/mission-control/lib/trading-run-state.ts` as the DB/artifact source store, but make the read-model adapter own the final operator section state.
+- Sub-task 2: Retire the legacy DB/artifact trading-run source store with the old backtester surface.
 - Sub-task 3: Preserve current behavior for `loadLatestTradingRunOverview()` while redirecting it through the completed-run adapter or marking it as legacy compatibility.
 - Sub-task 4: Move DB-backed versus file-fallback tests from helper-level assertions into `apps/mission-control/lib/trading-ops-read-model.test.ts`.
 
@@ -233,7 +233,6 @@ Test cleanup is only safe after UI and route behavior are aligned with the read-
 - `apps/mission-control/lib/trading-ops-live.ts`
 - `apps/mission-control/lib/trading-ops-polymarket.ts`
 - `apps/mission-control/lib/trading-ops-polymarket-live.ts`
-- `apps/mission-control/lib/trading-run-state.ts`
 - `apps/mission-control/components/trading-ops-dashboard.tsx`
 
 ---

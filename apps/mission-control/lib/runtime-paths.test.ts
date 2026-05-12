@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  getBacktesterRepoPath,
   getAgentModelsPath,
   getCortanaSourceRepo,
   getDocsPath,
@@ -18,7 +17,6 @@ describe("lib/runtime-paths", () => {
     delete process.env.AGENT_MODELS_PATH;
     delete process.env.HEARTBEAT_STATE_PATH;
     delete process.env.TELEGRAM_USAGE_HANDLER_PATH;
-    delete process.env.BACKTESTER_REPO_PATH;
     process.env.HOME = "/tmp/runtime-paths-home";
   });
 
@@ -36,11 +34,10 @@ describe("lib/runtime-paths", () => {
       const value = String(candidate);
       if (value === "/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json") return false;
       if (value === "/Users/hd/Developer/cortana/memory/heartbeat-state.json") return true;
-      return value.includes("/backtester");
+      return false;
     });
 
     expect(getCortanaSourceRepo()).toBe("/Users/hd/Developer/cortana");
-    expect(getBacktesterRepoPath()).toContain("/backtester");
     expect(getDocsPath()).toBe("/Users/hd/Developer/cortana/docs");
     expect(getAgentModelsPath()).toBe("/Users/hd/Developer/cortana/config/agent-models.json");
     expect(getHeartbeatStatePath()).toBe("/Users/hd/Developer/cortana/memory/heartbeat-state.json");
@@ -55,10 +52,8 @@ describe("lib/runtime-paths", () => {
     process.env.AGENT_MODELS_PATH = "/srv/custom-models.json";
     process.env.HEARTBEAT_STATE_PATH = "/srv/runtime/heartbeat-state.json";
     process.env.TELEGRAM_USAGE_HANDLER_PATH = "/srv/tools/telegram-usage.ts";
-    process.env.BACKTESTER_REPO_PATH = "/srv/cortana-external/backtester";
 
     expect(getCortanaSourceRepo()).toBe("/srv/cortana");
-    expect(getBacktesterRepoPath()).toBe("/srv/cortana-external/backtester");
     expect(getDocsPath()).toBe("/srv/custom-docs");
     expect(getAgentModelsPath()).toBe("/srv/custom-models.json");
     expect(getHeartbeatStatePath()).toBe("/srv/runtime/heartbeat-state.json");
@@ -70,18 +65,10 @@ describe("lib/runtime-paths", () => {
       const value = String(candidate);
       if (value === "/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json") return true;
       if (value === "/Users/hd/Developer/cortana/memory/heartbeat-state.json") return true;
-      return value.includes("/backtester");
+      return false;
     });
 
     expect(getHeartbeatStatePath()).toBe("/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json");
-  });
-
-  it("resolves the repo-level backtester path from the mission-control app cwd", () => {
-    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue("/Users/hd/Developer/cortana-external/apps/mission-control");
-
-    expect(getBacktesterRepoPath()).toBe("/Users/hd/Developer/cortana-external/backtester");
-
-    cwdSpy.mockRestore();
   });
 
   it("derives docs, models, and handler paths from CORTANA_SOURCE_REPO", () => {
