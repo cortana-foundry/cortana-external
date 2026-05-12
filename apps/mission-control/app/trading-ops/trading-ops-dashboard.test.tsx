@@ -47,31 +47,13 @@ class MockEventSource {
 const financialServicesFixture: TradingOpsDashboardData["financialServices"] = {
   state: "ok",
   label: "Financial services health",
-  message: "7 services healthy.",
+  message: "5 services healthy.",
   updatedAt: "2026-04-03T23:28:00.000Z",
-  source: "http://127.0.0.1:3033/market-data/ops · http://127.0.0.1:3033/alpaca/health · http://127.0.0.1:3033/polymarket/health · http://127.0.0.1:3033/polymarket/live",
+  source: "http://127.0.0.1:3033/market-data/ops · http://127.0.0.1:3033/polymarket/health · http://127.0.0.1:3033/polymarket/live",
   warnings: [],
-  badgeText: "7/7",
+  badgeText: "5/5",
   data: {
     rows: [
-      {
-        label: "Alpaca",
-        state: "ok",
-        summary: "healthy",
-        detail: "Broker health and account reachability are reported by Alpaca.",
-        source: "/alpaca/health",
-        updatedAt: "2026-04-03T23:28:00.000Z",
-        badgeText: "healthy",
-      },
-      {
-        label: "FRED",
-        state: "ok",
-        summary: "configured",
-        detail: "Market-data ops sees FRED configured for economic data lookups.",
-        source: "/market-data/ops",
-        updatedAt: "2026-04-03T23:28:00.000Z",
-        badgeText: "configured",
-      },
       {
         label: "CoinMarketCap",
         state: "ok",
@@ -118,7 +100,7 @@ const financialServicesFixture: TradingOpsDashboardData["financialServices"] = {
         badgeText: "stream",
       },
     ],
-    healthyCount: 7,
+    healthyCount: 5,
     degradedCount: 0,
     errorCount: 0,
     checkedAt: "2026-04-03T23:28:00.000Z",
@@ -438,32 +420,21 @@ describe("TradingOpsDashboard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the terminal header and key sections", () => {
+  it("renders the terminal header and current Trading Ops shell", () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
 
     expect(screen.getAllByText("Cortana Trading Ops").length).toBeGreaterThan(0);
-    expect(screen.getByText("Operator checklist (4 steps)")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Live" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Market Lab" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Watchlists" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Polymarket" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
     expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Portfolio posture").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
-    expect(screen.getByText("Polymarket status")).toBeInTheDocument();
-    expect(container).toHaveTextContent("Focus ABBV · WATCH");
-    expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
     expect(container).toHaveTextContent("Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.");
-    expect(container).toHaveTextContent("Apr 3, 12:38 PM");
-    expect(container).toHaveTextContent("Apr 3, 12:40 PM");
-    expect(container).toHaveTextContent("success");
-    expect(container).toHaveTextContent("Direct artifact read");
-    expect(container).toHaveTextContent("Internal id 20260403-163103");
-    expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
-    expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
-    expect(container).toHaveTextContent("Apr 3, 7:16 PM");
+    expect(container).not.toHaveTextContent("Operator checklist");
 
     const systemHealthTab = screen.getByRole("tab", { name: "System Health" });
     fireEvent.mouseDown(systemHealthTab);
@@ -472,6 +443,8 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Schwab REST");
     expect(container).toHaveTextContent("Polymarket streamer");
     expect(container).toHaveTextContent("Schwab streamer");
+    expect(container).not.toHaveTextContent("Alpaca");
+    expect(container).not.toHaveTextContent("FRED");
 
     const deepDiveTab = screen.getByRole("tab", { name: "Deep Dive" });
     fireEvent.mouseDown(deepDiveTab);
@@ -497,7 +470,7 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("AEP");
   });
 
-  it("renders compact live summary and live tab data", async () => {
+  it("renders live tab data from the Schwab stream snapshot", async () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
 
     expect(findEventSource("/api/trading-ops/live/stream")).toBeDefined();
@@ -548,32 +521,20 @@ describe("TradingOpsDashboard", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(container).toHaveTextContent("Streamer connected");
-      expect(container).toHaveTextContent("DOW");
-      expect(container).toHaveTextContent("NASDAQ");
-      expect(container).toHaveTextContent("Apr 3, 12:38 PM");
-    });
-
     const liveTab = screen.getByRole("tab", { name: "Live" });
-    fireEvent.mouseDown(liveTab);
-    fireEvent.click(liveTab);
-    expect(container).toHaveTextContent("Execution gate");
-    expect(container).toHaveTextContent("Pass");
-
     fireEvent.mouseDown(liveTab);
     fireEvent.click(liveTab);
 
     await waitFor(() => {
       expect(container).toHaveTextContent("Live tape");
-      expect(container).toHaveTextContent("Dip Buyer live watchlist");
-      expect(container).toHaveTextContent("CANSLIM live watchlist");
-      expect(container).toHaveTextContent("NVDA");
-      expect(container).toHaveTextContent("MSFT");
+      expect(container).toHaveTextContent("Streamer status");
+      expect(container).toHaveTextContent("Connected");
+      expect(container).toHaveTextContent("DOW");
+      expect(container).toHaveTextContent("NASDAQ");
     });
   });
 
-  it("renders the Polymarket overview card and tab content", async () => {
+  it("renders the Polymarket tab content", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/trading-ops/polymarket") {
@@ -746,12 +707,6 @@ describe("TradingOpsDashboard", () => {
         ],
         warnings: [],
       });
-    });
-
-    await waitFor(() => {
-      expect(container).toHaveTextContent("Risk-off confirmation");
-      expect(container).toHaveTextContent("AMD, MSFT");
-      expect(container).toHaveTextContent("1 live markets");
     });
 
     const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
@@ -1259,238 +1214,6 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Live account stream is error. 0 live balance snapshots, 0 positions, 0 open orders.");
   });
 
-  it("keeps Polymarket overview neutral while the live stream outruns the aggregate status fetch", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-16T18:08:00.000Z"));
-
-    let polymarketFetchCount = 0;
-
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-
-      if (url === "/api/trading-ops/polymarket") {
-        polymarketFetchCount += 1;
-        return new Response(
-          JSON.stringify(
-            polymarketFetchCount === 1
-              ? {
-                  generatedAt: "2026-04-16T18:08:01.000Z",
-                  account: {
-                    state: "error",
-                    label: "error",
-                    message: "Live account stream is error. 0 live balance snapshots, 0 positions, 0 open orders.",
-                    updatedAt: "2026-04-16T18:08:01.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: ["private stream warming"],
-                    data: {
-                      status: "error",
-                      keyIdSuffix: null,
-                      balanceCount: 0,
-                      positionCount: 0,
-                      openOrdersCount: 0,
-                      balances: [],
-                    },
-                  },
-                  signal: {
-                    state: "missing",
-                    label: "Loading overlay",
-                    message: "Waiting for the first live Polymarket event snapshot.",
-                    updatedAt: "2026-04-16T18:08:01.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: [],
-                    data: null,
-                    badgeText: "loading",
-                  },
-                  watchlist: {
-                    state: "missing",
-                    label: "Loading watchlist",
-                    message: "Waiting for the first linked Polymarket watchlist snapshot.",
-                    updatedAt: "2026-04-16T18:08:01.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: [],
-                    data: null,
-                    badgeText: "loading",
-                  },
-                  results: {
-                    state: "ok",
-                    label: "Pinned results waiting",
-                    message: "Pinned markets will appear here after settlement.",
-                    updatedAt: "2026-04-16T18:08:01.000Z",
-                    source: "/api/trading-ops/polymarket/results",
-                    warnings: [],
-                    data: {
-                      updatedAt: "2026-04-16T18:08:01.000Z",
-                      settledCount: 0,
-                      tradedCount: 0,
-                      openPositionCount: 0,
-                      rows: [],
-                    },
-                  },
-                }
-              : {
-                  generatedAt: "2026-04-16T18:08:02.000Z",
-                  account: {
-                    state: "ok",
-                    label: "healthy",
-                    message: "Live account stream is healthy with 1 live balance snapshots, 0 positions, 0 open orders.",
-                    updatedAt: "2026-04-16T18:08:02.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: [],
-                    data: {
-                      status: "healthy",
-                      keyIdSuffix: null,
-                      balanceCount: 1,
-                      positionCount: 0,
-                      openOrdersCount: 0,
-                      balances: [
-                        {
-                          currency: "USD",
-                          currentBalance: 1000,
-                          buyingPower: 1000,
-                        },
-                      ],
-                    },
-                  },
-                  signal: {
-                    state: "ok",
-                    label: "Live event stream",
-                    message: "Polymarket live: Republican Party 46%",
-                    updatedAt: "2026-04-16T18:08:02.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: [],
-                    data: {
-                      generatedAt: "2026-04-16T18:08:02.000Z",
-                      compactLines: ["Polymarket live: Republican Party 46%"],
-                      alignment: null,
-                      overlaySummary: "Live macro event stream",
-                      overlayDetail: "Derived directly from Polymarket websocket market data.",
-                      conviction: null,
-                      aggressionDial: null,
-                      divergenceSummary: null,
-                      topMarkets: [],
-                    },
-                  },
-                  watchlist: {
-                    state: "ok",
-                    label: "Live linked watchlist",
-                    message: "Live linked watchlist has 3 symbols across funds.",
-                    updatedAt: "2026-04-16T18:08:02.000Z",
-                    source: "/api/trading-ops/polymarket/live",
-                    warnings: [],
-                    data: {
-                      updatedAt: "2026-04-16T18:08:02.000Z",
-                      totalCount: 3,
-                      buckets: {
-                        stocks: [],
-                        funds: ["SPY", "QQQ", "DIA"],
-                        crypto: [],
-                        cryptoProxies: [],
-                      },
-                      symbols: [],
-                    },
-                  },
-                  results: {
-                    state: "ok",
-                    label: "Pinned results waiting",
-                    message: "Pinned markets will appear here after settlement.",
-                    updatedAt: "2026-04-16T18:08:02.000Z",
-                    source: "/api/trading-ops/polymarket/results",
-                    warnings: [],
-                    data: {
-                      updatedAt: "2026-04-16T18:08:02.000Z",
-                      settledCount: 0,
-                      tradedCount: 0,
-                      openPositionCount: 0,
-                      rows: [],
-                    },
-                  },
-                },
-          ),
-        );
-      }
-
-      if (url === "/api/trading-ops/polymarket/live") {
-        return new Response(
-          JSON.stringify({
-            generatedAt: "2026-04-16T18:08:01.000Z",
-            streamer: {
-              marketsConnected: true,
-              privateConnected: true,
-              operatorState: "healthy",
-              trackedMarketCount: 13,
-              trackedMarketSlugs: [],
-              lastMarketMessageAt: "2026-04-16T18:08:01.000Z",
-              lastPrivateMessageAt: "2026-04-16T18:08:01.000Z",
-              lastError: null,
-            },
-            account: {
-              balance: 1000,
-              buyingPower: 1000,
-              openOrdersCount: 0,
-              positionCount: 0,
-              lastBalanceUpdateAt: "2026-04-16T18:08:01.000Z",
-              lastOrdersUpdateAt: "2026-04-16T18:08:01.000Z",
-              lastPositionsUpdateAt: "2026-04-16T18:08:01.000Z",
-            },
-            roster: {
-              candidateEventsCount: 13,
-              candidateSportsCount: 0,
-            },
-            markets: [
-              {
-                slug: "paccc-usse-midterms-2026-11-03-rep",
-                title: "Republican Party",
-                bucket: "events",
-                pinned: false,
-                pinnedAt: null,
-                eventTitle: "U.S Senate Midterm Winner",
-                league: null,
-                bestBid: 0.46,
-                bestAsk: 0.47,
-                lastTrade: 0.46,
-                spread: 0.01,
-                marketState: "MARKET_STATE_OPEN",
-                sharesTraded: 100,
-                openInterest: 1000,
-                tradePrice: 0.46,
-                tradeQuantity: 10,
-                tradeTime: "2026-04-16T18:08:01.000Z",
-                updatedAt: "2026-04-16T18:08:01.000Z",
-                state: "ok",
-                warning: null,
-              },
-            ],
-            warnings: [],
-          }),
-        );
-      }
-
-      return new Promise<Response>(() => {
-        // Keep unrelated fetches dormant.
-      });
-    }) as typeof fetch);
-
-    const { container } = render(<TradingOpsDashboard data={fixture} />);
-
-    await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(1);
-      await Promise.resolve();
-    });
-
-    expect(container).toHaveTextContent("Waiting for Polymarket services to settle after page load.");
-    expect(container).not.toHaveTextContent("Live account stream is error.");
-
-    await act(async () => {
-      vi.advanceTimersByTime(1_001);
-      await Promise.resolve();
-    });
-
-    expect(container).toHaveTextContent("Live account stream is healthy with 1 live balance snapshots, 0 positions, 0 open orders.");
-    expect(container).toHaveTextContent("Live macro event stream");
-    expect(polymarketFetchCount).toBeGreaterThanOrEqual(2);
-  });
-
   it("shows the freshest pinned market timestamp when quote updates are newer than the last trade", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1636,55 +1359,6 @@ describe("TradingOpsDashboard", () => {
     });
   });
 
-  it("falls back cleanly when the live stream errors", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          generatedAt: "2026-04-08T20:01:00.000Z",
-          streamer: {
-            connected: false,
-            operatorState: "reconnecting",
-            lastLoginAt: "2026-04-08T19:55:00.000Z",
-            activeEquitySubscriptions: 0,
-            activeAcctActivitySubscriptions: 0,
-            cooldownSummary: "REST cooldown is active.",
-            warnings: ["streamer:reconnecting"],
-          },
-          tape: {
-            freshnessMessage: "Using last-known Schwab streamer quotes while the stream reconnects.",
-            providerMode: "schwab_streamer_retained",
-            fallbackEngaged: true,
-            providerModeReason: "Using retained streamer quotes while the live stream reconnects.",
-            rows: [
-              { ...liveRow("SPY", "SPY", "SPY", 510.12, 1.25), source: "schwab_streamer_shared", state: "degraded" },
-            ],
-          },
-          watchlists: {
-            dipBuyer: { buy: [], watch: [] },
-            canslim: { buy: [], watch: [] },
-          },
-          meta: {
-            runId: "20260403-163103",
-            runLabel: "Apr 3, 12:38 PM",
-            decision: "WATCH",
-            focusTicker: "ABBV",
-            isAfterHours: false,
-          },
-          warnings: [],
-        }),
-      )) as typeof fetch);
-
-    const { container } = render(<TradingOpsDashboard data={fixture} />);
-    await act(async () => {
-      findEventSource("/api/trading-ops/live/stream")?.fail();
-    });
-
-    await waitFor(() => {
-      expect(container).toHaveTextContent("Using last-known Schwab streamer quotes while the stream reconnects.");
-      expect(container).not.toHaveTextContent("REST fallback");
-    });
-  });
-
   it("renders alert banner when incidents exist", () => {
     render(<TradingOpsDashboard data={fixture} />);
     expect(screen.getByText(/provider_cooldown: Wait\./)).toBeInTheDocument();
@@ -1729,7 +1403,7 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("880");
   });
 
-  it("renders runtime readiness-check missing language and stale badge text", () => {
+  it("renders runtime fallback alert without the removed readiness panel", () => {
     const staleFixture: TradingOpsDashboardData = {
       ...fixture,
       market: {
@@ -1776,12 +1450,8 @@ describe("TradingOpsDashboard", () => {
     };
 
     const { container } = render(<TradingOpsDashboard data={staleFixture} />);
-    expect(container).toHaveTextContent("stale");
-    expect(container).toHaveTextContent("Readiness check unavailable");
-    expect(container).toHaveTextContent("Pre-open readiness check artifact is missing at /tmp/pre-open-canary-latest.json.");
-    expect(container).toHaveTextContent("Pre-open readiness check");
-    expect(container).toHaveTextContent("No operator action required.");
-    expect(container).toHaveTextContent("File artifact fallback");
+    expect(container).toHaveTextContent("trading_run_state_fallback");
+    expect(container).not.toHaveTextContent("Pre-open readiness check");
   });
 });
 

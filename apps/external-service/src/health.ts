@@ -3,7 +3,6 @@ export type HealthState = "healthy" | "unhealthy" | "ok" | "degraded" | "unconfi
 export interface AggregateHealthInput {
   whoop: Record<string, unknown>;
   tonal: Record<string, unknown>;
-  alpaca: Record<string, unknown>;
   appleHealth: Record<string, unknown>;
   marketData: Record<string, unknown>;
   polymarket: Record<string, unknown>;
@@ -27,7 +26,7 @@ function isHealthy(entry: Record<string, unknown>): boolean {
 }
 
 export function buildAggregateHealth(input: AggregateHealthInput): AggregateHealthOutput {
-  const required = [input.whoop, input.tonal, input.alpaca, input.marketData, input.polymarket];
+  const required = [input.whoop, input.tonal, input.marketData, input.polymarket];
   const requiredHealthyCount = required.filter(isHealthy).length;
   const appleHealthStatus = statusOf(input.appleHealth);
 
@@ -43,7 +42,6 @@ export function buildAggregateHealth(input: AggregateHealthInput): AggregateHeal
     statusCode: status === "unhealthy" ? 503 : 200,
     whoop: input.whoop,
     tonal: input.tonal,
-    alpaca: input.alpaca,
     appleHealth: input.appleHealth,
     marketData: input.marketData,
     polymarket: input.polymarket,

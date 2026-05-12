@@ -117,9 +117,8 @@ async function loadFinancialServicesOverview(
   fetchImpl: typeof fetch,
 ): Promise<ArtifactState<FinancialServicesHealthOverview>> {
   const checkedAt = new Date().toISOString();
-  const [opsResult, alpacaResult, polymarketHealthResult, polymarketLiveResult] = await Promise.all([
+  const [opsResult, polymarketHealthResult, polymarketLiveResult] = await Promise.all([
     fetchJson(`${baseUrl}/market-data/ops`, fetchImpl),
-    fetchJson(`${baseUrl}/alpaca/health`, fetchImpl),
     fetchJson(`${baseUrl}/polymarket/health`, fetchImpl),
     fetchJson(`${baseUrl}/polymarket/live`, fetchImpl),
   ]);
@@ -135,8 +134,6 @@ async function loadFinancialServicesOverview(
   const polymarketStreamer = asRecord(polymarketLive?.streamer);
 
   const rows = [
-    configuredRow("Alpaca", "/alpaca/health", stringValue(asRecord(alpacaResult.body)?.status), ["healthy", "ok"], "healthy"),
-    configuredRow("FRED", "/market-data/ops", stringValue(providers?.fred), ["configured"], "configured"),
     configuredRow("CoinMarketCap", "/market-data/ops", stringValue(providers?.coinmarketcap), ["configured"], "configured"),
     schwabRestRow(providerMetrics, providers, opsResult),
     schwabStreamerRow(streamerMeta, providers, opsResult),
@@ -157,11 +154,10 @@ async function loadFinancialServicesOverview(
         : degradedCount > 0
           ? `${healthyCount} services healthy, ${degradedCount} degraded.`
           : `${healthyCount} services healthy.`,
-    source: `${baseUrl}/market-data/ops · ${baseUrl}/alpaca/health · ${baseUrl}/polymarket/health · ${baseUrl}/polymarket/live`,
+    source: `${baseUrl}/market-data/ops · ${baseUrl}/polymarket/health · ${baseUrl}/polymarket/live`,
     updatedAt: checkedAt,
     warnings: compactStrings([
       opsResult.error,
-      alpacaResult.error,
       polymarketHealthResult.error,
       polymarketLiveResult.error,
       ...rows.flatMap((row) => (row.state === "ok" ? [] : [`${row.label}:${row.state}`])),

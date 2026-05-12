@@ -92,6 +92,16 @@ const TEST_CONFIG: AppConfig = {
   EXTERNAL_SERVICE_TLS_KEY_PATH: "",
 };
 
+function createLocalUniverseConfig(count = 501): Partial<AppConfig> {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-universe-"));
+  const universePath = path.join(tempDir, "universe.json");
+  const symbols = Array.from({ length: count }, (_, index) => `T${index.toString().padStart(3, "0")}`);
+  fs.writeFileSync(universePath, JSON.stringify({ symbols }, null, 2));
+  return {
+    MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: universePath,
+  };
+}
+
 class FakeWebSocket implements WebSocketLike {
   static createdCount = 0;
   static sentRequests: Array<{ service: string; command: string; keys?: string }> = [];
@@ -1400,7 +1410,12 @@ describe("market-data routes", () => {
   });
 
   it("refreshes universe artifact from the bundled local S&P source", async () => {
-    const service = new MarketDataService({ config: TEST_CONFIG });
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        ...createLocalUniverseConfig(),
+      },
+    });
     const result = await service.handleUniverseRefresh();
 
     expect(result.status).toBe(200);
@@ -1463,6 +1478,7 @@ describe("market-data routes", () => {
     const service = new MarketDataService({
       config: {
         ...TEST_CONFIG,
+        ...createLocalUniverseConfig(),
         MARKET_DATA_CACHE_DIR: tempDir,
         SCHWAB_CLIENT_ID: "",
         SCHWAB_CLIENT_SECRET: "",

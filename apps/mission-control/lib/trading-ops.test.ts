@@ -10,7 +10,6 @@ describe("loadTradingOpsDashboardData", () => {
           data: {
             health: {
               providers: {
-                fred: "configured",
                 coinmarketcap: "configured",
                 schwab: "configured",
                 schwabStreamer: "enabled",
@@ -29,7 +28,7 @@ describe("loadTradingOpsDashboardData", () => {
         });
       }
 
-      if (url.endsWith("/alpaca/health") || url.endsWith("/polymarket/health")) {
+      if (url.endsWith("/polymarket/health")) {
         return Response.json({ status: "healthy" });
       }
 

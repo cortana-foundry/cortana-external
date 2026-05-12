@@ -56,12 +56,6 @@ export const WORKSPACE_SECTIONS: Array<{ id: string; label: string; description:
     description: "Live WHOOP webhook ingestion, processing, retention, and Spartan Telegram delivery.",
     fileId: "external",
   },
-  {
-    id: "alpaca-execution",
-    label: "Alpaca Execution",
-    description: "Alpaca keys, environment targeting, and execution-side routing.",
-    fileId: "external",
-  },
 ];
 
 export const WORKSPACE_FIELDS: WorkspaceFieldDefinition[] = [
@@ -109,8 +103,6 @@ export const WORKSPACE_FIELDS: WorkspaceFieldDefinition[] = [
   { key: "TONAL_DATA_PATH", label: "Tonal data cache path", help: "Cached Tonal workout and profile data.", fileId: "external", sectionId: "recovery-stack", input: "text", defaultValue: "tonal_data.json", placeholder: "tonal_data.json" },
   { key: "COINMARKETCAP_API_KEY", label: "CoinMarketCap API key", help: "Crypto quote/history provider key used by the market-data chain.", fileId: "external", sectionId: "recovery-stack", input: "secret", placeholder: "API key" },
   { key: "COINMARKETCAP_API_BASE_URL", label: "CoinMarketCap base URL", help: "Optional override for the CoinMarketCap API host.", fileId: "external", sectionId: "recovery-stack", input: "text", defaultValue: "https://pro-api.coinmarketcap.com", placeholder: "https://pro-api.coinmarketcap.com" },
-  { key: "FRED_API_KEY", label: "FRED API key", help: "Macro data key used by market-data support endpoints.", fileId: "external", sectionId: "recovery-stack", input: "secret", placeholder: "API key" },
-
   // ── WHOOP Streaming ──
   { key: "WHOOP_WEBHOOK_ENABLED", label: "WHOOP webhook enabled", help: "Turns public WHOOP webhook ingestion and the live-event processor on or off.", fileId: "external", sectionId: "whoop-streaming", input: "select", defaultValue: "false", options: [{ label: "Disabled", value: "false" }, { label: "Enabled", value: "true" }] },
   { key: "WHOOP_WEBHOOK_PUBLIC_URL", label: "WHOOP webhook public URL", help: "Public HTTPS callback URL configured in the WHOOP Developer Dashboard.", fileId: "external", sectionId: "whoop-streaming", input: "text", placeholder: "https://example.com/webhooks/whoop" },
@@ -124,13 +116,6 @@ export const WORKSPACE_FIELDS: WorkspaceFieldDefinition[] = [
   { key: "WHOOP_WEBHOOK_BODY_LIMIT_BYTES", label: "Webhook body limit (bytes)", help: "Maximum raw WHOOP webhook request body size accepted by external-service.", fileId: "external", sectionId: "whoop-streaming", input: "text", defaultValue: "65536", placeholder: "65536" },
   { key: "WHOOP_LIVE_EVENT_TELEGRAM_ENABLED", label: "Spartan Telegram enabled", help: "Allows message-worthy WHOOP live events to send Telegram coaching through Spartan.", fileId: "external", sectionId: "whoop-streaming", input: "select", defaultValue: "true", options: [{ label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }] },
   { key: "WHOOP_LIVE_EVENT_TELEGRAM_ACCOUNT_ID", label: "Spartan Telegram account", help: "Telegram account id resolved from OpenClaw config for live WHOOP coaching messages.", fileId: "external", sectionId: "whoop-streaming", input: "text", defaultValue: "spartan", placeholder: "spartan" },
-
-  // ── Alpaca Execution ──
-  { key: "ALPACA_KEYS_PATH", label: "Alpaca keys path", help: "Optional JSON key file path if you do not want to use direct env keys.", fileId: "external", sectionId: "alpaca-execution", input: "text", placeholder: "/absolute/path/to/alpaca_keys.json" },
-  { key: "ALPACA_KEY", label: "Alpaca key id", help: "Direct Alpaca key id if you are not using a JSON key file.", fileId: "external", sectionId: "alpaca-execution", input: "text", placeholder: "Key id" },
-  { key: "ALPACA_SECRET_KEY", label: "Alpaca secret key", help: "Direct Alpaca secret for account and execution requests.", fileId: "external", sectionId: "alpaca-execution", input: "secret", placeholder: "Secret key" },
-  { key: "ALPACA_ENDPOINT", label: "Alpaca endpoint", help: "Broker API base URL used when keys are supplied directly.", fileId: "external", sectionId: "alpaca-execution", input: "text", placeholder: "https://paper-api.alpaca.markets" },
-  { key: "ALPACA_TARGET_ENVIRONMENT", label: "Alpaca target environment", help: "Target environment reported in Mission Control health surfaces.", fileId: "external", sectionId: "alpaca-execution", input: "select", defaultValue: "live", options: [{ label: "Live", value: "live" }, { label: "Paper", value: "paper" }] },
 ];
 
 export const WORKSPACE_FIELD_LOOKUP = new Map(

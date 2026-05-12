@@ -307,7 +307,6 @@ export class MarketDataService {
     return buildHealthReport({
       coinMarketCapConfigured: this.coinMarketCap.isConfigured(),
       schwabConfigured: this.isSchwabConfigured(),
-      fredConfigured: Boolean(this.config.FRED_API_KEY),
       streamerRuntime: this.streamerRuntime,
       providerMetrics: this.providerMetrics,
       universeSourceLadder: this.universeSourceLadder,

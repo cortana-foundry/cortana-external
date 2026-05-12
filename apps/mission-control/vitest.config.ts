@@ -7,7 +7,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     include: ["lib/**/*.test.ts", "lib/**/*.test.tsx", "app/**/*.test.ts", "app/**/*.test.tsx"],
-    exclude: ["node_modules", "scripts/post-merge-task-autoclose.test.ts"],
+    exclude: ["node_modules"],
   },
   resolve: {
     alias: {

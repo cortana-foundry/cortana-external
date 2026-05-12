@@ -230,7 +230,6 @@ pnpm exec tsx scripts/install-launch-agent.ts
 
 Verification:
 - `curl http://127.0.0.1:3000/api/heartbeat-status`
-- `pnpm exec tsx scripts/check-trading-ops-smoke.ts`
 
 
 ## Governance integration notes

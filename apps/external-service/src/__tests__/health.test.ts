@@ -5,7 +5,6 @@ describe("buildAggregateHealth", () => {
     const result = buildAggregateHealth({
       whoop: { status: "healthy" },
       tonal: { status: "healthy" },
-      alpaca: { status: "healthy" },
       appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
       polymarket: { status: "healthy" },
@@ -19,7 +18,6 @@ describe("buildAggregateHealth", () => {
     const result = buildAggregateHealth({
       whoop: { status: "healthy" },
       tonal: { status: "unhealthy" },
-      alpaca: { status: "healthy" },
       appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
       polymarket: { status: "healthy" },
@@ -33,7 +31,6 @@ describe("buildAggregateHealth", () => {
     const result = buildAggregateHealth({
       whoop: { status: "unhealthy" },
       tonal: { status: "unhealthy" },
-      alpaca: { status: "unhealthy" },
       appleHealth: { status: "unhealthy" },
       marketData: { status: "unhealthy" },
       polymarket: { status: "unhealthy" },
@@ -47,7 +44,6 @@ describe("buildAggregateHealth", () => {
     const result = buildAggregateHealth({
       whoop: { status: "healthy" },
       tonal: { status: "healthy" },
-      alpaca: { status: "healthy" },
       appleHealth: { status: "unconfigured" },
       marketData: { status: "healthy" },
       polymarket: { status: "healthy" },

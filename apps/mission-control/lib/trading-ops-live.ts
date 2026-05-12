@@ -495,9 +495,6 @@ function buildFreshnessMessage(
       if (hasAfterHoursRetainedSchwabQuotes) {
         return "Market is closed. Showing last-known Schwab prices where available, and some symbols are unavailable.";
       }
-      if (tapeMode.providerMode === "alpaca_fallback") {
-        return "Streamer is connected, but some symbols moved into the declared Alpaca fallback lane.";
-      }
       if (tapeMode.providerMode === "cache_fallback") {
         return "Streamer is connected, but some symbols are using cached fallback quotes.";
       }

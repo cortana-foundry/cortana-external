@@ -119,7 +119,6 @@ describe("workspace health mapping", () => {
               },
             },
             tonal: { status: "healthy" },
-            alpaca: { status: "healthy" },
             appleHealth: { status: "unhealthy" },
             marketData: { status: "healthy" },
             polymarket: { status: "healthy" },
