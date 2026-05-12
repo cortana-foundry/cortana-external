@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "market-lab"
+version = "0.1.0"
+description = "Forward-looking trust reviews for trading decisions."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.8.0",
+  "python-dateutil>=2.9.0",
+  "requests>=2.32.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+where = ["."]
