@@ -271,7 +271,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
       ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-neutral-200 bg-white shadow-sm">
+        <aside className="flex max-h-[520px] flex-col self-start rounded-lg border border-neutral-200 bg-white shadow-sm xl:sticky xl:top-3 xl:max-h-[calc(100svh-120px)]">
           <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold text-neutral-950">Run tape</h2>
@@ -279,7 +279,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
             </div>
             <Clock3 className="h-4 w-4 text-neutral-400" />
           </div>
-          <div className="max-h-[360px] space-y-1 overflow-y-auto p-2 xl:max-h-[760px]">
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
             {runs.length === 0 ? <p className="px-2 py-6 text-sm text-neutral-500">No Market Lab runs yet.</p> : null}
             {runs.map((run) => {
               const runVerdict = run.trust_verdict ?? "uncertain";
