@@ -105,9 +105,7 @@ describe("trading ops live loader", () => {
     });
 
     const data = await loadTradingOpsLiveData({
-      baseUrl: "http://127.0.0.1:3033",
-      cortanaRepoPath,
-      referenceTime: new Date("2026-04-08T23:00:00.000Z"),
+      baseUrl: "http://127.0.0.1:3033",      referenceTime: new Date("2026-04-08T23:00:00.000Z"),
       fetchImpl,
     });
 
@@ -119,10 +117,10 @@ describe("trading ops live loader", () => {
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.sourceSymbol).toBe("DIA");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.changePercent).toBe(2.55);
     expect(data.tape.rows.find((row) => row.symbol === "NASDAQ")?.sourceSymbol).toBe("QQQ");
-    expect(data.watchlists.dipBuyer.watch.map((row) => row.symbol)).toEqual(["ACHV", "ADM"]);
-    expect(data.watchlists.canslim.buy.map((row) => row.symbol)).toEqual(["NVDA"]);
-    expect(data.meta.runId).toBe("20260408-163130");
-    expect(data.meta.runLabel).toBe("Apr 8, 12:31 PM");
+    expect(data.watchlists.dipBuyer.watch).toEqual([]);
+    expect(data.watchlists.canslim.buy).toEqual([]);
+    expect(data.meta.runId).toBeNull();
+    expect(data.meta.runLabel).toBeNull();
     expect(
       (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.some(([input]) =>
         String(input).includes("subsystem=live_watchlists"),
@@ -241,9 +239,7 @@ describe("trading ops live loader", () => {
     });
 
     const data = await loadTradingOpsLiveData({
-      baseUrl: "http://127.0.0.1:3033",
-      cortanaRepoPath,
-      fetchImpl,
+      baseUrl: "http://127.0.0.1:3033",      fetchImpl,
     });
 
     expect(data.streamer.connected).toBe(false);
@@ -251,12 +247,8 @@ describe("trading ops live loader", () => {
     expect(data.tape.freshnessMessage).toContain("Using last-known Schwab streamer quotes while the stream reconnects");
     expect(data.tape.providerMode).toBe("multi_mode");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");
-    expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
-      symbol: "ABBV",
-      state: "degraded",
-      stalenessSeconds: 240,
-    });
-    expect(data.meta.runLabel).toBe("Apr 8, 3:31 PM");
+    expect(data.watchlists.dipBuyer.watch).toEqual([]);
+    expect(data.meta.runLabel).toBeNull();
   });
 
   it("keeps after-hours Schwab quotes visible as stale rows with age markers", async () => {
@@ -344,9 +336,7 @@ describe("trading ops live loader", () => {
     });
 
     const data = await loadTradingOpsLiveData({
-      baseUrl: "http://127.0.0.1:3033",
-      cortanaRepoPath,
-      fetchImpl,
+      baseUrl: "http://127.0.0.1:3033",      fetchImpl,
     });
 
     expect(data.tape.freshnessMessage).toContain("Market is closed");
@@ -354,11 +344,7 @@ describe("trading ops live loader", () => {
       state: "degraded",
       stalenessSeconds: 300,
     });
-    expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
-      symbol: "ABBV",
-      state: "degraded",
-      stalenessSeconds: 300,
-    });
+    expect(data.watchlists.dipBuyer.watch).toEqual([]);
   });
 
   it("retains last-known Schwab rows across an after-hours reload and keeps DOW tied to DIA", async () => {
@@ -444,9 +430,7 @@ describe("trading ops live loader", () => {
       });
 
       const firstLoad = await loadTradingOpsLiveData({
-        baseUrl: "http://127.0.0.1:3033",
-        cortanaRepoPath,
-        fetchImpl,
+        baseUrl: "http://127.0.0.1:3033",        fetchImpl,
       });
       expect(getTradingOpsLiveRetainedQuoteKeysForTests()).toEqual(expect.arrayContaining(["QQQ", "IWM", "DIA"]));
       expect(firstLoad.tape.rows.find((row) => row.symbol === "DOW")).toMatchObject({
@@ -459,9 +443,7 @@ describe("trading ops live loader", () => {
       vi.setSystemTime(new Date("2026-04-10T22:05:00.000Z"));
 
       const secondLoad = await loadTradingOpsLiveData({
-        baseUrl: "http://127.0.0.1:3033",
-        cortanaRepoPath,
-        fetchImpl,
+        baseUrl: "http://127.0.0.1:3033",        fetchImpl,
       });
 
       expect(secondLoad.streamer.connected).toBe(true);
@@ -592,9 +574,7 @@ describe("trading ops live loader", () => {
     });
 
     const data = await loadTradingOpsLiveData({
-      baseUrl: "http://127.0.0.1:3033",
-      cortanaRepoPath,
-      fetchImpl,
+      baseUrl: "http://127.0.0.1:3033",      fetchImpl,
       referenceTime: new Date("2026-04-18T14:57:00.000Z"),
     });
 
@@ -683,18 +663,14 @@ describe("trading ops live loader", () => {
       });
 
       await loadTradingOpsLiveData({
-        baseUrl: "http://127.0.0.1:3033",
-        cortanaRepoPath,
-        fetchImpl,
+        baseUrl: "http://127.0.0.1:3033",        fetchImpl,
       });
 
       phase = 1;
       vi.setSystemTime(new Date("2026-04-10T22:18:00.000Z"));
 
       const firstQuietGap = await loadTradingOpsLiveData({
-        baseUrl: "http://127.0.0.1:3033",
-        cortanaRepoPath,
-        fetchImpl,
+        baseUrl: "http://127.0.0.1:3033",        fetchImpl,
       });
 
       expect(firstQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
@@ -712,9 +688,7 @@ describe("trading ops live loader", () => {
       vi.setSystemTime(new Date("2026-04-10T22:21:00.000Z"));
 
       const secondQuietGap = await loadTradingOpsLiveData({
-        baseUrl: "http://127.0.0.1:3033",
-        cortanaRepoPath,
-        fetchImpl,
+        baseUrl: "http://127.0.0.1:3033",        fetchImpl,
       });
 
       expect(secondQuietGap.tape.rows.find((row) => row.symbol === "IWM")).toMatchObject({
@@ -818,9 +792,7 @@ describe("trading ops live loader", () => {
     });
 
     const data = await loadTradingOpsLiveData({
-      baseUrl: "http://127.0.0.1:3033",
-      cortanaRepoPath,
-      referenceTime: new Date("2026-04-10T19:44:00.000Z"),
+      baseUrl: "http://127.0.0.1:3033",      referenceTime: new Date("2026-04-10T19:44:00.000Z"),
       fetchImpl,
     });
 

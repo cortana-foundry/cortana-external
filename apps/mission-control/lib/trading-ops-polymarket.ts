@@ -16,7 +16,7 @@ import {
   getPolymarketLiveMarketProbability,
   getPolymarketSeverity,
 } from "@/lib/trading-ops-polymarket-links";
-import { getBacktesterRepoPath } from "@/lib/runtime-paths";
+import { getRepoRoot } from "@/lib/runtime-paths";
 
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const TRANSIENT_LOADING_PATTERNS = [
@@ -41,7 +41,7 @@ type TradingOpsPolymarketOptions = {
 export async function loadTradingOpsPolymarketData(
   options: TradingOpsPolymarketOptions = {},
 ): Promise<TradingOpsPolymarketData> {
-  const repoRoot = options.repoRoot ?? path.resolve(getBacktesterRepoPath(), "..");
+  const repoRoot = options.repoRoot ?? getRepoRoot();
   const baseUrl = options.baseUrl ?? resolveExternalServiceBaseUrl(repoRoot);
   const fetchImpl = options.fetchImpl ?? fetch;
   const [live, resultsResponse] = await Promise.all([

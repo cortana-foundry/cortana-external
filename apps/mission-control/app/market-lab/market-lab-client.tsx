@@ -61,7 +61,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data as T;
 }
 
-export function MarketLabClient() {
+type MarketLabClientProps = {
+  embedded?: boolean;
+};
+
+export function MarketLabClient({ embedded = false }: MarketLabClientProps = {}) {
   const [symbol, setSymbol] = useState("AAPL");
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -154,14 +158,14 @@ export function MarketLabClient() {
   const review = detail?.review;
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
-      <section className="flex flex-col gap-3 border-b pb-4 md:flex-row md:items-end md:justify-between">
+    <div className={cn("flex w-full flex-col gap-4", embedded ? "" : "mx-auto max-w-7xl px-4 py-6 md:px-6")}>
+      <section className={cn("flex flex-col gap-3 md:flex-row md:items-end md:justify-between", !embedded && "border-b pb-4")}>
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <FlaskConical className="h-4 w-4" />
             <span>Market Lab</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-normal">Forward-looking trust reviews</h1>
+          <h1 className={cn("font-semibold tracking-normal", embedded ? "text-lg" : "text-2xl")}>Forward-looking trust reviews</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -332,6 +336,6 @@ export function MarketLabClient() {
           </Card>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

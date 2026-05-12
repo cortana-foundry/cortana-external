@@ -21,6 +21,8 @@ backtester/.venv/
 .cache/
 backtester/data/cache/
 backtester/.cache/
+deprecated/backtester/data/cache/
+deprecated/backtester/.cache/
 
 # Watchdog logs
 watchdog/logs/
@@ -43,6 +45,9 @@ watchdog/watchdog-state.json
 backtester/data/polymarket_watchlist.json
 backtester/var/local-workflows/
 backtester/var/readiness/
+deprecated/backtester/data/polymarket_watchlist.json
+deprecated/backtester/var/local-workflows/
+deprecated/backtester/var/readiness/
 var/market-intel/polymarket/history/
 var/market-intel/polymarket/latest-compact.txt
 var/market-intel/polymarket/latest-report.json

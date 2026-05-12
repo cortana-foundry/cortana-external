@@ -87,7 +87,7 @@ Out of scope:
 - Telegram alerts
 - historical as-of-date backtesting
 - multi-symbol batches
-- old backtester replacement/deletion
+- legacy backtester archive/deprecation verification
 - model/provider bakeoffs
 
 ---

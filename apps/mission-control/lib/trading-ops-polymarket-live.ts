@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { TradingOpsPolymarketLiveData } from "@/lib/trading-ops-contract";
-import { getBacktesterRepoPath } from "@/lib/runtime-paths";
+import { getRepoRoot } from "@/lib/runtime-paths";
 import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
 
 const REQUEST_TIMEOUT_MS = 4_000;
@@ -24,7 +24,7 @@ type FetchResult = {
 export async function loadTradingOpsPolymarketLiveData(
   options: TradingOpsPolymarketLiveOptions = {},
 ): Promise<TradingOpsPolymarketLiveData> {
-  const repoRoot = options.repoRoot ?? path.resolve(getBacktesterRepoPath(), "..");
+  const repoRoot = options.repoRoot ?? getRepoRoot();
   const baseUrl = options.baseUrl ?? resolveExternalServiceBaseUrl(repoRoot);
   const fetchImpl = options.fetchImpl ?? fetch;
   const boardResult = await fetchJson(`${baseUrl}/polymarket/board/live`, fetchImpl);

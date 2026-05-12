@@ -28,6 +28,7 @@ import { OperatorChecklist } from "./trading-ops/operator-checklist";
 import { CompactTapeStrip, LiveTapeGrid, LiveWatchlistGroup, useAnimatedValue, useFlashClass } from "./trading-ops/animated-quote";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MarketLabClient } from "@/app/market-lab/market-lab-client";
 
 const LIVE_POLL_MS = 15_000;
 const LIVE_STREAM_RETRY_MS = 2_000;
@@ -637,6 +638,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         <TabsList className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="live">Live</TabsTrigger>
+          <TabsTrigger value="market-lab">Market Lab</TabsTrigger>
           <TabsTrigger value="watchlists">Watchlists</TabsTrigger>
           <TabsTrigger value="polymarket">Polymarket</TabsTrigger>
           <TabsTrigger value="health">System Health</TabsTrigger>
@@ -950,6 +952,11 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               ) : null}
             </ArtifactPanel>
           </section>
+        </TabsContent>
+
+        {/* ── Market Lab ── */}
+        <TabsContent value="market-lab" className="space-y-3">
+          <MarketLabClient embedded />
         </TabsContent>
 
         {/* ── Watchlists ── */}

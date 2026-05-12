@@ -289,7 +289,7 @@ Technical implementation should still decide:
 - exact market-hours calendar source
 - exact TradingAgents invocation mode and timeout policy
 - exact Mission Control route names
-- whether Market Lab needs a new nav item or lives under Trading Ops during the transition
+- Market Lab lives under the Trading Ops cockpit during the transition so trading review work has one home.
 - exact Python package placement and CLI command names
 
 ### Non-Goals Repeated For Safety

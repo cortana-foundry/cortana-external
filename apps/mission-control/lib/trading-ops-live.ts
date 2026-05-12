@@ -1,13 +1,9 @@
 import type { LoadState } from "@/lib/trading-ops";
-import { getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
-import { loadLatestTradingRunOverview, type TradingRunOverview } from "@/lib/trading-ops";
 import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
 
 const LIVE_OPS_TIMEOUT_MS = 6_000;
 const LIVE_TAPE_TIMEOUT_MS = 8_000;
-const LIVE_WATCHLIST_TIMEOUT_MS = 12_000;
-const LIVE_WATCHLIST_CHUNK_SIZE = 20;
 const AFTER_HOURS_WAITING_BADGE_WINDOW_MS = 2 * 60_000;
 const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
 const TAPE_ROWS = [
@@ -107,7 +103,6 @@ export type TradingOpsLiveData = {
 
 type TradingOpsLiveOptions = {
   baseUrl?: string;
-  cortanaRepoPath?: string;
   fetchImpl?: FetchLike;
   referenceTime?: Date;
 };
@@ -116,41 +111,22 @@ export async function loadTradingOpsLiveData(
   options: TradingOpsLiveOptions = {},
 ): Promise<TradingOpsLiveData> {
   const baseUrl = options.baseUrl ?? resolveExternalServiceBaseUrl();
-  const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const fetchImpl = options.fetchImpl ?? fetch;
   const referenceTime = options.referenceTime ?? new Date();
   const nowMs = referenceTime.getTime();
   const isAfterHours = isAfterHoursSession(referenceTime);
-  const tradingRun = await loadLatestTradingRunOverview({ cortanaRepoPath, tradingRunStateStore: null });
   const tapeSymbols = [...TAPE_SOURCE_SYMBOLS] as string[];
-  const watchlistSymbols = dedupeSymbols(
-    collectWatchlistSymbols(tradingRun.data).filter((symbol) => !tapeSymbols.includes(symbol)),
-  );
-  const watchlistChunks = chunkSymbols(watchlistSymbols, LIVE_WATCHLIST_CHUNK_SIZE);
 
-  const [opsResult, tapeQuotesResult, watchlistQuoteResults] = await Promise.all([
+  const [opsResult, tapeQuotesResult] = await Promise.all([
     fetchJson(`${baseUrl}/market-data/ops`, fetchImpl, LIVE_OPS_TIMEOUT_MS),
     fetchJson(
       `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(tapeSymbols.join(","))}&subsystem=live_watchlists`,
       fetchImpl,
       LIVE_TAPE_TIMEOUT_MS,
     ),
-    Promise.all(
-      watchlistChunks.map((symbols) =>
-        fetchJson(
-          `${baseUrl}/market-data/quote/batch?symbols=${encodeURIComponent(symbols.join(","))}&subsystem=live_watchlists`,
-          fetchImpl,
-          LIVE_WATCHLIST_TIMEOUT_MS,
-        ),
-      ),
-    ),
   ]);
 
-  const watchlistQuoteErrors = compactStrings(watchlistQuoteResults.map((result) => result.error));
-  const quoteItems = [
-    ...parseQuoteItems(tapeQuotesResult.body),
-    ...watchlistQuoteResults.flatMap((result) => parseQuoteItems(result.body)),
-  ];
+  const quoteItems = parseQuoteItems(tapeQuotesResult.body);
   const quoteMap = new Map(quoteItems.map((item) => [item.symbol, item]));
   const streamer = parseStreamerSummary(opsResult.body);
   const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, {
@@ -173,43 +149,25 @@ export async function loadTradingOpsLiveData(
     },
     watchlists: {
       dipBuyer: {
-        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, {
-          streamerConnected: streamer.connected,
-          isAfterHours,
-          nowMs,
-        }),
-        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, {
-          streamerConnected: streamer.connected,
-          isAfterHours,
-          nowMs,
-        }),
+        buy: [],
+        watch: [],
       },
       canslim: {
-        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, {
-          streamerConnected: streamer.connected,
-          isAfterHours,
-          nowMs,
-        }),
-        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, {
-          streamerConnected: streamer.connected,
-          isAfterHours,
-          nowMs,
-        }),
+        buy: [],
+        watch: [],
       },
     },
     meta: {
-      runId: tradingRun.data?.runId ?? null,
-      runLabel: tradingRun.data?.runLabel ?? null,
-      decision: tradingRun.data?.decision ?? null,
-      focusTicker: tradingRun.data?.focusTicker ?? null,
+      runId: null,
+      runLabel: null,
+      decision: null,
+      focusTicker: null,
       isAfterHours,
     },
     warnings: compactStrings([
       tapeQuotesResult.error,
-      ...watchlistQuoteErrors,
       ...streamer.warnings,
       ...compactStrings(tapeRows.map((row) => row.warning)),
-      ...tradingRun.warnings,
     ]),
   };
 }
@@ -276,14 +234,6 @@ function parseQuoteItems(body: unknown): QuoteBatchItem[] {
     }));
 }
 
-function chunkSymbols(symbols: string[], chunkSize: number): string[][] {
-  const chunks: string[][] = [];
-  for (let index = 0; index < symbols.length; index += chunkSize) {
-    chunks.push(symbols.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
-
 function parseProviderMode(body: unknown): {
   providerMode: string;
   fallbackEngaged: boolean;
@@ -328,20 +278,6 @@ function parseStreamerSummary(body: unknown): LiveStreamerSummary {
       cooldownSummary,
     ]),
   };
-}
-
-function buildWatchlistRows(
-  symbols: string[],
-  quoteMap: Map<string, QuoteBatchItem>,
-  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
-): LiveQuoteRow[] {
-  return symbols.map((symbol) =>
-    buildLiveQuoteRow(
-      { symbol, label: symbol, sourceSymbol: symbol },
-      quoteMap,
-      context,
-    ),
-  );
 }
 
 function buildLiveQuoteRow(
@@ -602,20 +538,6 @@ function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
 
 function isUnavailableAfterHoursGapRow(row: LiveQuoteRow): boolean {
   return row.state === "degraded" && row.warning === "No recent Schwab quote is available for this symbol while the market is closed.";
-}
-
-function collectWatchlistSymbols(tradingRun: TradingRunOverview | null): string[] {
-  if (!tradingRun) return [];
-  return dedupeSymbols([
-    ...tradingRun.dipBuyerBuy,
-    ...tradingRun.dipBuyerWatch,
-    ...tradingRun.canslimBuy,
-    ...tradingRun.canslimWatch,
-  ]);
-}
-
-function dedupeSymbols(symbols: string[]): string[] {
-  return [...new Set(symbols.filter((value) => value && value.trim()))];
 }
 
 function summarizeFetchError(status: number, body: unknown): string {
