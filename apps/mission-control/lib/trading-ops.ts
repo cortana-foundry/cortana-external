@@ -18,7 +18,7 @@ import type {
   TradingRunOverview,
   WorkflowOverview,
 } from "@/lib/trading-ops-contract";
-import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
+import { formatOperatorTimestamp } from "@/lib/format-utils";
 import { getCortanaSourceRepo, getRepoRoot } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
