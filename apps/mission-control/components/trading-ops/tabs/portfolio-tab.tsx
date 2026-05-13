@@ -30,9 +30,17 @@ const formatShares = (value: number | null | undefined) =>
 const formatPct = (value: number | null | undefined) =>
   typeof value === "number" ? `${value.toFixed(1)}%` : "—";
 
+const formatSignedPct = (value: number | null | undefined) =>
+  typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—";
+
 const formatSignedMoney = (value: number | null | undefined) => {
   if (typeof value !== "number") return "—";
   return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
+};
+
+const percentMove = (current: number | null | undefined, basis: number | null | undefined) => {
+  if (typeof current !== "number" || typeof basis !== "number" || basis === 0) return null;
+  return ((current - basis) / basis) * 100;
 };
 
 export function PortfolioTab() {
@@ -137,13 +145,16 @@ export function PortfolioTab() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-xs">
+            <table className="w-full min-w-[980px] text-left text-xs">
               <thead className="border-b border-border/50 text-[10px] uppercase tracking-widest text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2">Symbol</th>
                   <th className="px-4 py-2 text-right">Qty</th>
                   <th className="px-4 py-2 text-right">Avg cost</th>
                   <th className="px-4 py-2 text-right">Current</th>
+                  <th className="px-4 py-2 text-right">Today $</th>
+                  <th className="px-4 py-2 text-right">Today %</th>
+                  <th className="px-4 py-2 text-right">Since cost</th>
                   <th className="px-4 py-2 text-right">Market value</th>
                   <th className="px-4 py-2 text-right">P/L</th>
                   <th className="px-4 py-2 text-right">Weight</th>
@@ -152,24 +163,36 @@ export function PortfolioTab() {
               <tbody>
                 {positions.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={10}>
                       No positions loaded.
                     </td>
                   </tr>
                 ) : (
-                  positions.map((position) => (
-                    <tr key={`${position.account_hash ?? "acct"}-${position.symbol}`} className="border-b border-border/40 last:border-0">
-                      <td className="px-4 py-2 font-semibold">{position.symbol}</td>
-                      <td className="px-4 py-2 text-right text-muted-foreground">{formatShares(position.quantity)}</td>
-                      <td className="px-4 py-2 text-right">{formatCurrency(position.average_price)}</td>
-                      <td className="px-4 py-2 text-right">{formatCurrency(position.current_price)}</td>
-                      <td className="px-4 py-2 text-right">{formatCurrency(position.market_value)}</td>
-                      <td className={cn("px-4 py-2 text-right", (position.unrealized_pnl ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-                        {formatSignedMoney(position.unrealized_pnl)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-muted-foreground">{formatPct(position.weight_pct)}</td>
-                    </tr>
-                  ))
+                  positions.map((position) => {
+                    const sinceCostPct = percentMove(position.current_price, position.average_price);
+                    return (
+                      <tr key={`${position.account_hash ?? "acct"}-${position.symbol}`} className="border-b border-border/40 last:border-0">
+                        <td className="px-4 py-2 font-semibold">{position.symbol}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{formatShares(position.quantity)}</td>
+                        <td className="px-4 py-2 text-right">{formatCurrency(position.average_price)}</td>
+                        <td className="px-4 py-2 text-right">{formatCurrency(position.current_price)}</td>
+                        <td className={cn("px-4 py-2 text-right", (position.day_change ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                          {formatSignedMoney(position.day_change)}
+                        </td>
+                        <td className={cn("px-4 py-2 text-right", (position.day_change_pct ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                          {formatSignedPct(position.day_change_pct)}
+                        </td>
+                        <td className={cn("px-4 py-2 text-right", (sinceCostPct ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                          {formatSignedPct(sinceCostPct)}
+                        </td>
+                        <td className="px-4 py-2 text-right">{formatCurrency(position.market_value)}</td>
+                        <td className={cn("px-4 py-2 text-right", (position.unrealized_pnl ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                          {formatSignedMoney(position.unrealized_pnl)}
+                        </td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{formatPct(position.weight_pct)}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

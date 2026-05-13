@@ -78,6 +78,11 @@ type PortfolioContext = {
     quantity?: number | null;
     average_price?: number | null;
     current_price?: number | null;
+    day_change?: number | null;
+    day_change_pct?: number | null;
+    quote_source?: string | null;
+    quote_status?: string | null;
+    quote_timestamp?: string | null;
     cost_basis?: number | null;
     unrealized_pnl?: number | null;
     market_value?: number | null;
@@ -200,6 +205,9 @@ const asPercent = (value?: number) =>
 
 const asSignedPercent = (value?: number | null) =>
   typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—";
+
+const asSignedMoney = (value?: number | null) =>
+  typeof value === "number" ? `${value >= 0 ? "+" : "-"}$${Math.abs(value).toFixed(2)}` : "—";
 
 const asShares = (value?: number | null) =>
   typeof value === "number" ? value.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—";
@@ -877,7 +885,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                     <Metric label={selectedSymbol} value={selectedPosition ? "owned" : "not owned"} />
                     <Metric label="Quantity" value={asShares(selectedPosition?.quantity)} />
                     <Metric label="Current" value={asMoney(selectedPosition?.current_price ?? undefined)} />
-                    <Metric label="Avg cost" value={asMoney(selectedPosition?.average_price ?? undefined)} />
+                    <Metric label="Today" value={`${asSignedMoney(selectedPosition?.day_change)} · ${asSignedPercent(selectedPosition?.day_change_pct)}`} />
                     <Metric label="Vs run" value={asSignedPercent(currentVsRun)} />
                     <Metric label="Vs avg" value={asSignedPercent(currentVsAverage)} />
                   </div>

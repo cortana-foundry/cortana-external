@@ -265,6 +265,11 @@ class PortfolioPosition(Model):
     quantity: float | None = None
     average_price: float | None = None
     current_price: float | None = None
+    day_change: float | None = None
+    day_change_pct: float | None = None
+    quote_source: str | None = None
+    quote_status: str | None = None
+    quote_timestamp: datetime | None = None
     cost_basis: float | None = None
     unrealized_pnl: float | None = None
     market_value: float | None = None

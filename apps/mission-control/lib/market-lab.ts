@@ -161,6 +161,11 @@ export type MarketLabPortfolioContext = {
     quantity?: number | null;
     average_price?: number | null;
     current_price?: number | null;
+    day_change?: number | null;
+    day_change_pct?: number | null;
+    quote_source?: string | null;
+    quote_status?: string | null;
+    quote_timestamp?: string | null;
     cost_basis?: number | null;
     unrealized_pnl?: number | null;
     market_value?: number | null;
