@@ -42,6 +42,15 @@ class PortfolioContextService:
 
     def refresh(self) -> PortfolioContext:
         context = self.schwab.fetch_context()
+        cached = self.latest()
+        if context.status != "available" and cached.status == "available":
+            reason = context.message or f"Schwab refresh returned {context.status}."
+            return cached.model_copy(
+                update={
+                    "message": f"{reason} Showing latest cached Schwab portfolio instead.",
+                    "artifact_path": str(self.latest_path),
+                }
+            )
         context = self._enrich_quotes(context)
         context = self._add_overlap_notes(context)
         self.cache_dir.mkdir(parents=True, exist_ok=True)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from base64 import b64encode
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -27,6 +29,7 @@ class SchwabPortfolioClient:
         token_path: Path | str | None = None,
         access_token: str | None = None,
         request_get: Callable[..., requests.Response] | None = None,
+        request_post: Callable[..., requests.Response] | None = None,
         timeout_seconds: float | None = None,
     ):
         self.base_url = (base_url or os.getenv("SCHWAB_TRADER_API_BASE_URL") or "https://api.schwabapi.com/trader/v1").rstrip("/")
@@ -34,6 +37,7 @@ class SchwabPortfolioClient:
         self.token_path = self.token_paths[0]
         self.access_token = access_token or os.getenv("SCHWAB_ACCESS_TOKEN")
         self.request_get = request_get or requests.get
+        self.request_post = request_post or requests.post
         self.timeout_seconds = timeout_seconds or float(os.getenv("MARKET_LAB_SCHWAB_TIMEOUT_SECONDS", "4.0"))
 
     def fetch_context(self) -> PortfolioContext:
@@ -88,10 +92,58 @@ class SchwabPortfolioClient:
         except Exception:
             return None
         expires_at = payload.get("expiresAt")
-        if isinstance(expires_at, (int, float)) and expires_at < datetime.now(UTC).timestamp() * 1000:
-            return None
         token = payload.get("accessToken") or payload.get("access_token")
-        return str(token).strip() if token else None
+        if token and not _is_expired(expires_at):
+            return str(token).strip()
+
+        refreshed = self._refresh_access_token(token_path, payload)
+        if refreshed:
+            return refreshed
+        return None
+
+    def _refresh_access_token(self, token_path: Path, payload: dict[str, Any]) -> str | None:
+        refresh_token = str(payload.get("refreshToken") or payload.get("refresh_token") or "").strip()
+        if not refresh_token:
+            return None
+        client_id, client_secret = self._client_credentials_for_token_path(token_path)
+        if not client_id or not client_secret:
+            return None
+        auth = b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+        response = self.request_post(
+            _env_value("SCHWAB_TOKEN_URL", "https://api.schwabapi.com/v1/oauth/token"),
+            timeout=self.timeout_seconds,
+            headers={
+                "authorization": f"Basic {auth}",
+                "content-type": "application/x-www-form-urlencoded",
+                "accept": "application/json",
+            },
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        )
+        response.raise_for_status()
+        body = response.json()
+        access_token = str(body.get("access_token") or "").strip()
+        if not access_token:
+            return None
+        expires_in = _number(body.get("expires_in")) or 1800
+        next_payload = {
+            "accessToken": access_token,
+            "expiresAt": int((time.time() + max(expires_in - 60, 60)) * 1000),
+            "refreshToken": str(body.get("refresh_token") or refresh_token).strip(),
+            "refreshTokenIssuedAt": payload.get("refreshTokenIssuedAt") or datetime.now(UTC).isoformat(),
+            "lastAuthorizationCodeAt": payload.get("lastAuthorizationCodeAt"),
+        }
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(json.dumps(next_payload, indent=2), encoding="utf-8")
+        return access_token
+
+    def _client_credentials_for_token_path(self, token_path: Path) -> tuple[str, str]:
+        streamer_path = _resolve_token_path(_env_value("SCHWAB_STREAMER_TOKEN_PATH", ".cache/market_data/schwab-streamer-token.json"))
+        if token_path.resolve() == streamer_path or "streamer" in token_path.name:
+            return (
+                _env_value("SCHWAB_CLIENT_STREAMER_ID") or _env_value("SCHWAB_CLIENT_ID"),
+                _env_value("SCHWAB_CLIENT_STREAMER_SECRET") or _env_value("SCHWAB_CLIENT_SECRET"),
+            )
+        return (_env_value("SCHWAB_CLIENT_ID"), _env_value("SCHWAB_CLIENT_SECRET"))
 
     def _token_paths(self, token_path: Path | str | None) -> list[Path]:
         candidates: list[Path] = []
@@ -228,3 +280,33 @@ def _number(value: Any) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _is_expired(value: Any) -> bool:
+    if isinstance(value, (int, float)):
+        return value < datetime.now(UTC).timestamp() * 1000 + 60_000
+    if isinstance(value, str) and value.strip():
+        try:
+            expires_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return expires_at.timestamp() * 1000 < datetime.now(UTC).timestamp() * 1000 + 60_000
+    return False
+
+
+def _env_value(key: str, default: str = "") -> str:
+    value = os.getenv(key)
+    if value is not None:
+        return value.strip()
+    env_path = repo_root() / ".env"
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            name, raw = stripped.split("=", 1)
+            if name.strip() == key:
+                return raw.strip().strip("\"'").strip()
+    except OSError:
+        return default
+    return default
