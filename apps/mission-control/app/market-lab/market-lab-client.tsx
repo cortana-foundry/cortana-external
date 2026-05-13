@@ -607,6 +607,58 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     )
     .slice(0, 12);
   const latestEvent = events.at(-1);
+  const timelinePanel = (
+    <Panel icon={Activity} eyebrow="Run path" title="Timeline" dense className="mt-3">
+      {events.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No events loaded.</p>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
+            <span className="text-xs font-semibold">Current: {formatEventTitle(latestEvent?.event)}</span>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              step {events.length} of {events.length}
+              {latestEvent?.timestamp ? ` · ${formatRunTime(latestEvent.timestamp)} · ${getAge(latestEvent.timestamp)} ago` : ""}
+            </span>
+          </div>
+          <ol className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+            {events.map((event, index) => {
+              const isCurrent = index === events.length - 1;
+              const message = String(event.message ?? "");
+              return (
+                <li
+                  key={`${String(event.event ?? "")}-${index}`}
+                  className={cn(
+                    "grid min-h-[58px] grid-cols-[20px_minmax(0,1fr)] items-start gap-2 rounded-md border px-2 py-1.5",
+                    isCurrent ? "border-foreground/35 bg-foreground/[0.035]" : "border-border/60 bg-muted/20",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold",
+                      isCurrent
+                        ? "border-foreground/40 bg-background text-foreground"
+                        : "border-border/60 bg-background/60 text-muted-foreground",
+                    )}
+                  >
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0" title={message}>
+                    <div className="truncate text-[11px] font-semibold">{formatEventTitle(event.event)}</div>
+                    <div className="line-clamp-1 font-sans text-[10px] leading-4 text-muted-foreground">{message}</div>
+                    {event.timestamp ? (
+                      <div className="mt-0.5 truncate text-[9px] uppercase tracking-widest text-muted-foreground/80">
+                        {formatRunTime(event.timestamp)} · {getAge(event.timestamp)} ago
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
+    </Panel>
+  );
 
   return (
     <div
@@ -714,6 +766,8 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
           {portfolioStatus.message}
         </div>
       ) : null}
+
+      {timelinePanel}
 
       {/* ── Body: tape + decision area ── */}
       <section className="mt-3 grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)]">
@@ -1147,53 +1201,6 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
             </div>
           </Panel>
 
-          {/* Timeline — full width, events flow as a horizontal grid */}
-          <Panel icon={Activity} eyebrow="Run path" title="Timeline" dense className="flex-1">
-            {events.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No events loaded.</p>
-            ) : (
-              <>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
-                  <span className="text-xs font-semibold">Current: {formatEventTitle(latestEvent?.event)}</span>
-                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                    step {events.length} of {events.length}
-                    {latestEvent?.timestamp ? ` · ${formatRunTime(latestEvent.timestamp)} · ${getAge(latestEvent.timestamp)} ago` : ""}
-                  </span>
-                </div>
-                <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {events.map((event, index) => (
-                    <li
-                      key={`${String(event.event ?? "")}-${index}`}
-                      className={cn(
-                        "grid grid-cols-[22px_minmax(0,1fr)] items-start gap-2 rounded-md border px-2.5 py-1.5",
-                        index === events.length - 1 ? "border-foreground/30 bg-foreground/[0.03]" : "border-border/60 bg-muted/20",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold",
-                          index === events.length - 1
-                            ? "border-foreground/40 bg-background text-foreground"
-                            : "border-border/60 bg-background/60 text-muted-foreground",
-                        )}
-                      >
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-semibold">{formatEventTitle(event.event)}</div>
-                        <div className="truncate font-sans text-[11px] text-muted-foreground">{String(event.message ?? "")}</div>
-                        {event.timestamp ? (
-                          <div className="mt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground/80">
-                            {formatRunTime(event.timestamp)} · {getAge(event.timestamp)} ago
-                          </div>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            )}
-          </Panel>
         </div>
       </section>
 
