@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .models import ReviewArtifact, RunRecord
 
@@ -57,6 +58,7 @@ def build_codex_packet(
     *,
     prior_runs: list[RunRecord] | None = None,
     prior_settlements: dict[str, list[dict[str, Any]]] | None = None,
+    mode: Literal["quick", "deep"] = "quick",
 ) -> str:
     price = artifact.price_facts
     spy = artifact.spy_facts
@@ -64,6 +66,7 @@ def build_codex_packet(
     reasons = ", ".join(artifact.verdict_reasons) or "none"
     blockers = [item.code for item in artifact.checks if item.severity == "blocker"]
     missing_context = _missing_context(artifact)
+    context_sections = _context_sections(artifact, mode)
 
     return f"""# Market Lab Codex Review Packet: {artifact.symbol}
 
@@ -84,6 +87,8 @@ Verdict guidance:
 - `uncertain`: use when evidence is mixed, contradictory, materially thin beyond known optional v0 gaps, or needs a human decision.
 - Deterministic blocker checks must force `blocked`.
 - Missing optional news/sentiment/fundamentals must be listed as missing context. Do not infer unavailable facts.
+- Do not claim Yahoo Finance, StockTwits, Reddit, or X/Twitter sentiment unless source data appears in this packet.
+- Compare this run against prior same-symbol outcome memory when available.
 - The old free-form `Summary / Bull Case / Bear Case / Decision` shape is not the primary contract. The JSON block below is the contract.
 
 ## Run
@@ -95,6 +100,8 @@ Verdict guidance:
 - Review artifact: `{artifact.artifact_paths.review}`
 - Codex review output path: `{artifact.artifact_paths.codex_review}`
 - Hard blockers: {", ".join(blockers) or "none"}
+- Packet mode: `{mode}`
+- Token budget: `{_json_for_packet(artifact.token_budget.model_dump(mode="json") if artifact.token_budget else None)}`
 
 ## Benchmark And Settlement Logic
 
@@ -128,6 +135,8 @@ Verdict guidance:
 ### Prior Same-Symbol Runs
 
 {_prior_runs_text(prior_runs, prior_settlements)}
+
+{context_sections}
 
 ### Checks
 
@@ -236,4 +245,66 @@ Follow the packet exactly:
 2. Write the Codex review markdown to the requested output path.
 3. Run the attach command from the packet.
 4. Reply with the final verdict and the file path you wrote.
+"""
+
+
+def _json_for_packet(payload: Any) -> str:
+    if payload is None:
+        return "null"
+    return json.dumps(payload, indent=2, default=str)
+
+
+def _compact_evidence(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    return {
+        "symbol": payload.get("symbol"),
+        "price_summary": payload.get("price_summary"),
+        "benchmark_summary": payload.get("benchmark_summary"),
+        "missing_context": payload.get("missing_context", []),
+        "risk_flags": payload.get("risk_flags", []),
+    }
+
+
+def _context_sections(artifact: ReviewArtifact, mode: Literal["quick", "deep"]) -> str:
+    evidence = artifact.evidence_snapshot.model_dump(mode="json") if artifact.evidence_snapshot else None
+    outcome_memory = artifact.outcome_memory.model_dump(mode="json") if artifact.outcome_memory else None
+    sentiment = artifact.sentiment_snapshot.model_dump(mode="json") if artifact.sentiment_snapshot else None
+    portfolio = artifact.portfolio_context.model_dump(mode="json") if artifact.portfolio_context else None
+    if mode == "deep":
+        return f"""### Evidence Snapshot
+
+```json
+{_json_for_packet(evidence)}
+```
+
+### Outcome Memory
+
+```json
+{_json_for_packet(outcome_memory)}
+```
+
+### Sentiment Sources
+
+```json
+{_json_for_packet(sentiment)}
+```
+
+### Portfolio Context
+
+```json
+{_json_for_packet(portfolio)}
+```
+"""
+    return f"""### Compact Evidence Snapshot
+
+```json
+{_json_for_packet(_compact_evidence(evidence))}
+```
+
+### Outcome Memory Summary
+
+```json
+{_json_for_packet(outcome_memory)}
+```
 """

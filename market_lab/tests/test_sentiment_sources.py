@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import json
+
+from market_lab.sentiment_sources import SentimentSourceClient
+
+
+class FakeResponse:
+    def __init__(self, status_code: int, payload: object | None = None, text: str = ""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+def test_stocktwits_429_maps_to_rate_limited(tmp_path):
+    client = SentimentSourceClient(cache_dir=tmp_path, request_get=lambda *args, **kwargs: FakeResponse(429, {}))
+
+    result = client.fetch_stocktwits("AAPL")
+
+    assert result.status == "rate_limited"
+    assert result.source == "stocktwits"
+
+
+def test_stocktwits_available_writes_cache_and_reuses_it(tmp_path):
+    calls = 0
+
+    def fake_get(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return FakeResponse(
+            200,
+            {"messages": [{"body": "looks strong", "entities": {"sentiment": {"basic": "Bullish"}}}]},
+        )
+
+    client = SentimentSourceClient(cache_dir=tmp_path, request_get=fake_get)
+    first = client.fetch_stocktwits("AAPL")
+    second = client.fetch_stocktwits("AAPL")
+
+    assert first.status == "available"
+    assert second.status == "available"
+    assert calls == 1
+    assert json.loads((tmp_path / "AAPL" / "stocktwits").glob("*.json").__next__().read_text())
