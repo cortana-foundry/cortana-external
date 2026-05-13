@@ -52,7 +52,12 @@ export function PortfolioTab() {
     setLoading(true);
     setError(null);
     try {
-      setPortfolio(await fetchPortfolio(refresh));
+      const next = await fetchPortfolio(refresh);
+      if (!refresh && next.status !== "available") {
+        setPortfolio(await fetchPortfolio(true));
+      } else {
+        setPortfolio(next);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load Schwab portfolio");
     } finally {
