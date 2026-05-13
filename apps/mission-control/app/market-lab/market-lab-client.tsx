@@ -439,7 +439,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               <span className="text-sm font-bold uppercase tracking-wider">Forward-looking trust reviews</span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-3 gap-2 md:flex md:w-auto md:flex-wrap md:items-center">
             <label className="sr-only" htmlFor="market-lab-symbol">
               Symbol
             </label>
@@ -447,10 +447,10 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               id="market-lab-symbol"
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-              className="h-8 w-24 rounded-md border border-border/70 bg-background px-2 font-mono text-xs font-semibold uppercase tracking-wider outline-none transition focus:border-foreground/40 focus:ring-2 focus:ring-foreground/10"
+              className="col-span-3 h-8 w-full rounded-md border border-border/70 bg-background px-2 font-mono text-xs font-semibold uppercase tracking-wider outline-none transition focus:border-foreground/40 focus:ring-2 focus:ring-foreground/10 md:col-span-1 md:w-24"
               aria-label="Symbol"
             />
-            <Button onClick={startRun} disabled={loading} size="sm" className="h-8 gap-1.5 px-3 font-mono text-xs uppercase tracking-wider">
+            <Button onClick={startRun} disabled={loading} size="sm" className="h-8 w-full justify-center gap-1.5 px-3 font-mono text-xs uppercase tracking-wider md:w-auto">
               <Play className="h-3.5 w-3.5" />
               Run
             </Button>
@@ -459,7 +459,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               onClick={handleRefresh}
               disabled={refreshing || loading}
               size="sm"
-              className="h-8 gap-1.5 px-3 font-mono text-xs uppercase tracking-wider"
+              className="h-8 w-full justify-center gap-1.5 px-3 font-mono text-xs uppercase tracking-wider md:w-auto"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
               Refresh
@@ -469,7 +469,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               onClick={settleDue}
               disabled={loading}
               size="sm"
-              className="h-8 gap-1.5 px-3 font-mono text-xs uppercase tracking-wider"
+              className="h-8 w-full justify-center gap-1.5 px-3 font-mono text-xs uppercase tracking-wider md:w-auto"
             >
               <ArrowUpRight className="h-3.5 w-3.5" />
               Settle due
@@ -732,7 +732,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                         </div>
                       ) : null}
                     </div>
-                    <div className="grid gap-1">
+                    <div className="flex flex-col gap-1">
                       {structuredCodex.roles.map((role) => (
                         <CodexRoleRow key={role.role} role={role} />
                       ))}
