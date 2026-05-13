@@ -48,6 +48,7 @@ type SentimentSource = {
   fetch_method?: string;
   error_message?: string | null;
   summary?: string | null;
+  samples?: string[];
 };
 
 type CodexRoleReview = {
@@ -269,6 +270,11 @@ const splitSourceSummary = (summary?: string | null, limit = 5) =>
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, limit);
+
+const sourceSamples = (source: SentimentSource, limit = 5) => {
+  const samples = Array.isArray(source.samples) ? source.samples.filter(Boolean) : [];
+  return (samples.length ? samples : splitSourceSummary(source.summary, limit)).slice(0, limit);
+};
 
 const statusChipClass = (status?: string) => {
   if (status === "available" || status === "ok") return "border-emerald-400/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
@@ -593,13 +599,13 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const newsRole = structuredCodex?.roles.find((role) => role.role === "news_sentiment") ?? null;
   const sentimentDigest = (sentiment?.sources ?? [])
     .flatMap((source) =>
-      splitSourceSummary(source.summary, 4).map((item) => ({
+      sourceSamples(source, 5).map((item) => ({
         source: source.source,
         status: source.status,
         item,
       })),
     )
-    .slice(0, 6);
+    .slice(0, 12);
   const latestEvent = events.at(-1);
 
   return (
@@ -889,7 +895,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               <InsightList title="Bearish" items={review?.interpretation?.bearish_points ?? []} empty="No bearish points." />
             </div>
             {sentiment ? (
-              <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-2.5">
+              <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-muted-foreground">News and sentiment</div>
@@ -902,43 +908,53 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                     {sentiment.status ?? "unknown"}
                   </span>
                 </div>
-                <div className="mb-2 rounded-md border border-border/60 bg-background/70 px-3 py-2.5">
-                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-semibold">News analysis</div>
-                    {newsRole ? (
-                      <span className={cn("rounded border px-1.5 py-px text-[9px] uppercase tracking-wider", statusChipClass(newsRole.stance))}>
-                        {newsRole.stance} · {asPercent(newsRole.confidence)}
-                      </span>
-                    ) : null}
-                  </div>
-                  {newsRole ? (
-                    <div className="space-y-2">
-                      <p className="font-sans text-xs leading-5 text-muted-foreground">{newsRole.summary}</p>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <InsightList title="Positive signals" items={newsRole.bull_points} empty="No positive news signals." />
-                        <InsightList title="Cautions" items={[...newsRole.bear_points, ...newsRole.missing_evidence.map((item) => `Missing: ${item}`)]} empty="No news cautions." />
-                      </div>
+                <div className="mb-2 grid gap-2 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
+                  <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2.5">
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold">News analysis</div>
+                      {newsRole ? (
+                        <span className={cn("rounded border px-1.5 py-px text-[9px] uppercase tracking-wider", statusChipClass(newsRole.stance))}>
+                          {newsRole.stance} · {asPercent(newsRole.confidence)}
+                        </span>
+                      ) : null}
                     </div>
-                  ) : sentimentDigest.length ? (
-                    <ul className="grid gap-1 md:grid-cols-2">
-                      {sentimentDigest.map((item, index) => (
-                        <li key={`${item.source}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 font-sans text-xs leading-5 text-muted-foreground">
-                          <span className={cn("mt-1 h-1.5 w-1.5 rounded-full", item.status === "available" ? "bg-emerald-500" : "bg-amber-500")} />
-                          <span>
-                            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/80">{sourceLabel(item.source)}</span>
-                            {" · "}
-                            {item.item}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="font-sans text-xs text-muted-foreground">No source summaries available yet.</p>
-                  )}
+                    {newsRole ? (
+                      <div className="space-y-2">
+                        <p className="font-sans text-sm leading-6 text-muted-foreground">{newsRole.summary}</p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <InsightList title="Positive signals" items={newsRole.bull_points} empty="No positive news signals." />
+                          <InsightList title="Cautions" items={[...newsRole.bear_points, ...newsRole.missing_evidence.map((item) => `Missing: ${item}`)]} empty="No news cautions." />
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="font-sans text-sm leading-6 text-muted-foreground">
+                        No Codex news role attached yet. Showing fetched source samples from Yahoo, StockTwits, and Reddit.
+                      </p>
+                    )}
+                  </div>
+                  <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2.5">
+                    <div className="mb-2 text-sm font-semibold">Fetched news and posts</div>
+                    {sentimentDigest.length ? (
+                      <ul className="grid gap-1.5 md:grid-cols-2">
+                        {sentimentDigest.map((item, index) => (
+                          <li key={`${item.source}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded border border-border/50 bg-muted/20 px-2.5 py-2 font-sans text-xs leading-5 text-muted-foreground">
+                            <span className={cn("mt-1.5 h-1.5 w-1.5 rounded-full", item.status === "available" ? "bg-emerald-500" : "bg-amber-500")} />
+                            <span>
+                              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/80">{sourceLabel(item.source)}</span>
+                              {" · "}
+                              {item.item}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="font-sans text-xs text-muted-foreground">No source summaries available yet.</p>
+                    )}
+                  </div>
                 </div>
-                <ul className="grid gap-1 lg:grid-cols-3">
+                <ul className="grid gap-2 lg:grid-cols-3">
                   {(sentiment.sources ?? []).map((source) => (
-                    <li key={source.source} className="rounded-md border border-border/60 bg-background/60 px-2.5 py-1.5">
+                    <li key={source.source} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-xs font-semibold">{sourceLabel(source.source)}</span>
                         <span className={cn("rounded border px-1.5 py-px text-[9px] uppercase tracking-wider", statusChipClass(source.status))}>
@@ -948,8 +964,14 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                       <div className="mt-1 font-sans text-[11px] text-muted-foreground">
                         {source.sample_count ?? 0} samples · {source.fetch_method ?? "source adapter"}
                       </div>
-                      {source.summary ? (
-                        <p className="mt-1 line-clamp-3 font-sans text-[11px] leading-4 text-muted-foreground">{source.summary}</p>
+                      {sourceSamples(source, 3).length ? (
+                        <ul className="mt-1.5 space-y-1 font-sans text-[11px] leading-4 text-muted-foreground">
+                          {sourceSamples(source, 3).map((sample, index) => (
+                            <li key={`${source.source}-sample-${index}`} className="line-clamp-2">
+                              {sample}
+                            </li>
+                          ))}
+                        </ul>
                       ) : source.error_message ? (
                         <p className="mt-1 line-clamp-3 font-sans text-[11px] leading-4 text-muted-foreground">{source.error_message}</p>
                       ) : null}

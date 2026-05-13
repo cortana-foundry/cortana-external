@@ -155,6 +155,7 @@ class SentimentSourceResult(Model):
     fetch_method: str
     request_url: str | None = None
     summary: str | None = None
+    samples: list[str] = Field(default_factory=list)
     raw_artifact_path: str | None = None
     error_message: str | None = None
 

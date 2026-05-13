@@ -104,7 +104,11 @@ class SentimentSourceClient:
         if cached:
             return cached
         try:
-            response = self.request_get(url, timeout=self.timeout_seconds, headers={"accept": "application/json"})
+            response = self.request_get(
+                url,
+                timeout=self.timeout_seconds,
+                headers={"accept": "application/json", "user-agent": "market-lab/0.1"},
+            )
             if response.status_code == 429:
                 return self._result("stocktwits", "rate_limited", "stocktwits_public_stream", url, error="HTTP 429")
             if response.status_code >= 400:
@@ -149,6 +153,7 @@ class SentimentSourceClient:
                 fetch_method="stocktwits_public_stream",
                 request_url=url,
                 summary="; ".join(samples)[:500],
+                samples=samples[:10],
                 raw_artifact_path=str(raw_path),
             )
             self._write_cached(symbol, "stocktwits", url, result)
@@ -195,6 +200,7 @@ class SentimentSourceClient:
                 fetch_method=fetch_method,
                 request_url=url,
                 summary="; ".join(titles[:10])[:500],
+                samples=titles[:10],
                 raw_artifact_path=str(raw_path),
             )
             self._write_cached(symbol, source, url, result)
