@@ -384,6 +384,8 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     () => runs.find((run) => run.run_id === selectedRunId) ?? null,
     [runs, selectedRunId],
   );
+  // Adaptive Run Tape: sidebar earns its column at 6+ runs; below that, render a horizontal strip at the top of the decision area on lg+.
+  const showRunTapeSidebar = runs.length > 5;
 
   const symbolHistory = useMemo(() => {
     const symbol = selectedRun?.symbol;
@@ -844,9 +846,17 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
       {timelinePanel}
 
       {/* ── Body: tape + decision area ── */}
-      <section className="mt-3 flex flex-col-reverse gap-3 lg:grid lg:grid-cols-[180px_minmax(0,1fr)]">
-        {/* Run tape */}
-        <aside className="self-start rounded-lg border border-border/70 bg-card/60 lg:sticky lg:top-3">
+      <section className={cn(
+        "mt-3 flex flex-col-reverse gap-3",
+        showRunTapeSidebar && "lg:grid lg:grid-cols-[180px_minmax(0,1fr)]",
+      )}>
+        {/* Run tape — always rendered for mobile collapse; hidden on lg+ when strip mode is active */}
+        <aside
+          className={cn(
+            "self-start rounded-lg border border-border/70 bg-card/60",
+            showRunTapeSidebar ? "lg:sticky lg:top-3" : "lg:hidden",
+          )}
+        >
           <button
             type="button"
             onClick={() => setTapeOpen((v) => !v)}
@@ -966,6 +976,37 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
 
         {/* Decision area */}
         <div className="flex min-w-0 flex-col gap-3">
+          {/* Horizontal Run Tape strip — only on lg+ when sidebar is hidden */}
+          {!showRunTapeSidebar && runs.length > 0 ? (
+            <div className="-mx-1 hidden snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 py-1 lg:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {runs.map((run) => {
+                const v: Verdict = (run.trust_verdict ?? "uncertain") as Verdict;
+                const m = verdictMeta[v];
+                const isSelected = selectedRunId === run.run_id;
+                return (
+                  <button
+                    key={run.run_id}
+                    type="button"
+                    onClick={() => setSelectedRunId(run.run_id)}
+                    title={run.run_id}
+                    className={cn(
+                      "inline-flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1.5 text-[11px] transition-colors",
+                      isSelected
+                        ? "border-foreground/40 bg-foreground/10 text-foreground"
+                        : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", m.dot)} />
+                    <span className="font-semibold">{run.symbol}</span>
+                    <span className={cn("rounded px-1 py-px text-[9px] font-bold uppercase tracking-wider", m.chip)}>
+                      {run.trust_verdict ?? run.status}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/80">{getAge(run.requested_at)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {/* Hero: verdict + price ribbon */}
           <section className={cn("overflow-hidden rounded-lg border bg-card/70", meta.ribbon)}>
             <div className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start md:justify-between">
@@ -1238,28 +1279,55 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
             ) : null}
           </Panel>
 
-          {/* Compact context row */}
-          <section className="grid gap-3 xl:grid-cols-3">
-            <Panel icon={ShieldCheck} eyebrow="Memory" title="Outcome memory" dense className="h-full">
-              {outcomeMemory ? (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Metric label="Prior runs" value={String(outcomeMemory.lookback_runs ?? 0)} />
-                  <Metric label="Settled" value={String(outcomeMemory.settled_count ?? 0)} />
-                  <Metric
-                    label="Avg alpha"
-                    value={
-                      typeof outcomeMemory.evidence_ready_avg_alpha_vs_spy_pct === "number"
-                        ? `${outcomeMemory.evidence_ready_avg_alpha_vs_spy_pct.toFixed(2)}%`
-                        : "n/a"
-                    }
-                  />
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No outcome memory attached.</p>
-              )}
-            </Panel>
+          {/* Compact context row — Memory + Forward Score stack on left, Schwab on right */}
+          <section className="grid gap-3 lg:grid-cols-2">
+            <div className="flex flex-col gap-3">
+              <Panel icon={ShieldCheck} eyebrow="Memory" title="Outcome memory" dense>
+                {outcomeMemory ? (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <Metric label="Prior runs" value={String(outcomeMemory.lookback_runs ?? 0)} />
+                    <Metric label="Settled" value={String(outcomeMemory.settled_count ?? 0)} />
+                    <Metric
+                      label="Avg alpha"
+                      value={
+                        typeof outcomeMemory.evidence_ready_avg_alpha_vs_spy_pct === "number"
+                          ? `${outcomeMemory.evidence_ready_avg_alpha_vs_spy_pct.toFixed(2)}%`
+                          : "n/a"
+                      }
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No outcome memory attached.</p>
+                )}
+              </Panel>
 
-            <Panel icon={ShieldQuestion} eyebrow="Portfolio" title="Schwab portfolio" dense className="h-full">
+              <Panel icon={ArrowUpRight} eyebrow="Forward score" title="Settlement" dense>
+                <ul className="space-y-1">
+                  {settlementWindows.map((settlement) => (
+                    <li
+                      key={String(settlement.window)}
+                      className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5"
+                    >
+                      <span className="text-xs font-bold uppercase">{String(settlement.window)}</span>
+                      <span className="min-w-0 truncate text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {settlementReturn(settlement) != null
+                          ? `${Number(settlementReturn(settlement)).toFixed(2)}% · vs SPY ${
+                              settlement.alpha_vs_spy_pct != null
+                                ? `${Number(settlement.alpha_vs_spy_pct).toFixed(2)}%`
+                                : "—"
+                            }`
+                          : "pending · vs SPY pending"}
+                      </span>
+                      <span className="shrink-0 rounded border border-border/60 px-1.5 py-px text-[9px] uppercase tracking-wider text-muted-foreground">
+                        {String(settlement.status ?? "pending")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            </div>
+
+            <Panel icon={ShieldQuestion} eyebrow="Portfolio" title="Schwab portfolio" dense>
               <div className="mb-2 flex justify-end">
                 <Button
                   variant="outline"
@@ -1296,31 +1364,6 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               ) : (
                 <p className="text-xs text-muted-foreground">No portfolio context attached.</p>
               )}
-            </Panel>
-
-            <Panel icon={ArrowUpRight} eyebrow="Forward score" title="Settlement" dense className="h-full">
-              <ul className="space-y-1">
-                {settlementWindows.map((settlement) => (
-                  <li
-                    key={String(settlement.window)}
-                    className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5"
-                  >
-                    <span className="text-xs font-bold uppercase">{String(settlement.window)}</span>
-                    <span className="min-w-0 truncate text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {settlementReturn(settlement) != null
-                        ? `${Number(settlementReturn(settlement)).toFixed(2)}% · vs SPY ${
-                            settlement.alpha_vs_spy_pct != null
-                              ? `${Number(settlement.alpha_vs_spy_pct).toFixed(2)}%`
-                              : "—"
-                          }`
-                        : "pending · vs SPY pending"}
-                    </span>
-                    <span className="shrink-0 rounded border border-border/60 px-1.5 py-px text-[9px] uppercase tracking-wider text-muted-foreground">
-                      {String(settlement.status ?? "pending")}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             </Panel>
           </section>
 
