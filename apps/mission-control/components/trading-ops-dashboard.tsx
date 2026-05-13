@@ -142,20 +142,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       : polymarketData?.results ?? buildPendingArtifact<PolymarketResultsOverview>("Loading results", polymarketError);
   const tradingRunSymbols = collectTradingRunSymbols(data);
   const polymarketPinnedRows = (displayPolymarketLiveData?.markets ?? []).filter((market) => market.pinned);
-  const alertDeliveryArtifact = data.alertDelivery ?? {
-    state: "missing" as const,
-    label: "No alert delivery receipts",
-    message: "Watchdog has not written alert delivery receipts yet.",
-    data: null,
-    warnings: [],
-  };
-  const scheduleRegistryArtifact = data.scheduleRegistry ?? {
-    state: "missing" as const,
-    label: "No schedule registry",
-    message: "Schedule registry has not been generated yet.",
-    data: null,
-    warnings: [],
-  };
 
   return (
     <div className="min-w-0 space-y-3 overflow-x-hidden">
@@ -227,13 +213,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── System Health ── */}
         <TabsContent value="health" className="space-y-3">
-          <SystemHealthTab
-            financialServices={data.financialServices}
-            canary={data.canary}
-            runtime={data.runtime}
-            alertDelivery={alertDeliveryArtifact}
-            scheduleRegistry={scheduleRegistryArtifact}
-          />
+          <SystemHealthTab financialServices={data.financialServices} />
         </TabsContent>
 
       </Tabs>
