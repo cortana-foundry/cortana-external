@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type { TradingOpsPolymarketLiveData } from "@/lib/trading-ops-contract";
 import { getRepoRoot } from "@/lib/runtime-paths";
 import { resolveTradingOpsExternalServiceBaseUrl } from "@/lib/trading-ops-service-url";
