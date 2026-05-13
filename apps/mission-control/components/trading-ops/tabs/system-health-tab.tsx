@@ -1,135 +1,243 @@
-import { AlertTriangle } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { CheckCircle2, AlertTriangle, ShieldAlert, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatOperatorTimestamp } from "@/lib/format-utils";
 import type {
-  AlertDeliveryOverview,
   ArtifactState,
-  CanaryOverview,
   FinancialServicesHealthOverview,
-  RuntimeOverview,
-  ScheduleRegistryOverview,
+  LoadState,
 } from "@/lib/trading-ops-contract";
+import { cn } from "@/lib/utils";
 import { FinancialServiceCard } from "../health/financial-service-card";
-import { Metric, ArtifactPanel } from "../shared";
+import { ArtifactPanel } from "../shared";
+
+type Filter = "all" | "ok" | "degraded" | "issues";
 
 export function SystemHealthTab({
   financialServices,
-  canary,
-  runtime,
-  alertDelivery,
-  scheduleRegistry,
 }: {
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
-  canary: ArtifactState<CanaryOverview>;
-  runtime: ArtifactState<RuntimeOverview>;
-  alertDelivery: ArtifactState<AlertDeliveryOverview>;
-  scheduleRegistry: ArtifactState<ScheduleRegistryOverview>;
 }) {
-  return (
-    <>
+  const [filter, setFilter] = useState<Filter>("all");
+  const data = financialServices.data;
+
+  if (!data) {
+    return (
       <ArtifactPanel title="Financial services health" artifact={financialServices}>
-        {financialServices.data ? (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Metric label="Healthy" value={String(financialServices.data.healthyCount)} />
-              <Metric label="Degraded" value={String(financialServices.data.degradedCount)} />
-              <Metric label="Needs attention" value={String(financialServices.data.errorCount)} />
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {financialServices.data.rows.map((row) => (
-                <FinancialServiceCard key={row.label} row={row} />
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <p className="text-xs text-muted-foreground">Waiting for the first service health snapshot.</p>
       </ArtifactPanel>
+    );
+  }
 
-      <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <ArtifactPanel title="Pre-open readiness check" artifact={canary}>
-          {canary.data ? (
-            <div className="space-y-2 text-sm">
-              <dl className="grid grid-cols-2 gap-2">
-                <Metric label="Ready for open" value={String(canary.data.readyForOpen ?? false)} />
-                <Metric label="Warnings" value={String(canary.data.warningCount)} />
-                <Metric label="Checked" value={canary.data.checkedAt ? formatOperatorTimestamp(canary.data.checkedAt) : "—"} />
-                <Metric label="Freshness" value={canary.data.freshness} />
-              </dl>
-              <div className="space-y-1">
-                {canary.data.checks.map((check) => (
-                  <div key={check.name} className="flex items-center justify-between rounded-md border border-border/50 px-2 py-1.5 text-xs">
-                    <span className="font-mono">{check.name}</span>
-                    <Badge variant={check.result === "ok" ? "success" : "warning"} className="text-[10px]">{check.result}</Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </ArtifactPanel>
+  const overallState: LoadState =
+    data.errorCount > 0 ? "error" : data.degradedCount > 0 ? "degraded" : "ok";
 
-        <ArtifactPanel title="Runtime health" artifact={runtime}>
-          {runtime.data ? (
-            <div className="space-y-2 text-sm">
-              <Metric label="Operator action" value={runtime.data.operatorAction} />
-              <Metric label="Pre-open gate" value={runtime.data.preOpenGateStatus ?? "Not reported"} />
-              {runtime.data.cooldownSummary ? (
-                <Metric label="Cooldown summary" value={runtime.data.cooldownSummary} />
-              ) : null}
-              {runtime.data.preOpenGateFreshness ? (
-                <Metric label="Readiness freshness" value={runtime.data.preOpenGateFreshness} />
-              ) : null}
-              {runtime.data.preOpenGateDetail ? (
-                <p className="text-xs text-muted-foreground">{runtime.data.preOpenGateDetail}</p>
-              ) : null}
-              {runtime.data.incidents.length > 0 ? (
-                <div className="space-y-1.5">
-                  {runtime.data.incidents.map((incident) => (
-                    <div key={`health-${incident.incidentType}-${incident.severity}`} className="terminal-alert-warning flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      <span>{incident.incidentType} · {incident.severity} — {incident.operatorAction}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No active runtime incidents.</p>
-              )}
-            </div>
-          ) : null}
-        </ArtifactPanel>
+  const rowsByFilter = data.rows.filter((row) => {
+    if (filter === "all") return true;
+    if (filter === "ok") return row.state === "ok";
+    if (filter === "degraded") return row.state === "degraded";
+    return row.state === "error" || row.state === "missing";
+  });
 
-        <ArtifactPanel title="Alert delivery" artifact={alertDelivery}>
-          {alertDelivery.data ? (
-            <div className="space-y-2 text-sm">
-              <Metric label="Sent / failed" value={`${alertDelivery.data.sentCount} / ${alertDelivery.data.failedCount}`} />
-              <Metric label="Last channel" value={alertDelivery.data.lastChannel ?? "unknown"} />
-              <Metric label="Last status" value={alertDelivery.data.lastStatus ?? "unknown"} />
-              <Metric label="Last key" value={alertDelivery.data.lastDedupeKey ?? "unknown"} />
-              {alertDelivery.data.rows.slice(0, 3).map((row) => (
-                <p key={`${row.sentAt}-${row.messageHash}`} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                  {row.channel} · {row.status} · {row.dedupeKey}
-                </p>
-              ))}
-            </div>
-          ) : null}
-        </ArtifactPanel>
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider">Financial services health</h2>
+      </div>
 
-        <ArtifactPanel title="Schedule registry" artifact={scheduleRegistry}>
-          {scheduleRegistry.data ? (
-            <div className="space-y-2 text-sm">
-              <Metric label="Total" value={String(scheduleRegistry.data.scheduleCount)} />
-              <Metric
-                label="Launchd / artifacts"
-                value={`${scheduleRegistry.data.launchdCount} / ${scheduleRegistry.data.artifactCount}`}
-              />
-              <Metric label="Cron registries" value={String(scheduleRegistry.data.cronRegistryCount)} />
-              {scheduleRegistry.data.rows.slice(0, 4).map((row) => (
-                <p key={`${row.kind}-${row.name}`} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                  {row.name} · {row.kind} · {row.owner}
-                </p>
-              ))}
-            </div>
-          ) : null}
-        </ArtifactPanel>
-      </section>
-    </>
+      <StatusHero
+        state={overallState}
+        healthyCount={data.healthyCount}
+        degradedCount={data.degradedCount}
+        errorCount={data.errorCount}
+        totalCount={data.rows.length}
+        checkedAt={data.checkedAt}
+      />
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <FilterChip label={`All · ${data.rows.length}`} active={filter === "all"} onClick={() => setFilter("all")} />
+        <FilterChip
+          label={`Healthy · ${data.healthyCount}`}
+          active={filter === "ok"}
+          tone="ok"
+          onClick={() => setFilter("ok")}
+          disabled={data.healthyCount === 0}
+        />
+        <FilterChip
+          label={`Degraded · ${data.degradedCount}`}
+          active={filter === "degraded"}
+          tone="degraded"
+          onClick={() => setFilter("degraded")}
+          disabled={data.degradedCount === 0}
+        />
+        <FilterChip
+          label={`Issues · ${data.errorCount}`}
+          active={filter === "issues"}
+          tone="error"
+          onClick={() => setFilter("issues")}
+          disabled={data.errorCount === 0}
+        />
+      </div>
+
+      {rowsByFilter.length > 0 ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {rowsByFilter.map((row) => (
+            <FinancialServiceCard key={row.label} row={row} />
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
+          No services match this filter.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const STATE_THEME: Record<"ok" | "degraded" | "error" | "missing", {
+  icon: typeof CheckCircle2;
+  border: string;
+  bg: string;
+  text: string;
+  dot: string;
+  label: string;
+  message: (counts: { healthy: number; degraded: number; error: number; total: number }) => string;
+}> = {
+  ok: {
+    icon: CheckCircle2,
+    border: "border-emerald-500/40",
+    bg: "bg-emerald-500/[0.04]",
+    text: "text-emerald-600 dark:text-emerald-400",
+    dot: "bg-emerald-500 dark:bg-emerald-400",
+    label: "All systems normal",
+    message: ({ healthy, total }) => `${healthy} of ${total} financial services are healthy.`,
+  },
+  degraded: {
+    icon: AlertTriangle,
+    border: "border-amber-500/40",
+    bg: "bg-amber-500/[0.05]",
+    text: "text-amber-600 dark:text-amber-400",
+    dot: "bg-amber-500 dark:bg-amber-400",
+    label: "Degraded",
+    message: ({ degraded, healthy, total }) =>
+      `${degraded} service${degraded === 1 ? "" : "s"} degraded · ${healthy}/${total} healthy.`,
+  },
+  error: {
+    icon: ShieldAlert,
+    border: "border-red-500/40",
+    bg: "bg-red-500/[0.05]",
+    text: "text-red-600 dark:text-red-400",
+    dot: "bg-red-500 dark:bg-red-400",
+    label: "Needs attention",
+    message: ({ error, degraded, healthy, total }) => {
+      const parts = [`${error} need${error === 1 ? "s" : ""} attention`];
+      if (degraded > 0) parts.push(`${degraded} degraded`);
+      parts.push(`${healthy}/${total} healthy`);
+      return `${parts.join(" · ")}.`;
+    },
+  },
+  missing: {
+    icon: Activity,
+    border: "border-border/70",
+    bg: "bg-muted/30",
+    text: "text-muted-foreground",
+    dot: "bg-muted-foreground",
+    label: "Waiting",
+    message: () => "Waiting for the first health snapshot.",
+  },
+};
+
+function StatusHero({
+  state,
+  healthyCount,
+  degradedCount,
+  errorCount,
+  totalCount,
+  checkedAt,
+}: {
+  state: LoadState;
+  healthyCount: number;
+  degradedCount: number;
+  errorCount: number;
+  totalCount: number;
+  checkedAt: string | null;
+}) {
+  const theme = STATE_THEME[state];
+  const Icon = theme.icon;
+  return (
+    <section
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        theme.border,
+        theme.bg,
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <span className="relative inline-flex h-2.5 w-2.5">
+          <span className={cn("absolute inset-0 inline-flex animate-ping rounded-full opacity-60", theme.dot)} />
+          <span className={cn("relative inline-flex h-2.5 w-2.5 rounded-full", theme.dot)} />
+        </span>
+        <Icon className={cn("h-5 w-5", theme.text)} />
+        <div className="flex flex-col leading-tight">
+          <span className={cn("text-sm font-bold uppercase tracking-wider", theme.text)}>
+            {theme.label}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {theme.message({ healthy: healthyCount, degraded: degradedCount, error: errorCount, total: totalCount })}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {healthyCount}/{totalCount} healthy
+        </Badge>
+        {checkedAt ? (
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            checked {formatOperatorTimestamp(checkedAt)}
+          </span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  tone,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  active: boolean;
+  tone?: "ok" | "degraded" | "error";
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  const activeCls =
+    tone === "ok"
+      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      : tone === "degraded"
+        ? "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        : tone === "error"
+          ? "border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300"
+          : "border-foreground/40 bg-foreground/5 text-foreground";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition",
+        active
+          ? activeCls
+          : "border-border/70 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+        disabled && "cursor-not-allowed opacity-40 hover:border-border/70 hover:text-muted-foreground",
+      )}
+    >
+      {label}
+    </button>
   );
 }
