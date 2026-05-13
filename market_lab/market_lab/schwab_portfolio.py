@@ -119,6 +119,7 @@ class SchwabPortfolioClient:
 
 def normalize_schwab_portfolio(account_numbers_payload: Any, accounts_payload: Any) -> PortfolioContext:
     account_labels = _account_labels(account_numbers_payload)
+    account_hashes = _account_hashes(account_numbers_payload)
     accounts: list[PortfolioAccount] = []
     positions: list[PortfolioPosition] = []
     account_rows = accounts_payload if isinstance(accounts_payload, list) else [accounts_payload]
@@ -128,12 +129,13 @@ def normalize_schwab_portfolio(account_numbers_payload: Any, accounts_payload: A
         securities_account = row.get("securitiesAccount") if isinstance(row, dict) else None
         if not isinstance(securities_account, dict):
             continue
-        account_hash = str(
-            securities_account.get("accountNumber")
-            or securities_account.get("hashValue")
+        account_key = str(
+            securities_account.get("hashValue")
             or securities_account.get("encryptedAccountNumber")
-            or "unknown",
-        )
+            or securities_account.get("accountNumber")
+            or "unknown"
+        ).strip()
+        account_hash = account_hashes.get(account_key, account_key)
         balances = securities_account.get("currentBalances") if isinstance(securities_account.get("currentBalances"), dict) else {}
         liquidation = _number(balances.get("liquidationValue"))
         cash = _number(balances.get("cashBalance") or balances.get("cashAvailableForTrading"))
@@ -155,15 +157,19 @@ def normalize_schwab_portfolio(account_numbers_payload: Any, accounts_payload: A
             symbol = str(instrument.get("symbol") or "").strip().upper()
             if not symbol:
                 continue
+            quantity = _number(position.get("longQuantity") or position.get("shortQuantity"))
             market_value = _number(position.get("marketValue"))
+            current_price = _number(position.get("currentPrice"))
+            if current_price is None and market_value is not None and quantity:
+                current_price = market_value / quantity
             positions.append(
                 PortfolioPosition(
                     account_hash=account_hash,
                     symbol=symbol,
                     asset_type=str(instrument.get("assetType") or "") or None,
-                    quantity=_number(position.get("longQuantity") or position.get("shortQuantity")),
+                    quantity=quantity,
                     average_price=_number(position.get("averagePrice")),
-                    current_price=_number(position.get("currentDayProfitLossPercentage")),
+                    current_price=current_price,
                     cost_basis=_number(position.get("averageLongPrice")),
                     unrealized_pnl=_number(position.get("longOpenProfitLoss")),
                     market_value=market_value,
@@ -196,6 +202,21 @@ def _account_labels(payload: Any) -> dict[str, str]:
         last_four = str(item.get("accountNumber") or "")[-4:]
         labels[hash_value] = f"Schwab account {last_four}" if last_four else "Schwab account"
     return labels
+
+
+def _account_hashes(payload: Any) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    rows = payload if isinstance(payload, list) else payload.get("accounts", []) if isinstance(payload, dict) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        hash_value = str(item.get("hashValue") or "").strip()
+        account_number = str(item.get("accountNumber") or "").strip()
+        if hash_value:
+            hashes[hash_value] = hash_value
+        if hash_value and account_number:
+            hashes[account_number] = hash_value
+    return hashes
 
 
 def _number(value: Any) -> float | None:

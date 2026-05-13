@@ -13,7 +13,7 @@ def test_schwab_portfolio_normalizes_positions_without_raw_order_calls():
         [
             {
                 "securitiesAccount": {
-                    "accountNumber": "hash-1",
+                    "accountNumber": "1234",
                     "type": "MARGIN",
                     "currentBalances": {"liquidationValue": 1000, "cashBalance": 100},
                     "positions": [
@@ -31,6 +31,8 @@ def test_schwab_portfolio_normalizes_positions_without_raw_order_calls():
     assert context.status == "available"
     assert context.accounts[0].account_hash == "hash-1"
     assert context.positions[0].symbol == "AAPL"
+    assert context.positions[0].account_hash == "hash-1"
+    assert context.positions[0].current_price == 150
     assert context.positions[0].weight_pct == 30
 
 
