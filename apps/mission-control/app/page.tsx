@@ -135,9 +135,10 @@ export default async function Home() {
         <StatusStrip />
       </Animate>
 
-      {/* Tile row: Vacation Ops + Recent Runs + Recent Sessions, all collapsed by default. */}
+      {/* Tile row: Vacation Ops + Recent Runs + Recent Sessions, all collapsed by default.
+          items-start so an expanded tile grows independently without dragging the others. */}
       <Animate delay={0.16}>
-        <div className="grid items-stretch gap-3 lg:grid-cols-3">
+        <div className="grid items-start gap-3 lg:grid-cols-3">
           <VacationOpsBanner />
 
           <CollapsibleCard
