@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { ActivityFeed } from "@/components/activity-feed";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { KpiRail } from "@/components/kpi-rail";
 import { QuickActionsPills } from "@/components/quick-actions-pills";
 import { RecentSessionsCard } from "@/components/recent-sessions-card";
@@ -134,18 +135,13 @@ export default async function Home() {
         <StatusStrip />
       </Animate>
 
-      {/* Vacation Ops banner (auto-expands on incidents) */}
-      <Animate delay={0.12}>
-        <VacationOpsBanner />
-      </Animate>
-
-      {/* Main 2-col: KPI rail (left) + Activity Feed (right). On mobile, feed renders above rail. */}
-      <Animate delay={0.18}>
-        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+      {/* Main 2-col: KPI rail (left) + Activity Feed (right). Both stretch to equal height. */}
+      <Animate delay={0.16}>
+        <div className="grid items-stretch gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div className="order-2 lg:order-1">
             <KpiRail />
           </div>
-          <Card className="order-1 flex min-w-0 flex-col gap-2 overflow-hidden py-3 lg:order-2">
+          <Card className="order-1 flex min-w-0 flex-col gap-2 overflow-hidden py-3 lg:order-2 lg:h-full">
             <CardHeader className="gap-1 px-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold uppercase tracking-wide">Activity Feed</CardTitle>
@@ -161,32 +157,29 @@ export default async function Home() {
         </div>
       </Animate>
 
-      {/* Bottom row: Recent Runs + Recent Sessions */}
-      <Animate delay={0.24}>
-        <div className="grid gap-3 lg:grid-cols-2">
-          <Card className="gap-2 py-3">
-            <CardHeader className="gap-1 px-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-wide">Recent Subagent Runs</CardTitle>
-                  <div className="flex gap-1.5">
-                    <RunPill label="Running" count={runningRuns} tone="emerald" />
-                    <RunPill label="Queued" count={queuedRuns} tone="amber" />
-                    <RunPill label="Failed" count={failedRuns} tone="red" />
-                  </div>
-                </div>
-                <Link href="/jobs" className="text-xs text-muted-foreground hover:text-foreground hover:underline">View all</Link>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4">
+      {/* Bottom row: Vacation Ops + Recent Runs + Recent Sessions, all collapsed by default. */}
+      <Animate delay={0.22}>
+        <div className="grid items-start gap-3 lg:grid-cols-3">
+          <VacationOpsBanner />
 
+          <CollapsibleCard
+            summary={
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Subagent runs</span>
+                <RunPill label="Running" count={runningRuns} tone="emerald" />
+                <RunPill label="Queued" count={queuedRuns} tone="amber" />
+                <RunPill label="Failed" count={failedRuns} tone="red" />
+              </div>
+            }
+          >
+            <div className="-mx-1">
               {/* Mobile cards */}
               <div className="space-y-2 md:hidden">
                 {visibleRuns.map((run: (typeof data.runs)[number]) => {
                   const effectiveStatus = (run.externalStatus || run.status).toString().toLowerCase();
                   const role = getAgentRole(run.assignmentLabel, run.agent?.name);
                   return (
-                    <div key={run.id} className={`rounded-lg border p-3 ${getRunToneClass(effectiveStatus)}`}>
+                    <div key={run.id} className={`rounded-lg border p-2 ${getRunToneClass(effectiveStatus)}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{run.jobType}</p>
@@ -194,7 +187,7 @@ export default async function Home() {
                         </div>
                         <StatusBadge value={run.externalStatus || run.status} variant="run" />
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <Badge className={role.className}>{role.label}</Badge>
                         <span className="truncate text-[11px] text-muted-foreground">{run.startedAt.toLocaleString()}</span>
                       </div>
@@ -208,41 +201,48 @@ export default async function Home() {
                 <table className="w-full text-sm">
                   <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <tr className="border-b border-border/40">
-                      <th className="pb-2 pr-3 font-medium">Run</th>
-                      <th className="pb-2 pr-3 font-medium">Agent</th>
-                      <th className="pb-2 pr-3 font-medium">Status</th>
-                      <th className="pb-2 font-medium">Started</th>
+                      <th className="pb-1.5 pr-3 font-medium">Run</th>
+                      <th className="pb-1.5 pr-3 font-medium">Status</th>
+                      <th className="pb-1.5 font-medium">Started</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRuns.map((run: (typeof data.runs)[number]) => {
-                      const role = getAgentRole(run.assignmentLabel, run.agent?.name);
-                      return (
-                        <tr key={run.id} className="border-b border-border/20 last:border-0">
-                          <td className="py-1.5 pr-3">
-                            <p className="font-medium">{run.jobType}</p>
-                            <p className="line-clamp-1 max-w-[280px] text-xs text-muted-foreground">{run.summary || "No summary"}</p>
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            <div className="flex items-center gap-1.5">
-                              <Badge className={role.className}>{role.label}</Badge>
-                              <span className="truncate text-xs text-muted-foreground">{getTaskSlug(run.assignmentLabel, run.agent?.name)}</span>
-                            </div>
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            <StatusBadge value={run.externalStatus || run.status} variant="run" />
-                          </td>
-                          <td className="py-1.5 text-xs text-muted-foreground">{run.startedAt.toLocaleString()}</td>
-                        </tr>
-                      );
-                    })}
+                    {visibleRuns.map((run: (typeof data.runs)[number]) => (
+                      <tr key={run.id} className="border-b border-border/20 last:border-0">
+                        <td className="py-1.5 pr-3">
+                          <p className="truncate font-medium">{run.jobType}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">{getTaskSlug(run.assignmentLabel, run.agent?.name)}</p>
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          <StatusBadge value={run.externalStatus || run.status} variant="run" />
+                        </td>
+                        <td className="py-1.5 text-[11px] text-muted-foreground">{run.startedAt.toLocaleString()}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+              <Link
+                href="/jobs"
+                className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+              >
+                View all ↗
+              </Link>
+            </div>
+          </CollapsibleCard>
 
-          <RecentSessionsCard />
+          <CollapsibleCard
+            summary={
+              <div className="flex items-center gap-x-2 text-[12px]">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recent sessions</span>
+                <span className="text-[11px] text-muted-foreground">tap to expand</span>
+              </div>
+            }
+          >
+            <div className="-mx-3 -my-2">
+              <RecentSessionsCard />
+            </div>
+          </CollapsibleCard>
         </div>
       </Animate>
     </div>

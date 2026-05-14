@@ -56,25 +56,25 @@ function Stat({
 function Section({
   title,
   href,
+  className,
   children,
 }: {
   title: string;
   href?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   const head = (
-    <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5">
+    <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-3 py-1.5">
       <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{title}</span>
       {href ? <span className="text-[10px] text-muted-foreground/70 group-hover:text-foreground">↗</span> : null}
     </div>
   );
 
-  const body = <div>{children}</div>;
-
   const inner = (
-    <div className="overflow-hidden rounded-md border border-border/60 bg-card/40">
+    <div className={cn("flex flex-col overflow-hidden border-b border-border/40 last:border-b-0", className)}>
       {head}
-      {body}
+      <div>{children}</div>
     </div>
   );
 
@@ -110,7 +110,7 @@ export function KpiRail() {
     !sloMetrics || (n ?? 0) === 0 ? "—" : `${v ?? 0}%`;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border/60 bg-card/40 lg:h-full">
       <Section title="Today" href="/services">
         <Stat label="Sub-agents" value={todayLoaded ? todayMetrics?.subagentsSpawnedToday ?? 0 : "—"} highlight={(todayMetrics?.subagentsSpawnedToday ?? 0) > 0} />
         <Stat label="Tasks done" value={todayLoaded ? todayMetrics?.tasksCompletedToday ?? 0 : "—"} highlight={(todayMetrics?.tasksCompletedToday ?? 0) > 0} />
