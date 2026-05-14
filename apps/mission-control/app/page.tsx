@@ -2,48 +2,16 @@ import Link from "next/link";
 import { getDashboardSummary } from "@/lib/data";
 import { Animate } from "@/components/animate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
 import { ActivityFeed } from "@/components/activity-feed";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { KpiRail } from "@/components/kpi-rail";
 import { QuickActionsPills } from "@/components/quick-actions-pills";
-import { RecentSessionsCard } from "@/components/recent-sessions-card";
+import { RecentSessionsTile } from "@/components/recent-sessions-tile";
 import { RunPill } from "@/components/run-pill";
 import { StatusStrip } from "@/components/status-strip";
 import { VacationOpsBanner } from "@/components/vacation-ops-banner";
 
 export const dynamic = "force-dynamic";
-
-const AGENT_ROLE_VARIANTS: Record<string, { label: string; className: string }> = {
-  monitor: { label: "Monitor", className: "agent-role-monitor" },
-  librarian: { label: "Librarian", className: "agent-role-librarian" },
-};
-
-function getAgentRole(assignmentLabel?: string | null, fallbackName?: string | null) {
-  const source = (assignmentLabel || fallbackName || "").toLowerCase().trim();
-  const prefix = source.split(/[-_\s]/)[0];
-  if (prefix && AGENT_ROLE_VARIANTS[prefix]) return AGENT_ROLE_VARIANTS[prefix];
-  return { label: "Cortana", className: "agent-role-cortana" };
-}
-
-function getTaskSlug(assignmentLabel?: string | null, fallbackName?: string | null): string {
-  const source = (assignmentLabel || fallbackName || "").trim();
-  const parts = source.split(/[-_\s]/);
-  const prefix = parts[0]?.toLowerCase();
-  if (prefix && AGENT_ROLE_VARIANTS[prefix] && parts.length > 1) return parts.slice(1).join("-");
-  return source || "unassigned";
-}
-
-function getRunToneClass(statusValue: string) {
-  const s = statusValue.toLowerCase();
-  if (s === "running") return "run-card-running";
-  if (s === "queued") return "run-card-queued";
-  if (s === "failed") return "run-card-failed";
-  if (s === "done" || s === "completed") return "run-card-done";
-  if (s === "timeout" || s === "stale") return "run-card-timeout";
-  return "run-card-default";
-}
 
 export default async function Home() {
   let data: Awaited<ReturnType<typeof getDashboardSummary>> | null = null;
@@ -151,56 +119,35 @@ export default async function Home() {
               </div>
             }
           >
-            <div className="-mx-1">
-              {/* Mobile cards */}
-              <div className="space-y-2 md:hidden">
-                {visibleRuns.map((run: (typeof data.runs)[number]) => {
-                  const effectiveStatus = (run.externalStatus || run.status).toString().toLowerCase();
-                  const role = getAgentRole(run.assignmentLabel, run.agent?.name);
+            <div className="text-[11px]">
+              {visibleRuns.length === 0 ? (
+                <p className="py-1 text-muted-foreground">No tracked runs.</p>
+              ) : (
+                visibleRuns.map((run: (typeof data.runs)[number]) => {
+                  const status = String(run.externalStatus || run.status);
+                  const statusLower = status.toLowerCase();
+                  const tone =
+                    statusLower === "failed"
+                      ? "text-red-600 dark:text-red-400"
+                      : statusLower === "running"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : statusLower === "queued"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground";
                   return (
-                    <div key={run.id} className={`rounded-lg border p-2 ${getRunToneClass(effectiveStatus)}`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{run.jobType}</p>
-                          <p className="line-clamp-1 text-xs text-muted-foreground">{run.summary || "No summary"}</p>
-                        </div>
-                        <StatusBadge value={run.externalStatus || run.status} variant="run" />
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <Badge className={role.className}>{role.label}</Badge>
-                        <span className="truncate text-[11px] text-muted-foreground">{run.startedAt.toLocaleString()}</span>
-                      </div>
+                    <div
+                      key={run.id}
+                      className="flex items-baseline justify-between gap-2 border-b border-border/30 py-1 last:border-b-0"
+                    >
+                      <span className="min-w-0 truncate font-medium">{run.jobType}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        <span className={`mr-2 font-mono text-[10px] uppercase tracking-wider ${tone}`}>{status}</span>
+                        {run.startedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
                     </div>
                   );
-                })}
-              </div>
-
-              {/* Desktop table */}
-              <div className="hidden md:block">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                    <tr className="border-b border-border/40">
-                      <th className="pb-1.5 pr-3 font-medium">Run</th>
-                      <th className="pb-1.5 pr-3 font-medium">Status</th>
-                      <th className="pb-1.5 font-medium">Started</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRuns.map((run: (typeof data.runs)[number]) => (
-                      <tr key={run.id} className="border-b border-border/20 last:border-0">
-                        <td className="py-1.5 pr-3">
-                          <p className="truncate font-medium">{run.jobType}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">{getTaskSlug(run.assignmentLabel, run.agent?.name)}</p>
-                        </td>
-                        <td className="py-1.5 pr-3">
-                          <StatusBadge value={run.externalStatus || run.status} variant="run" />
-                        </td>
-                        <td className="py-1.5 text-[11px] text-muted-foreground">{run.startedAt.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                })
+              )}
               <Link
                 href="/jobs"
                 className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
@@ -210,18 +157,7 @@ export default async function Home() {
             </div>
           </CollapsibleCard>
 
-          <CollapsibleCard
-            summary={
-              <div className="flex items-center gap-x-2 text-[12px]">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recent sessions</span>
-                <span className="text-[11px] text-muted-foreground">tap to expand</span>
-              </div>
-            }
-          >
-            <div className="-mx-3 -my-2">
-              <RecentSessionsCard />
-            </div>
-          </CollapsibleCard>
+          <RecentSessionsTile />
         </div>
       </Animate>
 
