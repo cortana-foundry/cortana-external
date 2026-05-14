@@ -109,11 +109,11 @@ export default async function Home() {
 
           <CollapsibleCard
             summary={
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Subagent runs</span>
-                <RunPill label="Running" count={runningRuns} tone="emerald" />
-                <RunPill label="Queued" count={queuedRuns} tone="amber" />
-                <RunPill label="Failed" count={failedRuns} tone="red" />
+              <div className="flex min-w-0 items-center gap-x-1.5 overflow-hidden text-[12px]">
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Runs</span>
+                <RunPill label="R" count={runningRuns} tone="emerald" />
+                <RunPill label="Q" count={queuedRuns} tone="amber" />
+                <RunPill label="F" count={failedRuns} tone="red" />
               </div>
             }
           >

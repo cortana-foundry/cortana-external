@@ -17,7 +17,7 @@ export function RunPill({
     red: "border-red-200/70 bg-red-50/60 text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200",
   };
   return (
-    <div className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${cls[tone]}`}>
+    <div className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls[tone]}`}>
       <span>{label}</span>
       <span className="font-mono font-bold">{count}</span>
     </div>

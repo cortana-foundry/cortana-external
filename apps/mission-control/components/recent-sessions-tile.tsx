@@ -33,13 +33,13 @@ export function RecentSessionsTile() {
   return (
     <CollapsibleCard
       summary={
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recent sessions</span>
+        <div className="flex min-w-0 items-center gap-x-2 overflow-hidden text-[12px]">
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Sessions</span>
           {sessions ? (
-            <>
-              <span className="font-mono text-[11px] font-semibold tabular-nums">{summary.active}</span>
-              <span className="text-[11px] text-muted-foreground">seen · {summary.recent} updated</span>
-            </>
+            <span className="truncate text-[11px] text-muted-foreground">
+              <span className="font-mono font-semibold tabular-nums text-foreground">{summary.active}</span> seen ·{" "}
+              <span className="font-mono font-semibold tabular-nums text-foreground">{summary.recent}</span> updated
+            </span>
           ) : error ? (
             <span className="text-[11px] text-amber-500">unavailable</span>
           ) : (
