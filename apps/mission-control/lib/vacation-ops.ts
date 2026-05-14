@@ -24,9 +24,10 @@ const COMMAND_TIMEOUT_MS = 180_000;
 const STALE_PREP_MS = 15 * 60 * 1000;
 
 type JsonObject = Record<string, unknown>;
+type DbInteger = number | bigint;
 
 type RawWindowRow = {
-  id: number;
+  id: DbInteger;
   label: string;
   status: string;
   timezone: string;
@@ -47,8 +48,8 @@ type RawWindowRow = {
 };
 
 type RawRunRow = {
-  id: number;
-  vacation_window_id: number | null;
+  id: DbInteger;
+  vacation_window_id: DbInteger | null;
   run_type: string;
   trigger_source: string;
   dry_run: boolean;
@@ -62,10 +63,10 @@ type RawRunRow = {
 };
 
 type RawCheckRow = {
-  id: number;
-  run_id: number;
+  id: DbInteger;
+  run_id: DbInteger;
   system_key: string;
-  tier: number;
+  tier: DbInteger;
   status: string;
   observed_at: Date | string;
   freshness_at: Date | string | null;
@@ -75,13 +76,13 @@ type RawCheckRow = {
 };
 
 type RawIncidentRow = {
-  id: number;
-  vacation_window_id: number;
-  run_id: number | null;
-  latest_check_result_id: number | null;
-  latest_action_id: number | null;
+  id: DbInteger;
+  vacation_window_id: DbInteger;
+  run_id: DbInteger | null;
+  latest_check_result_id: DbInteger | null;
+  latest_action_id: DbInteger | null;
   system_key: string;
-  tier: number;
+  tier: DbInteger;
   status: string;
   human_required: boolean;
   first_observed_at: Date | string;
@@ -95,11 +96,11 @@ type RawIncidentRow = {
 };
 
 type RawActionRow = {
-  id: number;
-  vacation_window_id: number;
-  run_id: number | null;
+  id: DbInteger;
+  vacation_window_id: DbInteger;
+  run_id: DbInteger | null;
   system_key: string;
-  step_order: number;
+  step_order: DbInteger;
   action_kind: string;
   action_status: string;
   verification_status: string | null;
@@ -290,7 +291,15 @@ function parseMs(value: Date | string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function selectLatestVacationCheckRows<T extends { system_key: string; observed_at: Date | string }>(rows: T[]): T[] {
+function dbNumber(value: DbInteger): number {
+  return Number(value);
+}
+
+function nullableDbNumber(value: DbInteger | null): number | null {
+  return value == null ? null : dbNumber(value);
+}
+
+export function selectLatestVacationCheckRows<T extends { system_key: string; observed_at: Date | string; tier?: DbInteger }>(rows: T[]): T[] {
   const latestBySystem = new Map<string, T>();
   for (const row of rows) {
     const previous = latestBySystem.get(row.system_key);
@@ -299,7 +308,7 @@ export function selectLatestVacationCheckRows<T extends { system_key: string; ob
     }
   }
   return Array.from(latestBySystem.values()).sort((left, right) => {
-    const tierDiff = Number((left as { tier?: number }).tier ?? 0) - Number((right as { tier?: number }).tier ?? 0);
+    const tierDiff = Number(left.tier ?? 0) - Number(right.tier ?? 0);
     return tierDiff || left.system_key.localeCompare(right.system_key);
   });
 }
@@ -416,7 +425,7 @@ export function formatVacationSystemLabel(systemKey: string): string {
 function mapWindow(row: RawWindowRow | null): VacationWindow | null {
   if (!row) return null;
   return {
-    id: row.id,
+    id: dbNumber(row.id),
     label: row.label,
     status: row.status,
     timezone: row.timezone,
@@ -440,8 +449,8 @@ function mapWindow(row: RawWindowRow | null): VacationWindow | null {
 function mapRun(row: RawRunRow | null): VacationRun | null {
   if (!row) return null;
   return {
-    id: row.id,
-    vacationWindowId: row.vacation_window_id,
+    id: dbNumber(row.id),
+    vacationWindowId: nullableDbNumber(row.vacation_window_id),
     runType: row.run_type,
     triggerSource: row.trigger_source,
     dryRun: Boolean(row.dry_run),
@@ -457,11 +466,11 @@ function mapRun(row: RawRunRow | null): VacationRun | null {
 
 function mapCheck(row: RawCheckRow, config: VacationConfig): VacationCheck {
   return {
-    id: row.id,
-    runId: row.run_id,
+    id: dbNumber(row.id),
+    runId: dbNumber(row.run_id),
     systemKey: row.system_key,
     systemLabel: formatVacationSystemLabel(row.system_key),
-    tier: row.tier,
+    tier: dbNumber(row.tier),
     status: row.status,
     observedAt: normalizeIso(row.observed_at) ?? "",
     freshnessAt: normalizeIso(row.freshness_at),
@@ -474,14 +483,14 @@ function mapCheck(row: RawCheckRow, config: VacationConfig): VacationCheck {
 
 function mapIncident(row: RawIncidentRow): VacationIncident {
   return {
-    id: row.id,
-    vacationWindowId: row.vacation_window_id,
-    runId: row.run_id,
-    latestCheckResultId: row.latest_check_result_id,
-    latestActionId: row.latest_action_id,
+    id: dbNumber(row.id),
+    vacationWindowId: dbNumber(row.vacation_window_id),
+    runId: nullableDbNumber(row.run_id),
+    latestCheckResultId: nullableDbNumber(row.latest_check_result_id),
+    latestActionId: nullableDbNumber(row.latest_action_id),
     systemKey: row.system_key,
     systemLabel: formatVacationSystemLabel(row.system_key),
-    tier: row.tier,
+    tier: dbNumber(row.tier),
     status: row.status,
     humanRequired: Boolean(row.human_required),
     firstObservedAt: normalizeIso(row.first_observed_at) ?? "",
@@ -497,12 +506,12 @@ function mapIncident(row: RawIncidentRow): VacationIncident {
 
 function mapAction(row: RawActionRow): VacationAction {
   return {
-    id: row.id,
-    vacationWindowId: row.vacation_window_id,
-    runId: row.run_id,
+    id: dbNumber(row.id),
+    vacationWindowId: dbNumber(row.vacation_window_id),
+    runId: nullableDbNumber(row.run_id),
     systemKey: row.system_key,
     systemLabel: formatVacationSystemLabel(row.system_key),
-    stepOrder: row.step_order,
+    stepOrder: dbNumber(row.step_order),
     actionKind: row.action_kind,
     actionStatus: row.action_status,
     verificationStatus: row.verification_status,
