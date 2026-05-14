@@ -88,33 +88,33 @@ export function VacationOpsBanner() {
   return (
     <CollapsibleCard
       summary={
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+        <div className="flex min-w-0 items-center gap-x-2 text-[12px]">
           <Palmtree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Vacation</span>
-          <span className="font-semibold uppercase tracking-wider">{modeLabel(data?.mode)}</span>
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Vacation</span>
+          <span className="shrink-0 font-semibold uppercase tracking-wider">{modeLabel(data?.mode)}</span>
           <span
             className={cn(
-              "rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider",
+              "shrink-0 rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider",
               readinessToneClass(readiness),
             )}
           >
             {readinessLabel(readiness)}
           </span>
           {activeIncidents > 0 ? (
-            <span className="inline-flex min-w-0 items-center gap-1 text-red-600 dark:text-red-400">
+            <span className="flex min-w-0 items-center gap-1 text-red-600 dark:text-red-400">
               <ShieldAlert className="h-3 w-3 shrink-0" />
               <span className="shrink-0 text-[11px] font-semibold">{activeIncidents}</span>
               {firstActiveIncident ? (
-                <span className="truncate text-[11px] text-muted-foreground">
+                <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                   · {firstActiveIncident.systemLabel}
                   {firstActiveIncident.symptom ? `: ${firstActiveIncident.symptom}` : ""}
                 </span>
               ) : null}
             </span>
           ) : (
-            <span className="text-[11px] text-muted-foreground">{readinessAge}</span>
+            <span className="truncate text-[11px] text-muted-foreground">{readinessAge}</span>
           )}
-          {error ? <span className="text-[10px] text-amber-500">offline</span> : null}
+          {error ? <span className="shrink-0 text-[10px] text-amber-500">offline</span> : null}
         </div>
       }
     >
