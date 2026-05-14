@@ -54,8 +54,8 @@ describe("VacationOpsBanner", () => {
 
     render(<VacationOpsBanner />);
 
-    expect(await screen.findByText("NO-GO")).toBeInTheDocument();
-    expect(screen.getByText("INACTIVE")).toBeInTheDocument();
+    expect((await screen.findAllByText("NO-GO")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("INACTIVE").length).toBeGreaterThan(0);
     // <details> starts collapsed (no `open` attribute).
     expect(document.querySelector("details")?.hasAttribute("open")).toBe(false);
   });
@@ -102,23 +102,26 @@ describe("VacationOpsBanner", () => {
     render(<VacationOpsBanner />);
 
     expect(await screen.findByText("2")).toBeInTheDocument();
-    expect(screen.getByText(/Schwab.*auth token expired/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Schwab.*auth token expired/).length).toBeGreaterThan(0);
     // Banner stays collapsed by default (no auto-expand on incidents).
     expect(document.querySelector("details")?.hasAttribute("open")).toBe(false);
   });
 
-  it("expands to render the full VacationOpsCard when the summary is clicked", async () => {
+  it("renders compact detail rows in the expanded body", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
       jsonResponse({ status: "ok", data: baseSnapshot() }),
     );
 
     render(<VacationOpsBanner />);
 
-    await screen.findByText("INACTIVE");
+    await screen.findAllByText("INACTIVE");
     const details = document.querySelector("details");
     expect(details?.hasAttribute("open")).toBe(false);
-    // Native <details> toggle: emulate by setting the open attribute directly.
     details!.open = true;
     expect(details?.hasAttribute("open")).toBe(true);
+    // Compact detail rows: Mode / Readiness / Cadence.
+    expect(screen.getByText("Mode")).toBeInTheDocument();
+    expect(screen.getByText("Readiness")).toBeInTheDocument();
+    expect(screen.getByText("Cadence")).toBeInTheDocument();
   });
 });

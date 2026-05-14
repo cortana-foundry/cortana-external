@@ -135,31 +135,9 @@ export default async function Home() {
         <StatusStrip />
       </Animate>
 
-      {/* Main 2-col: KPI rail (left) + Activity Feed (right). Both stretch to equal height. */}
+      {/* Tile row: Vacation Ops + Recent Runs + Recent Sessions, all collapsed by default. */}
       <Animate delay={0.16}>
-        <div className="grid items-stretch gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <div className="order-2 lg:order-1">
-            <KpiRail />
-          </div>
-          <Card className="order-1 flex min-w-0 flex-col gap-2 overflow-hidden py-3 lg:order-2 lg:h-full">
-            <CardHeader className="gap-1 px-4">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide">Activity Feed</CardTitle>
-                <Link href="/services" className="text-xs text-muted-foreground hover:text-foreground hover:underline">
-                  View logs
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent className="flex min-w-0 flex-1 flex-col px-4">
-              <ActivityFeed />
-            </CardContent>
-          </Card>
-        </div>
-      </Animate>
-
-      {/* Bottom row: Vacation Ops + Recent Runs + Recent Sessions, all collapsed by default. */}
-      <Animate delay={0.22}>
-        <div className="grid items-start gap-3 lg:grid-cols-3">
+        <div className="grid items-stretch gap-3 lg:grid-cols-3">
           <VacationOpsBanner />
 
           <CollapsibleCard
@@ -243,6 +221,28 @@ export default async function Home() {
               <RecentSessionsCard />
             </div>
           </CollapsibleCard>
+        </div>
+      </Animate>
+
+      {/* Main 2-col: KPI rail (left) + Activity Feed (right). Both stretch to equal height. */}
+      <Animate delay={0.22}>
+        <div className="grid items-stretch gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="order-2 lg:order-1">
+            <KpiRail />
+          </div>
+          <Card className="order-1 flex min-w-0 flex-col gap-2 overflow-hidden py-3 lg:order-2 lg:h-full">
+            <CardHeader className="gap-1 px-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide">Activity Feed</CardTitle>
+                <Link href="/services" className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+                  View logs
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="flex min-w-0 flex-1 flex-col px-4">
+              <ActivityFeed />
+            </CardContent>
+          </Card>
         </div>
       </Animate>
     </div>

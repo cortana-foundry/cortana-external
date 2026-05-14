@@ -5,7 +5,6 @@ import { Palmtree, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useVacationOps } from "@/hooks/dashboard/use-vacation-ops";
 import { CollapsibleCard } from "./collapsible-card";
-import { VacationOpsCard } from "./vacation-ops-card";
 
 function formatRelative(value: string | null | undefined): string {
   if (!value) return "never";
@@ -18,6 +17,22 @@ function formatRelative(value: string | null | undefined): string {
   const hours = Math.floor(mins / 60);
   const rem = mins % 60;
   return rem === 0 ? `${hours}h ago` : `${hours}h ${rem}m ago`;
+}
+
+function formatClock(value: string): string {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function formatWindowLabel(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const match = label.match(/(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return label;
+  return `${match[2]}-${match[3]}`;
 }
 
 function modeLabel(mode: string | null | undefined): string {
@@ -43,6 +58,15 @@ function readinessToneClass(outcome: string | null | undefined): string {
   return "border-border/60 bg-muted/40 text-muted-foreground";
 }
 
+function DetailRow({ label, value, valueClass }: { label: string; value: React.ReactNode; valueClass?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-border/30 py-1 last:border-b-0">
+      <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className={cn("text-right text-[11px] font-medium", valueClass)}>{value}</span>
+    </div>
+  );
+}
+
 export function VacationOpsBanner() {
   const { data, error } = useVacationOps();
 
@@ -50,6 +74,16 @@ export function VacationOpsBanner() {
   const firstActiveIncident = (data?.recentIncidents ?? []).find((incident) => !incident.resolvedAt);
   const readiness = data?.latestReadiness?.readinessOutcome;
   const readinessAge = formatRelative(data?.latestReadiness?.completedAt ?? data?.latestReadiness?.startedAt);
+  const cadenceText = data
+    ? `${formatClock(data.config.summaryTimes.morning)} · ${formatClock(data.config.summaryTimes.evening)}`
+    : "—";
+  const windowSrc = data?.activeWindow ?? data?.latestWindow ?? null;
+  const windowLabel =
+    windowSrc?.label && windowSrc?.endAt
+      ? `${formatWindowLabel(windowSrc.label) ?? "—"} → ${formatWindowLabel(windowSrc.endAt.slice(0, 10)) ?? "—"}`
+      : null;
+  const pausedJobs = data?.counts.pausedJobs ?? 0;
+  const humanRequired = data?.counts.humanRequiredIncidents ?? 0;
 
   return (
     <CollapsibleCard
@@ -69,9 +103,7 @@ export function VacationOpsBanner() {
           {activeIncidents > 0 ? (
             <span className="inline-flex min-w-0 items-center gap-1 text-red-600 dark:text-red-400">
               <ShieldAlert className="h-3 w-3 shrink-0" />
-              <span className="shrink-0 text-[11px] font-semibold">
-                {activeIncidents}
-              </span>
+              <span className="shrink-0 text-[11px] font-semibold">{activeIncidents}</span>
               {firstActiveIncident ? (
                 <span className="truncate text-[11px] text-muted-foreground">
                   · {firstActiveIncident.systemLabel}
@@ -86,15 +118,37 @@ export function VacationOpsBanner() {
         </div>
       }
     >
-      <div className="-mx-3 -my-2">
-        <VacationOpsCard />
+      <div className="text-[11px]">
+        <DetailRow label="Mode" value={modeLabel(data?.mode)} />
+        <DetailRow
+          label="Readiness"
+          value={`${readinessLabel(readiness)} · ${readinessAge}`}
+          valueClass={readiness === "no_go" || readiness === "fail" ? "text-red-600 dark:text-red-400" : undefined}
+        />
+        {activeIncidents > 0 ? (
+          <DetailRow
+            label="Incident"
+            value={
+              firstActiveIncident
+                ? `${firstActiveIncident.systemLabel}${firstActiveIncident.symptom ? ` · ${firstActiveIncident.symptom}` : ""}`
+                : `${activeIncidents} open`
+            }
+            valueClass="text-red-600 dark:text-red-400"
+          />
+        ) : null}
+        {humanRequired > 0 ? (
+          <DetailRow label="Needs operator" value={humanRequired} valueClass="text-amber-600 dark:text-amber-400" />
+        ) : null}
+        {pausedJobs > 0 ? <DetailRow label="Paused jobs" value={pausedJobs} /> : null}
+        <DetailRow label="Cadence" value={cadenceText} />
+        {windowLabel ? <DetailRow label="Window" value={windowLabel} /> : null}
+        <Link
+          href="/services?tab=vacation"
+          className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open console ↗
+        </Link>
       </div>
-      <Link
-        href="/services?tab=vacation"
-        className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-      >
-        Open console ↗
-      </Link>
     </CollapsibleCard>
   );
 }

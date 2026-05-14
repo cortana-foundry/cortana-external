@@ -22,12 +22,12 @@ export function CollapsibleCard({
   return (
     <details
       className={cn(
-        "group overflow-hidden rounded-lg border border-border/60 bg-card/60 [&[open]]:bg-card/80",
+        "group flex flex-col overflow-hidden rounded-lg border border-border/60 bg-card/60 [&[open]]:bg-card/80",
         className,
       )}
       {...(defaultOpen ? { open: true } : {})}
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 hover:bg-card/80 [&::-webkit-details-marker]:hidden">
+      <summary className="flex flex-1 cursor-pointer list-none items-center gap-2 px-3 py-2 hover:bg-card/80 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">{summary}</div>
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
       </summary>
