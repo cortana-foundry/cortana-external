@@ -1,7 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
+import { getCodexRun } from "@/lib/codex-runs";
 import { createCodexSessionRun } from "@/lib/codex-session-workspace";
-import { getMarketLabCodexPacket } from "@/lib/market-lab";
+import { getMarketLabCodexPacket, getMarketLabRun } from "@/lib/market-lab";
+
+vi.mock("@/lib/codex-runs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/codex-runs")>();
+  return {
+    ...actual,
+    getCodexRun: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/codex-session-workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/codex-session-workspace")>();
@@ -16,11 +28,12 @@ vi.mock("@/lib/market-lab", async (importOriginal) => {
   return {
     ...actual,
     getMarketLabCodexPacket: vi.fn(),
+    getMarketLabRun: vi.fn(),
   };
 });
 
-const sameOriginPost = () =>
-  new Request("http://localhost/api/market-lab/runs/mlab_test_AAPL/codex-review", {
+const sameOriginPost = (runId = "mlab_test_AAPL") =>
+  new Request(`http://localhost/api/market-lab/runs/${runId}/codex-review`, {
     method: "POST",
     headers: {
       host: "localhost",
@@ -29,26 +42,78 @@ const sameOriginPost = () =>
   });
 
 describe("Market Lab Codex review route", () => {
-  beforeEach(() => {
+  let tempDir = "";
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), "market-lab-codex-route-"));
+    vi.clearAllMocks();
+    vi.mocked(getCodexRun).mockReturnValue(null);
+    vi.mocked(getMarketLabRun).mockResolvedValue({
+      review: {
+        codex_review: null,
+        artifact_paths: { codex_packet: path.join(tempDir, "codex-review-packet.md") },
+      },
+    } as Awaited<ReturnType<typeof getMarketLabRun>>);
     vi.mocked(getMarketLabCodexPacket).mockResolvedValue({
       run_id: "mlab_test_AAPL",
-      packet_path: "/tmp/codex-review-packet.md",
+      packet_path: path.join(tempDir, "codex-review-packet.md"),
       prompt: "Read the packet.",
     });
     vi.mocked(createCodexSessionRun).mockResolvedValue({ streamId: "stream-1" });
   });
 
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
   it("starts a Codex session from the review packet", async () => {
-    const response = await POST(sameOriginPost(), { params: Promise.resolve({ runId: "mlab_test_AAPL" }) });
+    const response = await POST(sameOriginPost("mlab_route_start_AAPL"), { params: Promise.resolve({ runId: "mlab_route_start_AAPL" }) });
     const body = await response.json();
 
     expect(response.status).toBe(202);
-    expect(getMarketLabCodexPacket).toHaveBeenCalledWith("mlab_test_AAPL");
+    expect(getMarketLabCodexPacket).toHaveBeenCalledWith("mlab_route_start_AAPL");
     expect(createCodexSessionRun).toHaveBeenCalledWith({
       prompt: "Read the packet.",
       workspaceKey: "cortana-external",
     });
+    expect(body.data.status).toBe("running");
     expect(body.data.streamId).toBe("stream-1");
-    expect(body.data.packet_path).toBe("/tmp/codex-review-packet.md");
+    expect(body.data.packet_path).toBe(path.join(tempDir, "codex-review-packet.md"));
+  });
+
+  it("reuses an active Codex review for duplicate clicks on the same run", async () => {
+    const first = await POST(sameOriginPost("mlab_route_duplicate_AAPL"), { params: Promise.resolve({ runId: "mlab_route_duplicate_AAPL" }) });
+    expect(first.status).toBe(202);
+
+    vi.mocked(getCodexRun).mockReturnValue({ status: "running" } as ReturnType<typeof getCodexRun>);
+
+    const second = await POST(sameOriginPost("mlab_route_duplicate_AAPL"), { params: Promise.resolve({ runId: "mlab_route_duplicate_AAPL" }) });
+    const body = await second.json();
+
+    expect(second.status).toBe(202);
+    expect(createCodexSessionRun).toHaveBeenCalledTimes(1);
+    expect(body.data).toMatchObject({
+      status: "running",
+      streamId: "stream-1",
+      packet_path: path.join(tempDir, "codex-review-packet.md"),
+      reused: true,
+    });
+  });
+
+  it("does not start a new Codex session once the review is attached", async () => {
+    vi.mocked(getMarketLabRun).mockResolvedValueOnce({
+      review: {
+        codex_review: { status: "attached", output_path: "/tmp/codex-review.md" },
+        artifact_paths: { codex_packet: path.join(tempDir, "codex-review-packet.md") },
+      },
+    } as Awaited<ReturnType<typeof getMarketLabRun>>);
+
+    const response = await POST(sameOriginPost("mlab_route_attached_AAPL"), { params: Promise.resolve({ runId: "mlab_route_attached_AAPL" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(createCodexSessionRun).not.toHaveBeenCalled();
+    expect(body.data.status).toBe("already_attached");
+    expect(body.data.packet_path).toBe(path.join(tempDir, "codex-review-packet.md"));
   });
 });

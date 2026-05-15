@@ -174,6 +174,13 @@ type RunDetail = {
   settlements: Settlement[];
 };
 
+type CodexReviewStartResponse = {
+  status?: "running" | "already_attached";
+  streamId?: string;
+  packet_path?: string | null;
+  reused?: boolean;
+};
+
 type Verdict = "trusted" | "uncertain" | "blocked";
 
 type TapeMode = "recent" | "symbol" | "verdict";
@@ -548,6 +555,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const [codexExpanded, setCodexExpanded] = useState(false);
   const [tapeOpen, setTapeOpen] = useState(false);
   const [expandedCheck, setExpandedCheck] = useState<string | null>(null);
+  const codexRequestInFlightRef = useRef<string | null>(null);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.run_id === selectedRunId) ?? null,
@@ -732,6 +740,11 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const askCodex = async () => {
     if (!selectedRunId) return;
     const runId = selectedRunId;
+    if (codexRequestInFlightRef.current === runId) {
+      setCodexStatus("Codex review is already running for this Market Lab run.");
+      return;
+    }
+    codexRequestInFlightRef.current = runId;
     setLoading(true);
     setError(null);
     setCodexStatus("Codex review queued. Waiting for the session to start...");
@@ -739,11 +752,22 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     setSettlementStatus(null);
     setPortfolioStatus(null);
     try {
-      const result = await api<{ streamId: string; packet_path: string }>(
+      const result = await api<CodexReviewStartResponse>(
         `/api/market-lab/runs/${encodeURIComponent(runId)}/codex-review`,
         { method: "POST" },
       );
-      setCodexStatus(`Codex stream started: ${result.streamId}. Waiting for Codex to attach the review...`);
+      if (result.status === "already_attached" || !result.streamId) {
+        await loadRunDetail(runId);
+        await loadRuns();
+        setCodexStatus("Codex review is already attached. The review panel is up to date.");
+        return;
+      }
+
+      setCodexStatus(
+        result.reused
+          ? "Codex review is already running for this Market Lab run. Watching the existing stream..."
+          : `Codex stream started: ${result.streamId}. Waiting for Codex to attach the review...`,
+      );
 
       const response = await fetch(`/api/codex/streams/${encodeURIComponent(result.streamId)}`, {
         headers: { Accept: "text/event-stream" },
@@ -782,6 +806,9 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
       }
       setError(err instanceof Error ? err.message : "Failed to start Codex review");
     } finally {
+      if (codexRequestInFlightRef.current === runId) {
+        codexRequestInFlightRef.current = null;
+      }
       setLoading(false);
     }
   };

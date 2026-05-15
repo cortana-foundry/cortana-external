@@ -287,7 +287,9 @@ describe("MarketLabClient", () => {
     render(<MarketLabClient />);
 
     await screen.findByText("Blocked because price data is stale.");
-    fireEvent.click(await screen.findByRole("button", { name: /ask codex/i }));
+    const askButton = await screen.findByRole("button", { name: /ask codex/i });
+    fireEvent.click(askButton);
+    fireEvent.click(askButton);
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
@@ -295,6 +297,10 @@ describe("MarketLabClient", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+    const codexPosts = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url, init]) => String(url).includes("/codex-review") && init?.method === "POST");
+    expect(codexPosts).toHaveLength(1);
     expect(await screen.findByText("Codex review attached. The review panel is up to date.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /open session/i })).toHaveAttribute("href", "/sessions?sessionId=session-1");
   });
