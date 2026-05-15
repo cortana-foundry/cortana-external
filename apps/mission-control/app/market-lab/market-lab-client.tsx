@@ -175,9 +175,10 @@ type RunDetail = {
 };
 
 type CodexReviewStartResponse = {
-  status?: "running" | "already_attached";
+  status?: "running" | "already_requested" | "already_attached" | "not_requested";
   streamId?: string;
   packet_path?: string | null;
+  sessionId?: string | null;
   reused?: boolean;
 };
 
@@ -632,6 +633,32 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     setEnvironmentOverview(Array.isArray(overview.environments) ? (overview as EnvironmentOverview) : null);
   };
 
+  const applyCodexReviewState = (state: CodexReviewStartResponse | null | undefined) => {
+    if (!state?.status || state.status === "not_requested") {
+      setCodexStatus(null);
+      setCodexStatusSessionId(null);
+      return;
+    }
+
+    if (state.sessionId) {
+      setCodexStatusSessionId(state.sessionId);
+    }
+
+    if (state.status === "running") {
+      setCodexStatus("Codex review is already running for this Market Lab run. Waiting for the review artifact.");
+      return;
+    }
+
+    if (state.status === "already_requested") {
+      setCodexStatus("Codex review was already requested. Waiting for Codex to attach the review artifact.");
+      return;
+    }
+
+    if (state.status === "already_attached") {
+      setCodexStatus("Codex review is already attached. The review panel is up to date.");
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
@@ -652,12 +679,16 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   };
 
   const loadRunDetail = async (runId: string) => {
-    const [runDetail, eventItems] = await Promise.all([
+    const [runDetail, eventItems, codexReviewState] = await Promise.all([
       api<RunDetail>(`/api/market-lab/runs/${encodeURIComponent(runId)}`),
       api<TimelineEvent[]>(`/api/market-lab/runs/${encodeURIComponent(runId)}/events`),
+      api<CodexReviewStartResponse>(`/api/market-lab/runs/${encodeURIComponent(runId)}/codex-review`).catch(() => null),
     ]);
     setDetail(runDetail);
     setEvents(eventItems);
+    if (codexRequestInFlightRef.current !== runId) {
+      applyCodexReviewState(codexReviewState);
+    }
     return runDetail;
   };
 
@@ -763,10 +794,25 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
         `/api/market-lab/runs/${encodeURIComponent(runId)}/codex-review`,
         { method: "POST" },
       );
-      if (result.status === "already_attached" || !result.streamId) {
+      if (result.status === "already_attached") {
         await loadRunDetail(runId);
         await loadRuns();
         setCodexStatus("Codex review is already attached. The review panel is up to date.");
+        return;
+      }
+
+      if (result.status === "already_requested") {
+        setCodexStatusSessionId(result.sessionId ?? null);
+        setCodexStatus("Codex review was already requested. Waiting for Codex to attach the review artifact.");
+        await loadRunDetail(runId);
+        await loadRuns();
+        return;
+      }
+
+      if (!result.streamId) {
+        await loadRunDetail(runId);
+        await loadRuns();
+        setCodexStatus("Codex review has not been requested for this run yet.");
         return;
       }
 
@@ -908,6 +954,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
         ? "Evidence gates passed. Codex second opinion is attached below."
         : "Evidence gates passed. Codex second opinion has not been attached yet."
       : review?.interpretation?.summary ?? "Select or run a review to see the trust decision.";
+  const askCodexDisabled = !selectedRunId || loading || codexReviewNotice?.tone === "running" || codexReviewNotice?.tone === "ready";
   const tokenBudget = review?.token_budget;
   const outcomeMemory = review?.outcome_memory;
   const runPortfolioContext = review?.portfolio_context ?? null;
@@ -1382,7 +1429,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                     variant="outline"
                     size="sm"
                     onClick={askCodex}
-                    disabled={!selectedRunId || loading}
+                    disabled={askCodexDisabled}
                     className="h-7 gap-1.5 px-2.5 font-mono text-[11px] uppercase tracking-wider"
                   >
                     <MessageSquareText className="h-3 w-3" />
