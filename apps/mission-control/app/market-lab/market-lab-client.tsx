@@ -1120,6 +1120,112 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
     </Panel>
   );
 
+  const renderRunTapeContent = () => (
+    <>
+      <div className="space-y-2 border-b border-border/50 px-3 py-2 lg:border-t-0">
+        <div className="hidden items-center justify-between lg:flex">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Run tape</span>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{runs.length}</span>
+        </div>
+        <TapeModeTabs mode={tapeMode} onChange={setTapeMode} />
+      </div>
+      <div className="max-h-[60vh] min-h-0 overflow-y-auto p-1 [scrollbar-gutter:stable] lg:max-h-[min(calc(100svh-180px),720px)]">
+        {runs.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-muted-foreground">No runs yet.</p>
+        ) : tapeMode === "recent" ? (
+          <ul className="space-y-0.5">
+            {runs.map((run) => (
+              <li key={run.run_id}>
+                <RunTapeRow
+                  run={run}
+                  selected={selectedRunId === run.run_id}
+                  onSelect={setSelectedRunId}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : tapeMode === "symbol" ? (
+          <div className="space-y-1">
+            {runsBySymbol.map(([symbol, groupRuns]) => {
+              const key = `sym:${symbol}`;
+              const hasSelected = groupRuns.some((r) => r.run_id === selectedRunId);
+              const open = !closedGroups.has(key) || hasSelected;
+              const latestVerdict = (groupRuns[0]?.trust_verdict ?? "uncertain") as Verdict;
+              return (
+                <RunTapeGroup
+                  key={key}
+                  open={open}
+                  onToggle={(isOpen) => toggleGroup(key, isOpen)}
+                  labelNode={
+                    <span className="flex items-center gap-1.5">
+                      <span className={cn("h-1.5 w-1.5 rounded-full", verdictMeta[latestVerdict].dot)} />
+                      <span className="text-xs font-semibold">{symbol}</span>
+                    </span>
+                  }
+                  count={groupRuns.length}
+                >
+                  <ul className="space-y-0.5">
+                    {groupRuns.map((run) => (
+                      <li key={run.run_id}>
+                        <RunTapeRow
+                          run={run}
+                          selected={selectedRunId === run.run_id}
+                          onSelect={setSelectedRunId}
+                          hideSymbol
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </RunTapeGroup>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {(["trusted", "uncertain", "blocked"] as const).map((verdictKey) => {
+              const list = runsByVerdict[verdictKey];
+              if (list.length === 0) return null;
+              const key = `verd:${verdictKey}`;
+              const hasSelected = list.some((r) => r.run_id === selectedRunId);
+              const open = !closedGroups.has(key) || hasSelected;
+              return (
+                <RunTapeGroup
+                  key={key}
+                  open={open}
+                  onToggle={(isOpen) => toggleGroup(key, isOpen)}
+                  labelNode={
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-px text-[10px] font-bold uppercase tracking-wider",
+                        verdictMeta[verdictKey].chip,
+                      )}
+                    >
+                      {verdictMeta[verdictKey].label}
+                    </span>
+                  }
+                  count={list.length}
+                >
+                  <ul className="space-y-0.5">
+                    {list.map((run) => (
+                      <li key={run.run_id}>
+                        <RunTapeRow
+                          run={run}
+                          selected={selectedRunId === run.run_id}
+                          onSelect={setSelectedRunId}
+                          hideVerdictChip
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </RunTapeGroup>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div
       className={cn(
@@ -1191,6 +1297,22 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
         </div>
       </section>
 
+      <aside className="mt-3 rounded-lg border border-border/70 bg-card/60 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setTapeOpen((v) => !v)}
+          aria-expanded={tapeOpen}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">History</span>
+          <span className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{runs.length}</span>
+            <span className={cn("text-xs text-muted-foreground transition-transform", tapeOpen && "rotate-90")}>›</span>
+          </span>
+        </button>
+        <div className={cn(tapeOpen ? "block" : "hidden")}>{renderRunTapeContent()}</div>
+      </aside>
+
       {codexReviewNotice ? <CodexReviewNotice notice={codexReviewNotice} /> : null}
 
       {/* Debug artifacts — collapsed by default, close to the run controls */}
@@ -1245,132 +1367,14 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
 
       {/* ── Body: tape + decision area ── */}
       <section className={cn(
-        "mt-3 flex flex-col-reverse gap-3",
+        "mt-3 flex flex-col gap-3",
         showRunTapeSidebar && "lg:grid lg:grid-cols-[180px_minmax(0,1fr)]",
       )}>
-        {/* Run tape — always rendered for mobile collapse; hidden on lg+ when strip mode is active */}
-        <aside
-          className={cn(
-            "self-start rounded-lg border border-border/70 bg-card/60",
-            showRunTapeSidebar ? "lg:sticky lg:top-3" : "lg:hidden",
-          )}
-        >
-          <button
-            type="button"
-            onClick={() => setTapeOpen((v) => !v)}
-            aria-expanded={tapeOpen}
-            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left lg:hidden"
-          >
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">History</span>
-            <span className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{runs.length}</span>
-              <span className={cn("text-xs text-muted-foreground transition-transform", tapeOpen && "rotate-90")}>›</span>
-            </span>
-          </button>
-          <div className={cn("lg:block", tapeOpen ? "block" : "hidden")}>
-          <div className="space-y-2 border-b border-border/50 px-3 py-2 lg:border-t-0">
-            <div className="hidden items-center justify-between lg:flex">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Run tape</span>
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{runs.length}</span>
-            </div>
-            <TapeModeTabs mode={tapeMode} onChange={setTapeMode} />
-          </div>
-          <div className="max-h-[60vh] min-h-0 overflow-y-auto p-1 [scrollbar-gutter:stable] lg:max-h-[min(calc(100svh-180px),720px)]">
-            {runs.length === 0 ? (
-              <p className="px-2 py-6 text-center text-xs text-muted-foreground">No runs yet.</p>
-            ) : tapeMode === "recent" ? (
-              <ul className="space-y-0.5">
-                {runs.map((run) => (
-                  <li key={run.run_id}>
-                    <RunTapeRow
-                      run={run}
-                      selected={selectedRunId === run.run_id}
-                      onSelect={setSelectedRunId}
-                    />
-                  </li>
-                ))}
-              </ul>
-            ) : tapeMode === "symbol" ? (
-              <div className="space-y-1">
-                {runsBySymbol.map(([symbol, groupRuns]) => {
-                  const key = `sym:${symbol}`;
-                  const hasSelected = groupRuns.some((r) => r.run_id === selectedRunId);
-                  const open = !closedGroups.has(key) || hasSelected;
-                  const latestVerdict = (groupRuns[0]?.trust_verdict ?? "uncertain") as Verdict;
-                  return (
-                    <RunTapeGroup
-                      key={key}
-                      open={open}
-                      onToggle={(isOpen) => toggleGroup(key, isOpen)}
-                      labelNode={
-                        <span className="flex items-center gap-1.5">
-                          <span className={cn("h-1.5 w-1.5 rounded-full", verdictMeta[latestVerdict].dot)} />
-                          <span className="text-xs font-semibold">{symbol}</span>
-                        </span>
-                      }
-                      count={groupRuns.length}
-                    >
-                      <ul className="space-y-0.5">
-                        {groupRuns.map((run) => (
-                          <li key={run.run_id}>
-                            <RunTapeRow
-                              run={run}
-                              selected={selectedRunId === run.run_id}
-                              onSelect={setSelectedRunId}
-                              hideSymbol
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </RunTapeGroup>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {(["trusted", "uncertain", "blocked"] as const).map((verdictKey) => {
-                  const list = runsByVerdict[verdictKey];
-                  if (list.length === 0) return null;
-                  const key = `verd:${verdictKey}`;
-                  const hasSelected = list.some((r) => r.run_id === selectedRunId);
-                  const open = !closedGroups.has(key) || hasSelected;
-                  return (
-                    <RunTapeGroup
-                      key={key}
-                      open={open}
-                      onToggle={(isOpen) => toggleGroup(key, isOpen)}
-                      labelNode={
-                        <span
-                          className={cn(
-                            "rounded px-1.5 py-px text-[10px] font-bold uppercase tracking-wider",
-                            verdictMeta[verdictKey].chip,
-                          )}
-                        >
-                          {verdictMeta[verdictKey].label}
-                        </span>
-                      }
-                      count={list.length}
-                    >
-                      <ul className="space-y-0.5">
-                        {list.map((run) => (
-                          <li key={run.run_id}>
-                            <RunTapeRow
-                              run={run}
-                              selected={selectedRunId === run.run_id}
-                              onSelect={setSelectedRunId}
-                              hideVerdictChip
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </RunTapeGroup>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          </div>
-        </aside>
+        {showRunTapeSidebar ? (
+          <aside className="hidden self-start rounded-lg border border-border/70 bg-card/60 lg:sticky lg:top-3 lg:block">
+            {renderRunTapeContent()}
+          </aside>
+        ) : null}
 
         {/* Decision area */}
         <div className="flex min-w-0 flex-col gap-3">
