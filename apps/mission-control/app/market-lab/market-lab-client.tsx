@@ -564,6 +564,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const [feedSent, setFeedSent] = useState<"all" | "bull" | "bear" | "unlabeled">("all");
   const [codexExpanded, setCodexExpanded] = useState(false);
   const [codexReviewExpanded, setCodexReviewExpanded] = useState(true);
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [tapeOpen, setTapeOpen] = useState(false);
   const [expandedCheck, setExpandedCheck] = useState<string | null>(null);
   const codexRequestInFlightRef = useRef<string | null>(null);
@@ -1008,55 +1009,97 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const latestEvent = events.at(-1);
   const shownEvent = pinnedStep !== null ? events[pinnedStep] : latestEvent;
   const runComplete = String(latestEvent?.event ?? "") === "done";
+  const shownEventIndex = shownEvent ? events.indexOf(shownEvent) : -1;
   const timelinePanel = (
-    <Panel icon={Activity} eyebrow="Run path" title="Timeline" dense className="mt-3">
+    <Panel
+      icon={Activity}
+      eyebrow="Run path"
+      title="Timeline"
+      dense
+      className="mt-3"
+      action={
+        events.length ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setTimelineExpanded((value) => !value)}
+            aria-expanded={timelineExpanded}
+            className="h-7 gap-1 px-2 font-mono text-[10px] uppercase tracking-wider"
+          >
+            {timelineExpanded ? (
+              <>
+                Hide
+                <ChevronUp className="h-3 w-3" />
+              </>
+            ) : (
+              <>
+                Show
+                <ChevronDown className="h-3 w-3" />
+              </>
+            )}
+          </Button>
+        ) : null
+      }
+    >
       {events.length === 0 ? (
         <p className="text-xs text-muted-foreground">No events loaded.</p>
       ) : (
         <div className="space-y-2">
-          <ol className="-mx-1 flex max-w-full snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {events.map((event, index) => {
-              const isActive = index === events.length - 1;
-              const isPinned = pinnedStep === index;
-              const isDone = !isActive || runComplete;
-              const message = String(event.message ?? "");
-              const timeBits = event.timestamp
-                ? ` · ${formatRunTime(event.timestamp)} · ${getAge(event.timestamp)} ago`
-                : "";
-              const tooltip = `${formatEventTitle(event.event)}${message ? " — " + message : ""}${timeBits}`;
-              return (
-                <li key={`${String(event.event ?? "")}-${index}`} className="shrink-0 snap-start">
-                  <button
-                    type="button"
-                    ref={isActive ? activePillRef : null}
-                    aria-current={isActive ? "step" : undefined}
-                    title={tooltip}
-                    onClick={() => setPinnedStep(isPinned ? null : index)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                      isActive
-                        ? "border-foreground/40 bg-foreground/10 text-foreground"
-                        : isPinned
-                          ? "border-foreground/30 bg-muted/40 text-foreground"
-                          : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40",
-                    )}
-                  >
-                    <span
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-[11px]">
+            <span className="min-w-0 flex-1 truncate font-semibold">
+              Current: <span className="capitalize">{formatEventTitle(shownEvent?.event)}</span>
+            </span>
+            <span className="shrink-0 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Step {shownEventIndex + 1 || events.length} of {events.length}
+              {shownEvent?.timestamp ? ` · ${getAge(shownEvent.timestamp)} ago` : ""}
+            </span>
+          </div>
+          {timelineExpanded ? (
+            <ol className="-mx-1 flex max-w-full snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {events.map((event, index) => {
+                const isActive = index === events.length - 1;
+                const isPinned = pinnedStep === index;
+                const isDone = !isActive || runComplete;
+                const message = String(event.message ?? "");
+                const timeBits = event.timestamp
+                  ? ` · ${formatRunTime(event.timestamp)} · ${getAge(event.timestamp)} ago`
+                  : "";
+                const tooltip = `${formatEventTitle(event.event)}${message ? " — " + message : ""}${timeBits}`;
+                return (
+                  <li key={`${String(event.event ?? "")}-${index}`} className="shrink-0 snap-start">
+                    <button
+                      type="button"
+                      ref={isActive ? activePillRef : null}
+                      aria-current={isActive ? "step" : undefined}
+                      title={tooltip}
+                      onClick={() => setPinnedStep(isPinned ? null : index)}
                       className={cn(
-                        "inline-flex h-4 w-4 items-center justify-center rounded-full border text-[9px]",
+                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors",
                         isActive
-                          ? "border-foreground/50 bg-background text-foreground"
-                          : "border-border/60 bg-background/60 text-muted-foreground",
+                          ? "border-foreground/40 bg-foreground/10 text-foreground"
+                          : isPinned
+                            ? "border-foreground/30 bg-muted/40 text-foreground"
+                            : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40",
                       )}
                     >
-                      {isDone ? "✓" : index + 1}
-                    </span>
-                    <span className="capitalize">{formatEventTitle(event.event)}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                      <span
+                        className={cn(
+                          "inline-flex h-4 w-4 items-center justify-center rounded-full border text-[9px]",
+                          isActive
+                            ? "border-foreground/50 bg-background text-foreground"
+                            : "border-border/60 bg-background/60 text-muted-foreground",
+                        )}
+                      >
+                        {isDone ? "✓" : index + 1}
+                      </span>
+                      <span className="capitalize">{formatEventTitle(event.event)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : null}
           {shownEvent ? (
             <div className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-[11px]">
               <span className="shrink-0 font-semibold capitalize">{formatEventTitle(shownEvent.event)}</span>
@@ -1106,6 +1149,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                 ) : null}
               </span>
               <span className="text-sm font-bold uppercase tracking-wider">Forward-looking trust reviews</span>
+              {environmentOverview ? <EnvironmentStatusTabs overview={environmentOverview} /> : null}
             </div>
           </div>
           <div className="grid w-full grid-cols-3 gap-2 md:flex md:w-auto md:flex-wrap md:items-center">
@@ -1146,32 +1190,6 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
           </div>
         </div>
       </section>
-
-      {environmentOverview ? (
-        <section className="mt-3 grid gap-2 md:grid-cols-2">
-          {environmentOverview.environments.map((item) => (
-            <div key={item.environment} className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-xs">
-              <div className="min-w-0">
-                <div className="font-semibold uppercase tracking-wider">{item.environment}</div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  {item.url} · {item.runCount} runs{item.latestRunAt ? ` · latest ${getAge(item.latestRunAt)} ago` : ""}
-                </div>
-              </div>
-              <span
-                className={cn(
-                  "rounded border px-1.5 py-px text-[10px] font-bold uppercase tracking-wider",
-                  item.status === "healthy"
-                    ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                    : "border-red-400/60 bg-red-500/10 text-red-700 dark:text-red-300",
-                )}
-                title={item.message}
-              >
-                {item.status}
-              </span>
-            </div>
-          ))}
-        </section>
-      ) : null}
 
       {codexReviewNotice ? <CodexReviewNotice notice={codexReviewNotice} /> : null}
 
@@ -1894,6 +1912,35 @@ function CodexReviewNotice({ notice }: { notice: CodexReviewNoticeState }) {
           </a>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function EnvironmentStatusTabs({ overview }: { overview: EnvironmentOverview }) {
+  return (
+    <div className="-mx-0.5 mt-2 flex max-w-full gap-1 overflow-x-auto px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {overview.environments.map((item) => {
+        const active = item.environment === overview.current;
+        const healthy = item.status === "healthy";
+        return (
+          <span
+            key={item.environment}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider",
+              active ? "border-foreground/30 bg-background text-foreground shadow-sm" : "border-border/70 bg-muted/30 text-muted-foreground",
+            )}
+            title={`${item.url} · ${item.runCount} runs${item.latestRunAt ? ` · latest ${getAge(item.latestRunAt)} ago` : ""}${item.message ? ` · ${item.message}` : ""}`}
+          >
+            <span>{item.environment}</span>
+            <span className={cn("h-1.5 w-1.5 rounded-full", healthy ? "bg-emerald-500" : "bg-red-500")} />
+            <span className={healthy ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+              {item.status}
+            </span>
+            <span className="text-muted-foreground/70">· {item.runCount} runs</span>
+            {item.latestRunAt ? <span className="text-muted-foreground/70">· {getAge(item.latestRunAt)} ago</span> : null}
+          </span>
+        );
+      })}
     </div>
   );
 }

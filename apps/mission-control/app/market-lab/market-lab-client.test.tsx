@@ -147,9 +147,12 @@ describe("MarketLabClient", () => {
     await screen.findByText("Blocked because price data is stale.");
 
     expect(screen.getAllByText(/blocked/i).length).toBeGreaterThan(0);
-    // Timeline: active step pill carries aria-current="step" and the step's message renders in the caption beneath the strip.
-    expect(document.querySelector('[aria-current="step"]')).not.toBeNull();
+    // Timeline: compact by default, expandable when the operator needs the full run path.
     expect(screen.getByText("Run done")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /show/i }));
+    expect(document.querySelector('[aria-current="step"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /hide/i }));
+    expect(document.querySelector('[aria-current="step"]')).toBeNull();
     expect(screen.getAllByText("Yahoo news").length).toBeGreaterThan(0);
     // News & sentiment: Codex one-liner replaces the old "News analysis" column; summary still renders.
     expect(screen.getAllByText("News is not decisive.").length).toBeGreaterThan(0);
