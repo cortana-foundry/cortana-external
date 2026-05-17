@@ -162,13 +162,13 @@ describe("MarketLabClient", () => {
     expect(screen.queryByText("No bearish points.")).toBeNull();
     expect(screen.getByText("Codex review ready")).toBeInTheDocument();
     expect(screen.getByText("Codex says keep this blocked.")).toBeInTheDocument();
+    expect(screen.queryByText("Price action")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /expand codex review/i }));
     expect(screen.getByText("Price action")).toBeInTheDocument();
     expect(screen.getByText("Price evidence is stale, so the review is blocked before analyst debate.")).toBeInTheDocument();
     expect(screen.getAllByText("fresh_price").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /collapse codex review/i }));
     expect(screen.queryByText("Price action")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /expand codex review/i }));
-    expect(screen.getByText("Price action")).toBeInTheDocument();
     expect(screen.getByText("/tmp/review.json")).toBeInTheDocument();
     expect(screen.getByText("/tmp/codex-review-packet.md")).toBeInTheDocument();
   });
@@ -293,6 +293,9 @@ describe("MarketLabClient", () => {
     expect(await screen.findByText("Evidence gates passed. Codex second opinion has not been attached yet.")).toBeInTheDocument();
     expect(await screen.findByText("Codex review not attached")).toBeInTheDocument();
     expect(screen.getByText("AVAILABLE · LATEST CACHE")).toBeInTheDocument();
+    expect(screen.getByText(/AAPL owned/)).toBeInTheDocument();
+    expect(screen.queryByText("Using latest Schwab cache because this run saved an unavailable portfolio snapshot.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /expand schwab portfolio/i }));
     expect(screen.getByText("owned")).toBeInTheDocument();
     expect(screen.getByText("Using latest Schwab cache because this run saved an unavailable portfolio snapshot.")).toBeInTheDocument();
     expect(screen.queryByText("Market Lab trusts this review for future alert consideration.")).toBeNull();

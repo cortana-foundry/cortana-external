@@ -563,7 +563,8 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const [feedSrc, setFeedSrc] = useState<string>("all");
   const [feedSent, setFeedSent] = useState<"all" | "bull" | "bear" | "unlabeled">("all");
   const [codexExpanded, setCodexExpanded] = useState(false);
-  const [codexReviewExpanded, setCodexReviewExpanded] = useState(true);
+  const [codexReviewExpanded, setCodexReviewExpanded] = useState(false);
+  const [portfolioExpanded, setPortfolioExpanded] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [tapeOpen, setTapeOpen] = useState(false);
   const [expandedCheck, setExpandedCheck] = useState<string | null>(null);
@@ -1733,55 +1734,13 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               </Panel>
             </div>
 
-            <Panel icon={ShieldQuestion} eyebrow="Portfolio" title="Schwab portfolio" dense>
-              {portfolioContext ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={cn(
-                        "rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider",
-                        portfolioContext.status?.toLowerCase() === "available"
-                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : "border-amber-400/60 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-                      )}
-                    >
-                      {String(portfolioContext.status ?? "").toUpperCase() || "UNKNOWN"}
-                      {usingPortfolioFallback ? " · LATEST CACHE" : ""}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={refreshPortfolio}
-                      disabled={loading}
-                      title="Refresh Schwab"
-                      aria-label="Refresh Schwab"
-                      className="h-7 w-7"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Metric label={selectedSymbol} value={selectedPosition ? "owned" : "not owned"} />
-                    <Metric label="Quantity" value={asShares(selectedPosition?.quantity)} />
-                    <Metric label="Current" value={asMoney(selectedPosition?.current_price ?? undefined)} />
-                    <Metric label="Today" value={`${asSignedMoney(selectedPosition?.day_change)} · ${asSignedPercent(selectedPosition?.day_change_pct)}`} />
-                    <Metric label="Vs run" value={asSignedPercent(currentVsRun)} />
-                    <Metric label="Vs avg" value={asSignedPercent(currentVsAverage)} />
-                  </div>
-                  {[...(portfolioContext.exposure_notes ?? []), ...(portfolioContext.overlap_notes ?? [])].slice(0, 3).map((note) => (
-                    <p key={note} className="font-sans text-xs text-muted-foreground">{note}</p>
-                  ))}
-                  {usingPortfolioFallback ? (
-                    <p className="font-sans text-xs text-muted-foreground">
-                      Using latest Schwab cache because this run saved an unavailable portfolio snapshot.
-                    </p>
-                  ) : portfolioContext.message ? (
-                    <p className="font-sans text-xs text-muted-foreground">{portfolioContext.message}</p>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">No portfolio context attached.</p>
+            <Panel
+              icon={ShieldQuestion}
+              eyebrow="Portfolio"
+              title="Schwab portfolio"
+              dense
+              action={
+                <div className="flex items-center gap-1">
                   <Button
                     variant="outline"
                     size="icon"
@@ -1793,7 +1752,77 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
+                  {portfolioContext ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPortfolioExpanded((value) => !value)}
+                      aria-expanded={portfolioExpanded}
+                      aria-label={portfolioExpanded ? "Collapse Schwab portfolio" : "Expand Schwab portfolio"}
+                      className="h-7 gap-1 px-2 text-[10px] uppercase tracking-wider"
+                    >
+                      {portfolioExpanded ? (
+                        <>
+                          Collapse
+                          <ChevronUp className="h-3 w-3" />
+                        </>
+                      ) : (
+                        <>
+                          Expand
+                          <ChevronDown className="h-3 w-3" />
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
                 </div>
+              }
+            >
+              {portfolioContext ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider",
+                        portfolioContext.status?.toLowerCase() === "available"
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "border-amber-400/60 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                      )}
+                    >
+                      {String(portfolioContext.status ?? "").toUpperCase() || "UNKNOWN"}
+                      {usingPortfolioFallback ? " · LATEST CACHE" : ""}
+                    </span>
+                    <span className="min-w-0 break-words font-sans text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      {selectedPosition
+                        ? `${selectedSymbol} owned · ${asShares(selectedPosition.quantity)} shares · ${asMoney(selectedPosition.current_price ?? undefined)} current`
+                        : `${selectedSymbol} not owned`}
+                    </span>
+                  </div>
+                  {portfolioExpanded ? (
+                    <>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Metric label={selectedSymbol} value={selectedPosition ? "owned" : "not owned"} />
+                        <Metric label="Quantity" value={asShares(selectedPosition?.quantity)} />
+                        <Metric label="Current" value={asMoney(selectedPosition?.current_price ?? undefined)} />
+                        <Metric label="Today" value={`${asSignedMoney(selectedPosition?.day_change)} · ${asSignedPercent(selectedPosition?.day_change_pct)}`} />
+                        <Metric label="Vs run" value={asSignedPercent(currentVsRun)} />
+                        <Metric label="Vs avg" value={asSignedPercent(currentVsAverage)} />
+                      </div>
+                      {[...(portfolioContext.exposure_notes ?? []), ...(portfolioContext.overlap_notes ?? [])].slice(0, 3).map((note) => (
+                        <p key={note} className="break-words font-sans text-xs text-muted-foreground [overflow-wrap:anywhere]">{note}</p>
+                      ))}
+                      {usingPortfolioFallback ? (
+                        <p className="break-words font-sans text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                          Using latest Schwab cache because this run saved an unavailable portfolio snapshot.
+                        </p>
+                      ) : portfolioContext.message ? (
+                        <p className="break-words font-sans text-xs text-muted-foreground [overflow-wrap:anywhere]">{portfolioContext.message}</p>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No portfolio context attached.</p>
               )}
             </Panel>
           </section>
