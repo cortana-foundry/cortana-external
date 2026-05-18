@@ -29,11 +29,11 @@ This table connects each PRD requirement to the technical contract and the imple
 | PRD-R1 | Clean noisy news/social evidence before analysis. | `SourceItem`, `SourceQualitySnapshot`, Source Quality Module | V1 - Source Quality |
 | PRD-R2 | Keep every source auditable with links and timestamps. | `SourceItem.url`, `published_at`, `fetched_at`, `source_status`, relevance fields | V1 - Source Quality, V6 - Mission Control |
 | PRD-R3 | Explain why source evidence matters. | `SourceQualitySnapshot.why_this_matters`, `cautions`, relevance scoring | V1 - Source Quality, V6 - Mission Control |
-| PRD-R4 | Add real fundamentals without inventing missing data. | `FundamentalsSnapshot`, Fundamentals Module, unavailable-field tracking | V3 - Fundamentals, V6 - Mission Control |
-| PRD-R5 | Add deterministic momentum versus SPY before Codex review. | `MomentumWindow`, `MomentumSnapshot`, Momentum Module | V2 - Momentum, V6 - Mission Control |
+| PRD-R4 | Show verified fundamentals, or clearly explain which fields are missing. | `FundamentalsSnapshot`, Fundamentals Module, unavailable-field tracking | V3 - Fundamentals, V6 - Mission Control |
+| PRD-R5 | Compute stock-vs-SPY momentum before Codex review. | `MomentumWindow`, `MomentumSnapshot`, Momentum Module | V2 - Momentum, V6 - Mission Control |
 | PRD-R6 | Make Codex output role-specific analysis. | `AnalystRoleOutput`, Role Flow | V4 - Compact Codex Roles, V6 - Mission Control |
 | PRD-R7 | Keep Codex packets compact and auditable. | Compact Codex Packet, packet caps, role instructions, output schema | V4 - Compact Codex Roles |
-| PRD-R8 | Learn from settled outcomes without overreacting early. | `OutcomeMemorySummary`, sample threshold, Settlement Learning | V5 - Settlement Learning |
+| PRD-R8 | Build outcome memory without letting tiny sample sizes drive decisions. | `OutcomeMemorySummary`, sample threshold, Settlement Learning | V5 - Settlement Learning |
 | PRD-R9 | Show the new evidence without cluttering Mission Control. | Mission Control rendering for source quality, fundamentals, momentum, roles, memory | V6 - Mission Control |
 
 ## Vertical Build Order
@@ -47,6 +47,49 @@ This table connects each PRD requirement to the technical contract and the imple
 | V5 - Settlement Learning | Existing settlement records and role verdicts | Outcome memory summary | Future reviews can see whether prior evidence-ready calls worked. |
 | V6 - Mission Control | V1-V5 artifacts | Operator-facing UI panels | UI should render the finished evidence contracts, not invent logic. |
 | V7 - QA | All V7 artifacts and UI flows | Verified fixture and live paths | Final validation checks the full chain. |
+
+## Storage Layout
+
+Market Lab uses a local cache root plus a SQLite run index.
+
+- Default cache root: `<repo>/.cache/market_lab`
+- Override: `MARKET_LAB_CACHE_DIR`
+- Run index database: `<cache-root>/market_lab.sqlite`
+- Per-run artifacts: `<cache-root>/runs/<run_id>/`
+
+Prod/dev separation should happen by giving each Mission Control environment a different `MARKET_LAB_CACHE_DIR`:
+
+```text
+<repo>/.cache/market_lab/prod
+<repo>/.cache/market_lab/dev
+<repo>/.cache/market_lab/ci
+```
+
+In that setup, a prod run lives at:
+
+```text
+<repo>/.cache/market_lab/prod/runs/<run_id>/
+```
+
+V7 artifacts should live with the run whenever they are specific to that run:
+
+| Artifact | Producer | Consumer |
+|----------|----------|----------|
+| `source-quality.json` | Source Quality Module | News analyst, Mission Control |
+| `fundamentals.json` | Fundamentals Module | Fundamentals analyst, Mission Control |
+| `momentum.json` | Momentum Module | Price analyst, Mission Control |
+| `outcome-memory.json` | Settlement Learning | Final judge, Mission Control |
+| `codex-review-packet.md` | Compact Codex Packet | Codex session |
+| `codex-review.md` | Codex attach flow | Mission Control |
+| `review.json` | Market Lab run orchestrator | Mission Control/API |
+
+Reusable caches can stay outside a single run:
+
+- Sentiment/source cache: `<cache-root>/sentiment/<symbol>/<source>/`
+- Opportunity board cache: `<cache-root>/opportunities/<board_id>/opportunities.json`
+- Evidence snapshots: `<cache-root>/evidence/<symbol>/<timestamp>.json`
+- Schwab portfolio cache: `<cache-root>/portfolio/schwab-portfolio-latest.json`
+- Raw Schwab payloads: `<cache-root>/portfolio/raw/`
 
 ## New Models
 
@@ -103,6 +146,8 @@ class AnalystRoleOutput(Model):
     missing_evidence: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
 ```
+
+`FundamentalsSnapshot` is a structured company fact sheet, not a verdict. It gives the Fundamentals analyst verified context about valuation, earnings, growth, margins, and analyst data. Missing or unreliable metrics go into `unavailable_fields`; the system should never infer or fabricate them.
 
 ## Source Quality Module
 

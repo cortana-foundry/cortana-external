@@ -28,6 +28,17 @@ The goal is to move from "this artifact is evidence-ready" toward "this review e
 - Let settlement data accumulate into outcome memory and calibration.
 - Keep Codex packets compact and avoid dumping full artifacts.
 
+## How The Goals Map To The Build
+
+The wording above is intentionally high level. This is how it becomes concrete:
+
+- **Better source quality** maps to PRD-R1, PRD-R2, and PRD-R3. V1 adds cleaner Yahoo/StockTwits/Reddit evidence, then V6 renders that evidence in Mission Control.
+- **Real fundamentals** maps to PRD-R4. V3 adds a `FundamentalsSnapshot`, then V6 shows it. This is not a buy/sell decision. It is a company fact sheet that tells the analyst whether valuation, earnings, growth, margins, and analyst context are available and usable.
+- **Momentum versus SPY** maps to PRD-R5. V2 computes deterministic 1D, 5D, 20D, and 3M performance before Codex reviews the run, so Codex is not guessing whether the symbol is outperforming the market.
+- **Analyst-style Codex review** maps to PRD-R6 and PRD-R7. V4 turns the packet into compact role sections: price, news, fundamentals, risk, and final judge.
+- **Learning from outcomes** maps to PRD-R8. V5 uses settled 1D, 5D, and 20D outcomes to build memory, but only changes confidence once enough samples exist.
+- **Readable cockpit** maps to PRD-R9. V6 decides how the new evidence appears in Mission Control without overwhelming the Market Lab tab.
+
 ## Non-Goals
 
 - Autonomous trading.
@@ -46,11 +57,11 @@ Use the requirement IDs below to trace this PRD into the Tech Spec and Implement
 | PRD-R1 | Source Quality | Filter noisy StockTwits and low-signal Reddit/Yahoo results before analysis. |
 | PRD-R2 | Source Attribution | Show source name, URL, title, timestamp, and relevance for each item. |
 | PRD-R3 | News Summary | Summarize news into "why this matters" and separate catalysts from noise. |
-| PRD-R4 | Fundamentals Snapshot | Capture valuation, earnings date, revenue/earnings trend, margins, and analyst estimates when available. |
-| PRD-R5 | Momentum Snapshot | Compute 1D, 5D, 20D, and 3M returns for symbol and SPY before Codex review. |
+| PRD-R4 | Fundamentals Snapshot | Show verified fundamentals, or clearly explain which fundamental fields are missing. |
+| PRD-R5 | Momentum Snapshot | Compute stock-vs-SPY momentum before Codex reviews the run. |
 | PRD-R6 | Role Outputs | Persist role-specific analysis for price, news, fundamentals, risk, and final judge. |
 | PRD-R7 | Compact Codex Packet | Send Codex only decision evidence, not the full raw review or portfolio payload. |
-| PRD-R8 | Settlement Learning | Use settled 1D/5D/20D outcomes to measure whether evidence-ready reviews beat SPY. |
+| PRD-R8 | Settlement Learning | Use settled review outcomes to build memory, but do not let small sample sizes drive decisions. |
 | PRD-R9 | UI Clarity | Make news, fundamentals, momentum, and role outputs visible without overwhelming the cockpit. |
 
 ## Requirement Traceability
@@ -97,6 +108,15 @@ Reddit queries should improve from generic finance subreddit scanning to symbol/
 ## Fundamentals
 
 Fundamentals should be free-source-first and provider-isolated. If a field cannot be fetched reliably, the artifact should mark it unavailable instead of inventing it.
+
+A `FundamentalsSnapshot` is the company fact sheet for a Market Lab run. It answers:
+
+- Is the company expensive or cheap by basic valuation measures?
+- When are earnings, and what did the last earnings data say?
+- Are revenue, earnings, and margins improving or weakening?
+- Is there analyst context available, such as consensus rating or target trend?
+
+The snapshot does **not** decide "buy" or "no buy" by itself. It gives the Fundamentals analyst and final judge verified company context. If Market Lab cannot fetch a value from a free/reliable source, it records that field in `unavailable_fields` instead of guessing.
 
 Target fields:
 
@@ -162,6 +182,49 @@ V7 should keep accumulating:
 - whether the review was evidence-ready
 
 Outcome memory should not overreact to tiny sample sizes. The UI can show early data, but scoring should require a minimum sample threshold before it changes confidence.
+
+## Runtime Data Locations
+
+Market Lab data is local and file-backed first, with SQLite as the run index.
+
+- Default cache root: `<repo>/.cache/market_lab`
+- Override: `MARKET_LAB_CACHE_DIR`
+- Run index database: `<cache-root>/market_lab.sqlite`
+- Per-run artifacts: `<cache-root>/runs/<run_id>/`
+
+When Mission Control is running separate prod/dev environments, each environment should use its own cache root through `MARKET_LAB_CACHE_DIR`, for example:
+
+- Prod: `<repo>/.cache/market_lab/prod`
+- Dev: `<repo>/.cache/market_lab/dev`
+- CI/test: `<repo>/.cache/market_lab/ci`
+
+That means an environment-specific run usually lives at:
+
+```text
+<repo>/.cache/market_lab/<env>/runs/<run_id>/
+```
+
+V7 should keep new evidence artifacts in the run folder so a single run is easy to inspect:
+
+| Artifact | Purpose |
+|----------|---------|
+| `review.json` | Main Market Lab review artifact. |
+| `events.jsonl` | Timeline/run path events. |
+| `logs.txt` | Run logs and errors. |
+| `codex-review-packet.md` | Compact packet sent to Codex. |
+| `codex-review.md` | Attached Codex second opinion. |
+| `source-quality.json` | Filtered news/sentiment evidence and source status. |
+| `fundamentals.json` | `FundamentalsSnapshot` for the symbol. |
+| `momentum.json` | Symbol-vs-SPY momentum windows. |
+| `outcome-memory.json` | Prior settlement summary for the symbol. |
+
+Shared/generated caches can live outside a run when they are reused:
+
+- Sentiment/source cache: `<cache-root>/sentiment/<symbol>/<source>/`
+- Opportunity boards: `<cache-root>/opportunities/<board_id>/opportunities.json`
+- Evidence snapshots: `<cache-root>/evidence/<symbol>/<timestamp>.json`
+- Read-only Schwab portfolio cache: `<cache-root>/portfolio/schwab-portfolio-latest.json`
+- Raw Schwab portfolio payloads: `<cache-root>/portfolio/raw/`
 
 ## Success Criteria
 
