@@ -126,6 +126,9 @@ export type MarketLabReview = {
     omitted_sections?: string[];
   } | null;
   sentiment_snapshot?: Record<string, unknown> | null;
+  source_quality_snapshot?: Record<string, unknown> | null;
+  momentum_snapshot?: Record<string, unknown> | null;
+  fundamentals_snapshot?: Record<string, unknown> | null;
   portfolio_context?: MarketLabPortfolioContext | null;
   artifact_paths?: {
     review?: string;
@@ -137,6 +140,9 @@ export type MarketLabReview = {
     evidence_snapshot?: string | null;
     outcome_memory?: string | null;
     portfolio_context?: string | null;
+    source_quality?: string | null;
+    momentum?: string | null;
+    fundamentals?: string | null;
   };
   settlements?: Array<Record<string, unknown>>;
   checks?: Array<{ code?: string; severity?: string; message?: string }>;
@@ -403,7 +409,10 @@ export type MarketLabArtifactKind =
   | "codex_review"
   | "evidence_snapshot"
   | "outcome_memory"
-  | "portfolio_context";
+  | "portfolio_context"
+  | "source_quality"
+  | "momentum"
+  | "fundamentals";
 
 const ARTIFACT_KINDS: readonly MarketLabArtifactKind[] = [
   "review",
@@ -415,6 +424,9 @@ const ARTIFACT_KINDS: readonly MarketLabArtifactKind[] = [
   "evidence_snapshot",
   "outcome_memory",
   "portfolio_context",
+  "source_quality",
+  "momentum",
+  "fundamentals",
 ];
 
 export const isValidArtifactKind = (kind: string): kind is MarketLabArtifactKind =>

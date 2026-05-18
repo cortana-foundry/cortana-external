@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from .models import CheckResult, EvidenceSnapshot, OptionalEvidence, PriceFacts, SentimentSnapshot
+from .models import (
+    CheckResult,
+    EvidenceSnapshot,
+    FundamentalsSnapshot,
+    MomentumSnapshot,
+    OptionalEvidence,
+    PriceFacts,
+    SentimentSnapshot,
+    SourceQualitySnapshot,
+)
 
 
 def _fact_summary(facts: PriceFacts | None) -> dict[str, Any]:
@@ -36,6 +45,46 @@ def _missing_context(optional: OptionalEvidence, sentiment: SentimentSnapshot | 
     return missing
 
 
+def _source_quality_summary(source_quality: SourceQualitySnapshot | None) -> dict[str, Any] | None:
+    if source_quality is None:
+        return None
+    return {
+        "status": source_quality.status,
+        "source_status": source_quality.source_status,
+        "items_count": len(source_quality.items),
+        "why_this_matters": source_quality.why_this_matters,
+        "catalysts": source_quality.catalysts,
+        "cautions": source_quality.cautions,
+        "missing_sources": source_quality.missing_sources,
+    }
+
+
+def _momentum_summary(momentum: MomentumSnapshot | None) -> dict[str, Any] | None:
+    if momentum is None:
+        return None
+    return {
+        "status": momentum.status,
+        "summary": momentum.summary,
+        "windows": [item.model_dump(mode="json") for item in momentum.windows],
+        "unavailable_windows": momentum.unavailable_windows,
+    }
+
+
+def _fundamentals_summary(fundamentals: FundamentalsSnapshot | None) -> dict[str, Any] | None:
+    if fundamentals is None:
+        return None
+    return {
+        "status": fundamentals.status,
+        "valuation": fundamentals.valuation,
+        "earnings": fundamentals.earnings,
+        "trends": fundamentals.trends,
+        "quality": fundamentals.quality,
+        "analyst_context": fundamentals.analyst_context,
+        "unavailable_fields": fundamentals.unavailable_fields,
+        "notes": fundamentals.notes,
+    }
+
+
 def build_evidence_snapshot(
     *,
     symbol: str,
@@ -44,6 +93,9 @@ def build_evidence_snapshot(
     checks: list[CheckResult],
     optional_evidence: OptionalEvidence,
     sentiment_snapshot: SentimentSnapshot | None = None,
+    source_quality_snapshot: SourceQualitySnapshot | None = None,
+    momentum_snapshot: MomentumSnapshot | None = None,
+    fundamentals_snapshot: FundamentalsSnapshot | None = None,
 ) -> EvidenceSnapshot:
     blockers = [item.code for item in checks if item.severity == "blocker"]
     warnings = [item.code for item in checks if item.severity == "warning"]
@@ -66,9 +118,10 @@ def build_evidence_snapshot(
         generated_at=datetime.now(UTC),
         price_summary=_fact_summary(price_facts),
         benchmark_summary=_fact_summary(spy_facts),
-        momentum_summary={"status": "missing", "reason": "momentum adapter is deterministic but not yet enriched"},
-        fundamentals_summary={"status": optional_evidence.fundamentals_status},
-        news_summary=news_summary or {"status": optional_evidence.news_status},
+        momentum_summary=_momentum_summary(momentum_snapshot)
+        or {"status": "missing", "reason": "momentum adapter did not produce a usable snapshot"},
+        fundamentals_summary=_fundamentals_summary(fundamentals_snapshot) or {"status": optional_evidence.fundamentals_status},
+        news_summary=news_summary or _source_quality_summary(source_quality_snapshot) or {"status": optional_evidence.news_status},
         sentiment_summary=sentiment_summary or {"status": optional_evidence.sentiment_status},
         risk_flags=blockers + warnings,
         missing_context=_missing_context(optional_evidence, sentiment_snapshot),

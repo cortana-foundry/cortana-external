@@ -1,6 +1,6 @@
 # Technical Specification - Market Lab V7 Research Depth And Learning
 
-**Document Status:** Proposed
+**Document Status:** Implemented
 **PRD:** [v7-research-depth-and-learning.md](../PRDs/v7-research-depth-and-learning.md)
 
 ## Development Overview
@@ -169,7 +169,7 @@ class AnalystRoleOutput(Model):
 Files:
 
 - `market_lab/market_lab/source_quality.py`
-- `market_lab/market_lab/sentiment.py`
+- `market_lab/market_lab/sentiment_sources.py`
 - `market_lab/tests/test_source_quality.py`
 
 Responsibilities:
@@ -222,9 +222,9 @@ relative_return_pct = symbol_return_pct - spy_return_pct
 
 Files:
 
-- `market_lab/market_lab/codex_packet.py`
 - `market_lab/market_lab/codex_review.py`
-- `market_lab/tests/test_codex_packet.py`
+- `market_lab/market_lab/token_budget.py`
+- `market_lab/tests/test_codex_review.py`
 
 Packet sections:
 
@@ -266,8 +266,9 @@ The important change is not necessarily multiple Codex calls. The important chan
 Files:
 
 - `market_lab/market_lab/settlement.py`
-- `market_lab/market_lab/outcome_memory.py`
-- `market_lab/tests/test_outcome_memory.py`
+- `market_lab/market_lab/memory.py`
+- `market_lab/tests/test_memory.py`
+- `market_lab/tests/test_settlement.py`
 
 Add aggregate memory:
 

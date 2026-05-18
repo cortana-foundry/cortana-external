@@ -294,6 +294,62 @@ def _compact_sentiment(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _compact_source_quality(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    items = []
+    for item in (payload.get("items", []) or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "source": item.get("source"),
+                "title": item.get("title"),
+                "url": item.get("url"),
+                "published_at": item.get("published_at"),
+                "fetched_at": item.get("fetched_at"),
+                "relevance_score": item.get("relevance_score"),
+                "sentiment_label": item.get("sentiment_label"),
+                "quality_flags": item.get("quality_flags", []),
+            }
+        )
+    return {
+        "status": payload.get("status"),
+        "source_status": payload.get("source_status", {}),
+        "why_this_matters": payload.get("why_this_matters", [])[:5],
+        "catalysts": payload.get("catalysts", [])[:5],
+        "cautions": payload.get("cautions", [])[:5],
+        "items": items,
+        "missing_sources": payload.get("missing_sources", []),
+    }
+
+
+def _compact_momentum(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    return {
+        "status": payload.get("status"),
+        "summary": payload.get("summary"),
+        "windows": payload.get("windows", []),
+        "unavailable_windows": payload.get("unavailable_windows", []),
+    }
+
+
+def _compact_fundamentals(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    return {
+        "status": payload.get("status"),
+        "valuation": payload.get("valuation", {}),
+        "earnings": payload.get("earnings", {}),
+        "trends": payload.get("trends", {}),
+        "quality": payload.get("quality", {}),
+        "analyst_context": payload.get("analyst_context", {}),
+        "unavailable_fields": payload.get("unavailable_fields", [])[:12],
+        "notes": payload.get("notes", []),
+    }
+
+
 def _compact_portfolio(payload: dict[str, Any] | None, *, symbol: str) -> dict[str, Any] | None:
     if not payload:
         return None
@@ -335,6 +391,11 @@ def _context_sections(artifact: ReviewArtifact, mode: Literal["quick", "deep"]) 
     evidence = artifact.evidence_snapshot.model_dump(mode="json") if artifact.evidence_snapshot else None
     outcome_memory = artifact.outcome_memory.model_dump(mode="json") if artifact.outcome_memory else None
     sentiment = artifact.sentiment_snapshot.model_dump(mode="json") if artifact.sentiment_snapshot else None
+    source_quality = (
+        artifact.source_quality_snapshot.model_dump(mode="json") if artifact.source_quality_snapshot else None
+    )
+    momentum = artifact.momentum_snapshot.model_dump(mode="json") if artifact.momentum_snapshot else None
+    fundamentals = artifact.fundamentals_snapshot.model_dump(mode="json") if artifact.fundamentals_snapshot else None
     portfolio = artifact.portfolio_context.model_dump(mode="json") if artifact.portfolio_context else None
     if mode == "deep":
         return f"""### Evidence Snapshot
@@ -355,6 +416,24 @@ def _context_sections(artifact: ReviewArtifact, mode: Literal["quick", "deep"]) 
 {_json_for_packet(_compact_sentiment(sentiment))}
 ```
 
+### Source Quality
+
+```json
+{_json_for_packet(_compact_source_quality(source_quality))}
+```
+
+### Momentum Versus SPY
+
+```json
+{_json_for_packet(_compact_momentum(momentum))}
+```
+
+### Fundamentals
+
+```json
+{_json_for_packet(_compact_fundamentals(fundamentals))}
+```
+
 ### Redacted Portfolio Context
 
 ```json
@@ -371,6 +450,24 @@ def _context_sections(artifact: ReviewArtifact, mode: Literal["quick", "deep"]) 
 
 ```json
 {_json_for_packet(_compact_sentiment(sentiment))}
+```
+
+### Source Quality Summary
+
+```json
+{_json_for_packet(_compact_source_quality(source_quality))}
+```
+
+### Momentum Versus SPY
+
+```json
+{_json_for_packet(_compact_momentum(momentum))}
+```
+
+### Fundamentals Summary
+
+```json
+{_json_for_packet(_compact_fundamentals(fundamentals))}
 ```
 
 ### Outcome Memory Summary

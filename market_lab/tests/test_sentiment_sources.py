@@ -74,3 +74,20 @@ def test_stocktwits_non_json_response_is_operator_readable(tmp_path):
     assert result.status == "error"
     assert result.error_message
     assert "non-JSON response" in result.error_message
+
+
+def test_reddit_query_includes_known_company_name(tmp_path):
+    captured_url = ""
+
+    def fake_get(url, *args, **kwargs):
+        nonlocal captured_url
+        captured_url = url
+        return FakeResponse(200, text="<rss><channel><item><title>Apple earnings discussion</title></item></channel></rss>")
+
+    client = SentimentSourceClient(cache_dir=tmp_path, request_get=fake_get)
+
+    result = client.fetch_reddit("AAPL")
+
+    assert result.status == "available"
+    assert "Apple" in captured_url
+    assert "AAPL" in captured_url

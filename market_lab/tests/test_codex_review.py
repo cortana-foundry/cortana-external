@@ -21,6 +21,11 @@ from market_lab.models import (
     TrustVerdict,
     SentimentSnapshot,
     SentimentSourceResult,
+    SourceItem,
+    SourceQualitySnapshot,
+    MomentumSnapshot,
+    MomentumWindow,
+    FundamentalsSnapshot,
 )
 
 
@@ -197,3 +202,58 @@ def test_quick_codex_packet_includes_compact_sentiment_sources():
     assert "yahoo_finance_news" in packet
     assert "Recent AAPL headlines are available." in packet
     assert "yahoo_finance_rss" in packet
+
+
+def test_quick_codex_packet_includes_v7_research_snapshots():
+    now = datetime.now(UTC)
+    artifact = make_artifact().model_copy(
+        update={
+            "source_quality_snapshot": SourceQualitySnapshot(
+                status="available",
+                generated_at=now,
+                symbol="AAPL",
+                items=[
+                    SourceItem(
+                        source="yahoo_finance_news",
+                        title="AAPL earnings guidance improves",
+                        url="https://example.test/aapl",
+                        fetched_at=now,
+                        relevance_score=1.0,
+                        match_reason="mentions symbol",
+                    )
+                ],
+                why_this_matters=["Yahoo: AAPL earnings guidance improves"],
+            ),
+            "momentum_snapshot": MomentumSnapshot(
+                status="available",
+                generated_at=now,
+                symbol="AAPL",
+                windows=[
+                    MomentumWindow(
+                        window="5d",
+                        status="available",
+                        symbol_return_pct=4.0,
+                        spy_return_pct=1.0,
+                        alpha_vs_spy_pct=3.0,
+                    )
+                ],
+            ),
+            "fundamentals_snapshot": FundamentalsSnapshot(
+                status="partial",
+                generated_at=now,
+                symbol="AAPL",
+                source="fixture",
+                valuation={"trailing_pe": 25},
+                unavailable_fields=["earnings.next_earnings_date"],
+            ),
+        }
+    )
+
+    packet = build_codex_packet(artifact)
+
+    assert "Source Quality Summary" in packet
+    assert "Momentum Versus SPY" in packet
+    assert "Fundamentals Summary" in packet
+    assert "AAPL earnings guidance improves" in packet
+    assert '"alpha_vs_spy_pct": 3.0' in packet
+    assert '"trailing_pe": 25' in packet

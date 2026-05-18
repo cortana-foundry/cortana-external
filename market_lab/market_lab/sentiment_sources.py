@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote_plus
 
 import requests
 
@@ -14,6 +15,18 @@ from .models import SentimentSnapshot, SentimentSourceResult
 from .storage import default_cache_dir
 
 SOURCES = ("yahoo_finance_news", "stocktwits", "reddit")
+COMPANY_NAME_BY_SYMBOL = {
+    "AAPL": "Apple",
+    "AMD": "Advanced Micro Devices",
+    "DIS": "Disney",
+    "GOOG": "Google",
+    "GOOGL": "Google",
+    "LMND": "Lemonade",
+    "META": "Meta",
+    "MSFT": "Microsoft",
+    "NVDA": "Nvidia",
+    "TSLA": "Tesla",
+}
 
 
 def _utc_now() -> datetime:
@@ -162,10 +175,10 @@ class SentimentSourceClient:
             return self._result("stocktwits", "error", "stocktwits_public_stream", url, error=str(exc))
 
     def fetch_reddit(self, symbol: str) -> SentimentSourceResult:
-        query = f"{symbol} stock"
+        query = _reddit_query(symbol)
         url = (
             "https://www.reddit.com/r/stocks/search.rss?"
-            f"q={query.replace(' ', '+')}&restrict_sr=1&sort=new&t=week"
+            f"q={quote_plus(query)}&restrict_sr=1&sort=new&t=week"
         )
         return self._fetch_rss(symbol, "reddit", url, "reddit_rss_search")
 
@@ -256,3 +269,11 @@ class SentimentSourceClient:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return path
+
+
+def _reddit_query(symbol: str) -> str:
+    normalized = _safe_symbol(symbol)
+    company = COMPANY_NAME_BY_SYMBOL.get(normalized)
+    if company:
+        return f'{normalized} OR "{company}" stock earnings'
+    return f"{normalized} stock earnings"

@@ -1,6 +1,6 @@
 # Implementation Plan - Market Lab V7 Research Depth And Learning
 
-**Document Status:** Proposed
+**Document Status:** Implemented
 **PRD:** [v7-research-depth-and-learning.md](../PRDs/v7-research-depth-and-learning.md)
 **Tech Spec:** [v7-research-depth-and-learning.md](../TechSpecs/v7-research-depth-and-learning.md)
 
@@ -30,6 +30,18 @@ PRD-R5 Momentum Snapshot
 | V6 - Mission Control | PRD-R2, PRD-R3, PRD-R4, PRD-R5, PRD-R6, PRD-R8, PRD-R9 | Mission Control rendering for V1-V5 artifacts | V1-V5 | Research depth is understandable in the UI. |
 | V7 - QA | PRD-R1 through PRD-R9 | Full fixture/live validation path | All | Live and fixture paths are verified. |
 
+## Implementation Status
+
+| Vertical | Status | Primary Verification |
+|----------|--------|----------------------|
+| V1 - Source Quality | Implemented | `market_lab/tests/test_source_quality.py`, `market_lab/tests/test_sentiment_sources.py` |
+| V2 - Momentum | Implemented | `market_lab/tests/test_momentum.py` |
+| V3 - Fundamentals | Implemented | `market_lab/tests/test_fundamentals.py` |
+| V4 - Compact Codex Roles | Implemented | `market_lab/tests/test_codex_review.py` |
+| V5 - Settlement Learning | Implemented via existing memory/settlement path | `market_lab/tests/test_memory.py`, `market_lab/tests/test_settlement.py` |
+| V6 - Mission Control | Implemented | `apps/mission-control/app/market-lab/market-lab-client.test.tsx` |
+| V7 - QA | In progress during PR validation | Python tests plus Mission Control targeted tests/build |
+
 ## Verticals
 
 ### V1 - Source Quality
@@ -37,9 +49,10 @@ PRD-R5 Momentum Snapshot
 Files:
 
 - `market_lab/market_lab/source_quality.py`
-- `market_lab/market_lab/sentiment.py`
+- `market_lab/market_lab/sentiment_sources.py`
 - `market_lab/market_lab/models.py`
 - `market_lab/tests/test_source_quality.py`
+- `market_lab/tests/test_sentiment_sources.py`
 
 Tasks:
 
@@ -75,8 +88,7 @@ Files:
 
 Tasks:
 
-- Add provider adapter interface.
-- Confirm provider source before implementation.
+- Use the existing market-data fundamentals endpoint through `MarketDataClient`.
 - Capture valuation, earnings, growth, margins, and analyst context when available.
 - Mark unavailable fields explicitly.
 - Add fundamentals snapshot to review artifacts before Codex.
@@ -85,10 +97,10 @@ Tasks:
 
 Files:
 
-- `market_lab/market_lab/codex_packet.py`
 - `market_lab/market_lab/codex_review.py`
+- `market_lab/market_lab/token_budget.py`
 - `market_lab/market_lab/models.py`
-- `market_lab/tests/test_codex_packet.py`
+- `market_lab/tests/test_codex_review.py`
 
 Tasks:
 
@@ -103,8 +115,9 @@ Tasks:
 Files:
 
 - `market_lab/market_lab/settlement.py`
-- `market_lab/market_lab/outcome_memory.py`
-- `market_lab/tests/test_outcome_memory.py`
+- `market_lab/market_lab/memory.py`
+- `market_lab/tests/test_memory.py`
+- `market_lab/tests/test_settlement.py`
 
 Tasks:
 
@@ -118,7 +131,8 @@ Tasks:
 Files:
 
 - `apps/mission-control/lib/market-lab.ts`
-- `apps/mission-control/app/services/tabs/trading-ops-tab.tsx`
+- `apps/mission-control/app/market-lab/market-lab-client.tsx`
+- `apps/mission-control/app/market-lab/market-lab-client.test.tsx`
 
 Tasks:
 
@@ -135,6 +149,7 @@ Commands:
 
 ```bash
 uv run --project market_lab pytest market_lab/tests
+cd apps/mission-control && pnpm exec vitest run app/market-lab/market-lab-client.test.tsx app/api/market-lab/runs/[runId]/artifact/[kind]/route.test.ts lib/market-lab.test.ts
 cd apps/mission-control && pnpm build
 ```
 

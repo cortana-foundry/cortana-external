@@ -1,6 +1,6 @@
 # QA Plan - Market Lab V7 Research Depth And Learning
 
-**Document Status:** Proposed
+**Document Status:** Implemented
 **PRD:** [v7-research-depth-and-learning.md](../PRDs/v7-research-depth-and-learning.md)
 **Tech Spec:** [v7-research-depth-and-learning.md](../TechSpecs/v7-research-depth-and-learning.md)
 **Implementation Plan:** [v7-research-depth-and-learning.md](../Implementation/v7-research-depth-and-learning.md)
@@ -32,8 +32,16 @@ Prove Market Lab has deeper, cleaner research evidence before Codex review and t
 
 ```bash
 uv run --project market_lab pytest market_lab/tests
+cd apps/mission-control && pnpm exec vitest run app/market-lab/market-lab-client.test.tsx app/api/market-lab/runs/[runId]/artifact/[kind]/route.test.ts lib/market-lab.test.ts
 cd apps/mission-control && pnpm build
 ```
+
+## Implementation Verification Notes
+
+- Python coverage owns the artifact contracts and runner flow.
+- Mission Control targeted tests own the Market Lab API/artifact rendering surface.
+- Full Mission Control build owns TypeScript and production bundle safety.
+- Live smoke should still be run on dev/prod because source providers and Schwab endpoints can drift outside fixture coverage.
 
 ## Manual Smoke
 

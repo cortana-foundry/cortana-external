@@ -175,6 +175,95 @@ class SentimentSnapshot(Model):
     notes: list[str] = Field(default_factory=list)
 
 
+class SourceItem(Model):
+    source: Literal["yahoo_finance_news", "stocktwits", "reddit"]
+    title: str
+    url: str | None = None
+    published_at: datetime | None = None
+    fetched_at: datetime | None = None
+    relevance_score: float = Field(ge=0, le=1)
+    match_reason: str | None = None
+    sentiment_label: Literal["bullish", "bearish", "neutral", "mixed", "unknown"] = "unknown"
+    quality_flags: list[str] = Field(default_factory=list)
+    excerpt: str | None = None
+
+
+class SourceQualitySnapshot(Model):
+    status: Literal["available", "partial", "missing", "error"]
+    generated_at: datetime
+    symbol: str
+    items: list[SourceItem] = Field(default_factory=list)
+    source_status: dict[str, str] = Field(default_factory=dict)
+    why_this_matters: list[str] = Field(default_factory=list)
+    catalysts: list[str] = Field(default_factory=list)
+    cautions: list[str] = Field(default_factory=list)
+    noise_filtered_count: int = 0
+    missing_sources: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_source_quality_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("symbol is required")
+        return normalized
+
+
+class MomentumWindow(Model):
+    window: Literal["1d", "5d", "20d", "3m"]
+    status: Literal["available", "missing", "error"]
+    symbol_return_pct: float | None = None
+    spy_return_pct: float | None = None
+    alpha_vs_spy_pct: float | None = None
+    start_price: float | None = None
+    end_price: float | None = None
+    spy_start_price: float | None = None
+    spy_end_price: float | None = None
+    message: str | None = None
+
+
+class MomentumSnapshot(Model):
+    status: Literal["available", "partial", "missing", "error"]
+    generated_at: datetime
+    symbol: str
+    benchmark_symbol: str = "SPY"
+    windows: list[MomentumWindow] = Field(default_factory=list)
+    summary: str | None = None
+    unavailable_windows: list[str] = Field(default_factory=list)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_momentum_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("symbol is required")
+        return normalized
+
+
+class FundamentalsSnapshot(Model):
+    status: Literal["available", "partial", "missing", "error"]
+    generated_at: datetime
+    symbol: str
+    source: str = "market-data-service"
+    valuation: dict[str, Any] = Field(default_factory=dict)
+    earnings: dict[str, Any] = Field(default_factory=dict)
+    trends: dict[str, Any] = Field(default_factory=dict)
+    quality: dict[str, Any] = Field(default_factory=dict)
+    analyst_context: dict[str, Any] = Field(default_factory=dict)
+    unavailable_fields: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    raw_payload_path: str | None = None
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_fundamentals_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("symbol is required")
+        return normalized
+
+
 class EvidenceSnapshot(Model):
     environment: ArtifactEnvironment = Field(default_factory=ArtifactEnvironment)
     symbol: str
@@ -401,6 +490,9 @@ class ArtifactPaths(Model):
     evidence_snapshot: str | None = None
     outcome_memory: str | None = None
     portfolio_context: str | None = None
+    source_quality: str | None = None
+    momentum: str | None = None
+    fundamentals: str | None = None
 
 
 class ReviewArtifact(Model):
@@ -425,6 +517,9 @@ class ReviewArtifact(Model):
     outcome_memory: OutcomeMemorySummary | None = None
     token_budget: TokenBudgetSummary | None = None
     sentiment_snapshot: SentimentSnapshot | None = None
+    source_quality_snapshot: SourceQualitySnapshot | None = None
+    momentum_snapshot: MomentumSnapshot | None = None
+    fundamentals_snapshot: FundamentalsSnapshot | None = None
     portfolio_context: PortfolioContext | None = None
     settlements: list[SettlementWindow] = Field(default_factory=list)
     artifact_paths: ArtifactPaths
