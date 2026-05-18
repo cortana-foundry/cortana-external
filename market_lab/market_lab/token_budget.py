@@ -25,6 +25,12 @@ def build_token_budget(mode: Literal["quick", "deep"], packet_text: str, artifac
         omitted.extend(["settlement_excerpts", "portfolio_context_detail"])
     if artifact.sentiment_snapshot:
         included.append("sentiment_sources")
+    if artifact.source_quality_snapshot:
+        included.append("source_quality")
+    if artifact.momentum_snapshot:
+        included.append("momentum")
+    if artifact.fundamentals_snapshot:
+        included.append("fundamentals")
     return TokenBudgetSummary(
         mode=mode,
         estimated_input_tokens=estimate_tokens(packet_text),

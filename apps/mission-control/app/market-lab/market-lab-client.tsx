@@ -53,6 +53,58 @@ type SentimentSource = {
   samples?: string[];
 };
 
+type SourceQualityItem = {
+  source?: string;
+  title?: string;
+  url?: string | null;
+  published_at?: string | null;
+  fetched_at?: string | null;
+  relevance_score?: number;
+  match_reason?: string | null;
+  sentiment_label?: string;
+  quality_flags?: string[];
+  excerpt?: string | null;
+};
+
+type SourceQualitySnapshot = {
+  status?: string;
+  items?: SourceQualityItem[];
+  source_status?: Record<string, string>;
+  why_this_matters?: string[];
+  catalysts?: string[];
+  cautions?: string[];
+  noise_filtered_count?: number;
+  missing_sources?: string[];
+  notes?: string[];
+};
+
+type MomentumWindow = {
+  window?: string;
+  status?: string;
+  symbol_return_pct?: number | null;
+  spy_return_pct?: number | null;
+  alpha_vs_spy_pct?: number | null;
+  message?: string | null;
+};
+
+type MomentumSnapshot = {
+  status?: string;
+  summary?: string | null;
+  windows?: MomentumWindow[];
+  unavailable_windows?: string[];
+};
+
+type FundamentalsSnapshot = {
+  status?: string;
+  valuation?: Record<string, unknown>;
+  earnings?: Record<string, unknown>;
+  trends?: Record<string, unknown>;
+  quality?: Record<string, unknown>;
+  analyst_context?: Record<string, unknown>;
+  unavailable_fields?: string[];
+  notes?: string[];
+};
+
 type CodexRoleReview = {
   role: "price_action" | "fundamentals" | "news_sentiment" | "risk" | "final_judge";
   stance: "bullish" | "bearish" | "neutral" | "mixed";
@@ -159,6 +211,9 @@ type RunDetail = {
       omitted_sections?: string[];
     } | null;
     sentiment_snapshot?: { status?: string; missing_sources?: string[]; sources?: SentimentSource[] } | null;
+    source_quality_snapshot?: SourceQualitySnapshot | null;
+    momentum_snapshot?: MomentumSnapshot | null;
+    fundamentals_snapshot?: FundamentalsSnapshot | null;
     portfolio_context?: PortfolioContext | null;
     artifact_paths?: {
       review?: string;
@@ -169,6 +224,9 @@ type RunDetail = {
       evidence_snapshot?: string | null;
       outcome_memory?: string | null;
       portfolio_context?: string | null;
+      source_quality?: string | null;
+      momentum?: string | null;
+      fundamentals?: string | null;
     };
     checks?: Array<{ code?: string; severity?: string; message?: string }>;
     settlements?: Settlement[];
@@ -263,6 +321,24 @@ const asSignedMoney = (value?: number | null) =>
 const asShares = (value?: number | null) =>
   typeof value === "number" ? value.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—";
 
+const formatUnknownValue = (value: unknown) => {
+  switch (typeof value) {
+    case "number":
+      return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
+    case "string":
+      return value || "—";
+    case "boolean":
+      return value ? "yes" : "no";
+    default:
+      return "—";
+  }
+};
+
+const compactEntries = (payload?: Record<string, unknown>, limit = 4) =>
+  Object.entries(payload ?? {})
+    .filter(([, value]) => (value ?? "") !== "")
+    .slice(0, limit);
+
 const percentMove = (current?: number | null, basis?: number | null) => {
   if (typeof current !== "number" || typeof basis !== "number" || basis === 0) return null;
   return ((current - basis) / basis) * 100;
@@ -326,9 +402,9 @@ const sourceSamples = (source: SentimentSource, limit = 5) => {
 };
 
 const statusChipClass = (status?: string) => {
-  if (status === "available" || status === "ok") return "border-emerald-400/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-  if (status === "partial" || status === "empty" || status === "rate_limited") return "border-amber-400/60 bg-amber-500/10 text-amber-600 dark:text-amber-400";
-  if (status === "error") return "border-red-400/60 bg-red-500/10 text-red-600 dark:text-red-400";
+  if (status === "available" || status === "ok" || status === "bullish") return "border-emerald-400/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+  if (status === "partial" || status === "empty" || status === "rate_limited" || status === "mixed" || status === "neutral") return "border-amber-400/60 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+  if (status === "error" || status === "bearish") return "border-red-400/60 bg-red-500/10 text-red-600 dark:text-red-400";
   return "border-border/60 bg-muted/40 text-muted-foreground";
 };
 
@@ -969,6 +1045,9 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
   const currentVsRun = percentMove(selectedPosition?.current_price, review?.price_facts?.price);
   const currentVsAverage = percentMove(selectedPosition?.current_price, selectedPosition?.average_price);
   const sentiment = review?.sentiment_snapshot ?? null;
+  const sourceQuality = review?.source_quality_snapshot ?? null;
+  const momentum = review?.momentum_snapshot ?? null;
+  const fundamentals = review?.fundamentals_snapshot ?? null;
   const newsRole = structuredCodex?.roles.find((role) => role.role === "news_sentiment") ?? null;
   // Per-headline sentiment label derived via tier-2 self-label only (e.g. StockTwits "Bullish:"/"Bearish:" prefix).
   // TODO: per-headline labels once Codex news_sentiment role surfaces them; substring-matching its summary points is too lossy.
@@ -1531,7 +1610,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                 </div>
               );
             })()}
-            {sentiment ? (
+            {sentiment || sourceQuality ? (
               <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
                 {/* Header */}
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -1539,11 +1618,15 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                     <div className="text-[10px] uppercase tracking-widest text-muted-foreground">News and sentiment</div>
                     <div className="text-xs font-semibold">
                       {sentimentDigest.length} items
-                      {sentiment.missing_sources?.length ? ` · missing ${sentiment.missing_sources.join(", ")}` : ""}
+                      {sourceQuality?.missing_sources?.length
+                        ? ` · missing ${sourceQuality.missing_sources.join(", ")}`
+                        : sentiment?.missing_sources?.length
+                          ? ` · missing ${sentiment.missing_sources.join(", ")}`
+                          : ""}
                     </div>
                   </div>
-                  <span className={cn("rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider", statusChipClass(sentiment.status))}>
-                    {sentiment.status ?? "unknown"}
+                  <span className={cn("rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider", statusChipClass(sourceQuality?.status ?? sentiment?.status))}>
+                    {sourceQuality?.status ?? sentiment?.status ?? "unknown"}
                   </span>
                 </div>
 
@@ -1594,7 +1677,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                   <div className="mb-2 -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 sm:flex-wrap sm:overflow-visible">
                     {[
                       { key: "all", label: "All", count: sentimentDigest.length },
-                      ...(sentiment.sources ?? [])
+                      ...(sentiment?.sources ?? [])
                         .map((s) => ({
                           key: String(s.source ?? ""),
                           label: sourceLabel(s.source),
@@ -1682,6 +1765,95 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
               </div>
             ) : null}
           </Panel>
+
+          <section className="grid gap-3 xl:grid-cols-2">
+            <Panel icon={ArrowUpRight} eyebrow="Momentum" title="Relative strength vs SPY" dense className="h-full">
+              {momentum ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className={cn("rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider", statusChipClass(momentum.status))}>
+                      {momentum.status ?? "unknown"}
+                    </span>
+                    {momentum.unavailable_windows?.length ? (
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        missing {momentum.unavailable_windows.join(", ")}
+                      </span>
+                    ) : null}
+                  </div>
+                  {momentum.summary ? <p className="font-sans text-xs leading-5 text-muted-foreground">{momentum.summary}</p> : null}
+                  <ul className="grid gap-1 sm:grid-cols-2">
+                    {(momentum.windows ?? []).map((window) => (
+                      <li key={window.window} className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold uppercase">{window.window}</span>
+                          <span className={cn("rounded border px-1.5 py-px text-[9px] uppercase tracking-wider", statusChipClass(window.status))}>
+                            {window.status ?? "n/a"}
+                          </span>
+                        </div>
+                        {window.status === "available" ? (
+                          <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                            <span>{selectedSymbol} {asSignedPercent(window.symbol_return_pct)}</span>
+                            <span>SPY {asSignedPercent(window.spy_return_pct)}</span>
+                            <span>Alpha {asSignedPercent(window.alpha_vs_spy_pct)}</span>
+                          </div>
+                        ) : (
+                          <p className="mt-1 font-sans text-[11px] text-muted-foreground">{window.message ?? "No usable history."}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No momentum snapshot attached.</p>
+              )}
+            </Panel>
+
+            <Panel icon={ShieldCheck} eyebrow="Fundamentals" title="Valuation and business context" dense className="h-full">
+              {fundamentals ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className={cn("rounded border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider", statusChipClass(fundamentals.status))}>
+                      {fundamentals.status ?? "unknown"}
+                    </span>
+                    {fundamentals.unavailable_fields?.length ? (
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {fundamentals.unavailable_fields.length} missing field(s)
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["Valuation", fundamentals.valuation],
+                      ["Earnings", fundamentals.earnings],
+                      ["Trends", fundamentals.trends],
+                      ["Quality", fundamentals.quality],
+                    ].map(([label, payload]) => (
+                      <div key={String(label)} className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+                        <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">{String(label)}</div>
+                        {compactEntries(payload as Record<string, unknown>).length ? (
+                          <dl className="space-y-1">
+                            {compactEntries(payload as Record<string, unknown>).map(([key, value]) => (
+                              <div key={key} className="flex min-w-0 items-center justify-between gap-2 text-[11px]">
+                                <dt className="truncate uppercase tracking-wider text-muted-foreground">{key.replace(/_/g, " ")}</dt>
+                                <dd className="truncate font-semibold">{formatUnknownValue(value)}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : (
+                          <p className="font-sans text-[11px] text-muted-foreground">No fields available.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {fundamentals.notes?.slice(0, 2).map((note) => (
+                    <p key={note} className="font-sans text-xs text-muted-foreground">{note}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No fundamentals snapshot attached.</p>
+              )}
+            </Panel>
+          </section>
 
           {/* Compact context stack — Memory, Forward Score, and Schwab stay in one scan column. */}
           <section className="grid gap-3">
@@ -1981,7 +2153,10 @@ type ArtifactKey =
   | "codex_review"
   | "evidence_snapshot"
   | "outcome_memory"
-  | "portfolio_context";
+  | "portfolio_context"
+  | "source_quality"
+  | "momentum"
+  | "fundamentals";
 
 const ARTIFACT_VIEWERS: Array<{ kind: ArtifactKey; label: string }> = [
   { kind: "review", label: "review.json" },
@@ -1992,6 +2167,9 @@ const ARTIFACT_VIEWERS: Array<{ kind: ArtifactKey; label: string }> = [
   { kind: "evidence_snapshot", label: "evidence snapshot" },
   { kind: "outcome_memory", label: "outcome memory" },
   { kind: "portfolio_context", label: "portfolio context" },
+  { kind: "source_quality", label: "source quality" },
+  { kind: "momentum", label: "momentum" },
+  { kind: "fundamentals", label: "fundamentals" },
 ];
 
 function ArtifactViewer({

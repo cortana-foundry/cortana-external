@@ -7,6 +7,7 @@ from pathlib import Path
 from .checks import evaluate_optional_evidence, evaluate_price_facts
 from .codex_review import build_codex_packet
 from .evidence import build_evidence_snapshot
+from .fundamentals import build_fundamentals_snapshot
 from .market_data import MarketDataClient, MarketDataError
 from .memory import build_outcome_memory_summary
 from .models import (
@@ -14,7 +15,9 @@ from .models import (
     CheckResult,
     CheckSeverity,
     EvidenceSnapshot,
+    FundamentalsSnapshot,
     Interpretation,
+    MomentumSnapshot,
     OptionalEvidence,
     OutcomeMemorySummary,
     PriceFacts,
@@ -22,11 +25,14 @@ from .models import (
     ReviewArtifact,
     RunStatus,
     SentimentSnapshot,
+    SourceQualitySnapshot,
     TradingAgentsReview,
 )
+from .momentum import build_momentum_snapshot
 from .portfolio_context import PortfolioContextService
 from .sentiment_sources import SentimentSourceClient
 from .settlement import build_pending_windows
+from .source_quality import build_source_quality_snapshot
 from .storage import MarketLabStore
 from .token_budget import build_token_budget
 from .verdict import decide_trust_verdict
@@ -58,6 +64,9 @@ class ReviewRunner:
         spy_facts: PriceFacts | None = None
         optional_evidence = OptionalEvidence()
         sentiment_snapshot: SentimentSnapshot | None = None
+        source_quality_snapshot: SourceQualitySnapshot | None = None
+        momentum_snapshot: MomentumSnapshot | None = None
+        fundamentals_snapshot: FundamentalsSnapshot | None = None
         evidence_snapshot: EvidenceSnapshot | None = None
         outcome_memory: OutcomeMemorySummary | None = None
         portfolio_context: PortfolioContext | None = None
@@ -71,34 +80,61 @@ class ReviewRunner:
             price_facts = self.market_data.get_quote(run.symbol)
             spy_facts = self.market_data.get_quote("SPY")
             optional_evidence = self.market_data.get_optional_evidence(run.symbol)
-            if optional_evidence.news_status != "available" or optional_evidence.sentiment_status != "available":
-                self.store.append_event(
-                    run.run_id,
-                    "sentiment_started",
-                    "Checking Yahoo Finance news, StockTwits, and Reddit.",
-                )
-                sentiment_snapshot = self.sentiment_sources.fetch(run.symbol)
-                yahoo_available = any(
-                    item.source == "yahoo_finance_news" and item.status == "available"
-                    for item in sentiment_snapshot.sources
-                )
-                social_available = any(
-                    item.source in {"stocktwits", "reddit"} and item.status == "available"
-                    for item in sentiment_snapshot.sources
-                )
-                optional_evidence = optional_evidence.model_copy(
-                    update={
-                        "news_status": "available" if yahoo_available else optional_evidence.news_status,
-                        "sentiment_status": "available" if social_available else optional_evidence.sentiment_status,
-                        "notes": [*optional_evidence.notes, *sentiment_snapshot.notes],
-                    },
-                )
-                source_summary = ", ".join(f"{item.source}:{item.status}" for item in sentiment_snapshot.sources)
-                self.store.append_event(
-                    run.run_id,
-                    "sentiment_checked",
-                    f"Sentiment sources {sentiment_snapshot.status}: {source_summary}.",
-                )
+            self.store.append_event(
+                run.run_id,
+                "sentiment_started",
+                "Checking Yahoo Finance news, StockTwits, and Reddit.",
+            )
+            sentiment_snapshot = self.sentiment_sources.fetch(run.symbol)
+            yahoo_available = any(
+                item.source == "yahoo_finance_news" and item.status == "available"
+                for item in sentiment_snapshot.sources
+            )
+            social_available = any(
+                item.source in {"stocktwits", "reddit"} and item.status == "available"
+                for item in sentiment_snapshot.sources
+            )
+            optional_evidence = optional_evidence.model_copy(
+                update={
+                    "news_status": "available" if yahoo_available else optional_evidence.news_status,
+                    "sentiment_status": "available" if social_available else optional_evidence.sentiment_status,
+                    "notes": [*optional_evidence.notes, *sentiment_snapshot.notes],
+                },
+            )
+            source_summary = ", ".join(f"{item.source}:{item.status}" for item in sentiment_snapshot.sources)
+            self.store.append_event(
+                run.run_id,
+                "sentiment_checked",
+                f"Sentiment sources {sentiment_snapshot.status}: {source_summary}.",
+            )
+            source_quality_snapshot = build_source_quality_snapshot(run.symbol, sentiment_snapshot)
+            self.store.append_event(
+                run.run_id,
+                "source_quality_checked",
+                f"Source quality {source_quality_snapshot.status}: {len(source_quality_snapshot.items)} usable item(s).",
+            )
+            momentum_snapshot = build_momentum_snapshot(run.symbol, self.market_data)
+            fundamentals_snapshot = build_fundamentals_snapshot(run.symbol, self.market_data)
+            optional_evidence = optional_evidence.model_copy(
+                update={
+                    "history_status": "available"
+                    if momentum_snapshot.status in {"available", "partial"}
+                    else optional_evidence.history_status,
+                    "fundamentals_status": "available"
+                    if fundamentals_snapshot.status in {"available", "partial"}
+                    else optional_evidence.fundamentals_status,
+                }
+            )
+            self.store.append_event(
+                run.run_id,
+                "momentum_checked",
+                f"Momentum {momentum_snapshot.status}: {momentum_snapshot.summary or 'no usable windows'}.",
+            )
+            self.store.append_event(
+                run.run_id,
+                "fundamentals_checked",
+                f"Fundamentals {fundamentals_snapshot.status}: {len(fundamentals_snapshot.unavailable_fields)} unavailable field(s).",
+            )
             checks.extend(evaluate_price_facts(price_facts))
             checks.extend(evaluate_optional_evidence(optional_evidence))
             checks.extend(_sentiment_direction_checks(sentiment_snapshot))
@@ -130,6 +166,9 @@ class ReviewRunner:
             checks=checks,
             optional_evidence=optional_evidence,
             sentiment_snapshot=sentiment_snapshot,
+            source_quality_snapshot=source_quality_snapshot,
+            momentum_snapshot=momentum_snapshot,
+            fundamentals_snapshot=fundamentals_snapshot,
         )
         evidence_snapshot = evidence_snapshot.model_copy(update={"environment": self.store.artifact_environment})
         outcome_memory = build_outcome_memory_summary(
@@ -145,6 +184,9 @@ class ReviewRunner:
         evidence_path = run_dir / "evidence-snapshot.json"
         outcome_memory_path = run_dir / "outcome-memory.json"
         portfolio_context_path = run_dir / "portfolio-context.json"
+        source_quality_path = run_dir / "source-quality.json"
+        momentum_path = run_dir / "momentum.json"
+        fundamentals_path = run_dir / "fundamentals.json"
         artifact_paths = ArtifactPaths(
             review=str(run_dir / "review.json"),
             events=run.events_path,
@@ -155,6 +197,9 @@ class ReviewRunner:
             evidence_snapshot=str(evidence_path),
             outcome_memory=str(outcome_memory_path),
             portfolio_context=str(portfolio_context_path),
+            source_quality=str(source_quality_path),
+            momentum=str(momentum_path),
+            fundamentals=str(fundamentals_path),
         )
         settlements = build_pending_windows(
             requested_at=requested_at,
@@ -179,6 +224,9 @@ class ReviewRunner:
             evidence_snapshot=evidence_snapshot,
             outcome_memory=outcome_memory,
             sentiment_snapshot=sentiment_snapshot,
+            source_quality_snapshot=source_quality_snapshot,
+            momentum_snapshot=momentum_snapshot,
+            fundamentals_snapshot=fundamentals_snapshot,
             portfolio_context=portfolio_context,
             settlements=settlements,
             artifact_paths=artifact_paths,
@@ -186,6 +234,12 @@ class ReviewRunner:
         self.store.write_json_atomic(evidence_path, evidence_snapshot.model_dump(mode="json"))
         self.store.write_json_atomic(outcome_memory_path, outcome_memory.model_dump(mode="json"))
         self.store.write_json_atomic(portfolio_context_path, portfolio_context.model_dump(mode="json"))
+        if source_quality_snapshot:
+            self.store.write_json_atomic(source_quality_path, source_quality_snapshot.model_dump(mode="json"))
+        if momentum_snapshot:
+            self.store.write_json_atomic(momentum_path, momentum_snapshot.model_dump(mode="json"))
+        if fundamentals_snapshot:
+            self.store.write_json_atomic(fundamentals_path, fundamentals_snapshot.model_dump(mode="json"))
         self.store.write_review(artifact)
         packet = build_codex_packet(
             artifact,

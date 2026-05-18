@@ -5,8 +5,10 @@ import json
 import os
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote_plus
 
 import requests
 
@@ -14,6 +16,7 @@ from .models import SentimentSnapshot, SentimentSourceResult
 from .storage import default_cache_dir
 
 SOURCES = ("yahoo_finance_news", "stocktwits", "reddit")
+SYMBOL_PROFILES_PATH = Path(__file__).with_name("config") / "sp500_symbol_profiles.txt"
 
 
 def _utc_now() -> datetime:
@@ -26,6 +29,23 @@ def _safe_symbol(symbol: str) -> str:
 
 def _cache_key(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+@lru_cache(maxsize=1)
+def _symbol_profiles() -> dict[str, str]:
+    try:
+        lines = SYMBOL_PROFILES_PATH.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return {}
+    profiles: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        symbol, separator, company_name = stripped.partition("\t")
+        if separator and symbol.strip() and company_name.strip():
+            profiles[symbol.strip().upper()] = company_name.strip()
+    return profiles
 
 
 class SentimentSourceClient:
@@ -162,10 +182,10 @@ class SentimentSourceClient:
             return self._result("stocktwits", "error", "stocktwits_public_stream", url, error=str(exc))
 
     def fetch_reddit(self, symbol: str) -> SentimentSourceResult:
-        query = f"{symbol} stock"
+        query = _reddit_query(symbol)
         url = (
             "https://www.reddit.com/r/stocks/search.rss?"
-            f"q={query.replace(' ', '+')}&restrict_sr=1&sort=new&t=week"
+            f"q={quote_plus(query)}&restrict_sr=1&sort=new&t=week"
         )
         return self._fetch_rss(symbol, "reddit", url, "reddit_rss_search")
 
@@ -256,3 +276,11 @@ class SentimentSourceClient:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return path
+
+
+def _reddit_query(symbol: str) -> str:
+    normalized = _safe_symbol(symbol)
+    company = _symbol_profiles().get(normalized)
+    if company:
+        return f'{normalized} OR "{company}" stock earnings'
+    return f"{normalized} stock earnings"

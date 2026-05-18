@@ -173,15 +173,16 @@ Allowed exceptions:
 
 ## Templates
 
-When creating backtester planning artifacts, start from these templates:
+When creating planning artifacts, start from the repo-level templates:
 
-- PRD: `backtester/planning/PRDs/template.md`
-- Tech Spec: `backtester/planning/TechSpecs/template.md`
-- Implementation Plan: `backtester/planning/Implementation/template.md`
-- QA Plan: `backtester/planning/QA/template.md`
+- PRD: `docs/planning/templates/prd.md`
+- Tech Spec: `docs/planning/templates/tech-spec.md`
+- Implementation Plan: `docs/planning/templates/implementation-plan.md`
+- QA Plan: `docs/planning/templates/qa-plan.md`
 
 Required rule:
 - PRD, Tech Spec, Implementation Plan, and QA Plan for the same workstream must stay aligned on scope, dependencies, testing, and rollout order.
+- Every high-level PRD requirement should have a stable ID such as `PRD-R1`, and the Tech Spec, Implementation Plan, and QA Plan should trace back to those IDs.
 
 ## Recommended Authoring Workflow
 
@@ -189,7 +190,7 @@ For significant new work:
 
 1. Decide whether this is source material or canonical knowledge.
 2. Pick the owning area using the placement matrix above.
-3. If it is a backtester planning workstream, create PRD + Tech Spec + Implementation Plan + QA Plan from templates.
+3. For meaningful planning workstreams, create PRD + Tech Spec + Implementation Plan + QA Plan from templates.
 4. Add or update the relevant source doc.
 5. Update the matching `knowledge/` page if current truth changed.
 6. Update nearby README/index pages if discovery changed.

@@ -20,6 +20,26 @@ class FakeMarketData:
             sentiment_status="available",
         )
 
+    def get_history(self, symbol: str, *, period: str = "3mo"):
+        prices = [100, 105, 110, 115, 120] if symbol.upper() != "SPY" else [500, 505, 510, 515, 520]
+        dates = ["2026-02-01", "2026-04-23", "2026-05-08", "2026-05-12", "2026-05-13"]
+        return {"candles": [{"date": date, "close": price} for date, price in zip(dates, prices, strict=True)]}
+
+    def get_fundamentals(self, symbol: str):
+        return {
+            "source": "fixture",
+            "data": {
+                "payload": {
+                    "marketCap": 1_000_000,
+                    "trailingPE": 20,
+                    "nextEarningsDate": "2026-06-01",
+                    "revenueGrowth": 0.1,
+                    "grossMargins": 0.4,
+                    "recommendationKey": "buy",
+                }
+            },
+        }
+
 
 class FakeMarketDataMissingSentiment(FakeMarketData):
     def get_optional_evidence(self, symbol: str) -> OptionalEvidence:
@@ -75,7 +95,11 @@ class FakeBearishSentimentSources:
 
 def test_runner_writes_artifact_and_events(tmp_path):
     store = MarketLabStore(tmp_path)
-    artifact = ReviewRunner(store=store, market_data=FakeMarketData()).run("AAPL")
+    artifact = ReviewRunner(
+        store=store,
+        market_data=FakeMarketData(),
+        sentiment_sources=FakeSentimentSources(),
+    ).run("AAPL")
 
     assert artifact.trust_verdict == TrustVerdict.TRUSTED
     assert store.read_review(artifact.run_id)["trust_verdict"] == "trusted"
@@ -83,6 +107,11 @@ def test_runner_writes_artifact_and_events(tmp_path):
     assert [event["event"] for event in events][-1] == "done"
     assert len(artifact.settlements) == 3
     assert artifact.artifact_paths.codex_packet
+    assert artifact.artifact_paths.source_quality
+    assert artifact.artifact_paths.momentum
+    assert artifact.artifact_paths.fundamentals
+    assert artifact.momentum_snapshot is not None
+    assert artifact.fundamentals_snapshot is not None
     assert "Market Lab Codex Review Packet" in (tmp_path / "runs" / artifact.run_id / "codex-review-packet.md").read_text(
         encoding="utf-8",
     )
@@ -102,6 +131,7 @@ def test_runner_fetches_sentiment_and_records_timeline_steps(tmp_path):
     events = [event["event"] for event in store.read_events(artifact.run_id)]
     assert "sentiment_started" in events
     assert "sentiment_checked" in events
+    assert "source_quality_checked" in events
 
 
 def test_runner_downgrades_strong_bearish_sentiment_until_codex_review(tmp_path):
