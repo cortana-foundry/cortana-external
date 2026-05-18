@@ -322,15 +322,21 @@ const asShares = (value?: number | null) =>
   typeof value === "number" ? value.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—";
 
 const formatUnknownValue = (value: unknown) => {
-  if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "yes" : "no";
-  return "—";
+  switch (typeof value) {
+    case "number":
+      return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
+    case "string":
+      return value || "—";
+    case "boolean":
+      return value ? "yes" : "no";
+    default:
+      return "—";
+  }
 };
 
 const compactEntries = (payload?: Record<string, unknown>, limit = 4) =>
   Object.entries(payload ?? {})
-    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .filter(([, value]) => (value ?? "") !== "")
     .slice(0, limit);
 
 const percentMove = (current?: number | null, basis?: number | null) => {
