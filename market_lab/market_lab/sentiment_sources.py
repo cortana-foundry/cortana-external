@@ -16,7 +16,7 @@ from .models import SentimentSnapshot, SentimentSourceResult
 from .storage import default_cache_dir
 
 SOURCES = ("yahoo_finance_news", "stocktwits", "reddit")
-SYMBOL_PROFILES_PATH = Path(__file__).with_name("config") / "symbol_profiles.json"
+SYMBOL_PROFILES_PATH = Path(__file__).with_name("config") / "sp500_symbol_profiles.txt"
 
 
 def _utc_now() -> datetime:
@@ -32,15 +32,20 @@ def _cache_key(value: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _symbol_profiles() -> dict[str, dict[str, Any]]:
+def _symbol_profiles() -> dict[str, str]:
     try:
-        payload = json.loads(SYMBOL_PROFILES_PATH.read_text(encoding="utf-8"))
+        lines = SYMBOL_PROFILES_PATH.read_text(encoding="utf-8").splitlines()
     except Exception:
         return {}
-    symbols = payload.get("symbols") if isinstance(payload, dict) else None
-    if not isinstance(symbols, dict):
-        return {}
-    return {str(symbol).upper(): profile for symbol, profile in symbols.items() if isinstance(profile, dict)}
+    profiles: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        symbol, separator, company_name = stripped.partition("\t")
+        if separator and symbol.strip() and company_name.strip():
+            profiles[symbol.strip().upper()] = company_name.strip()
+    return profiles
 
 
 class SentimentSourceClient:
@@ -275,7 +280,7 @@ class SentimentSourceClient:
 
 def _reddit_query(symbol: str) -> str:
     normalized = _safe_symbol(symbol)
-    company = _symbol_profiles().get(normalized, {}).get("company_name")
+    company = _symbol_profiles().get(normalized)
     if company:
         return f'{normalized} OR "{company}" stock earnings'
     return f"{normalized} stock earnings"

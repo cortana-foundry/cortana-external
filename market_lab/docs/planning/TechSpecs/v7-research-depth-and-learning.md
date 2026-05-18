@@ -170,6 +170,7 @@ Files:
 
 - `market_lab/market_lab/source_quality.py`
 - `market_lab/market_lab/sentiment_sources.py`
+- `market_lab/market_lab/config/sp500_symbol_profiles.txt`
 - `market_lab/tests/test_source_quality.py`
 
 Responsibilities:
@@ -177,6 +178,8 @@ Responsibilities:
 - Normalize Yahoo, StockTwits, and Reddit items into `SourceItem`.
 - Deduplicate by URL, normalized title, and message hash.
 - Score relevance using symbol, company name, ticker cashtag, recency, and source type.
+- Enrich Reddit search with S&P 500 company names from `sp500_symbol_profiles.txt`; the file is parsed once per Python process into a cached dictionary, then each run does an O(1) symbol lookup.
+- Fall back to ticker-only search for non-S&P or unknown symbols.
 - Filter StockTwits noise before it reaches Codex.
 - Persist source-level failures without failing the whole review.
 

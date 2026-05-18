@@ -91,3 +91,19 @@ def test_reddit_query_includes_known_company_name(tmp_path):
     assert result.status == "available"
     assert "Apple" in captured_url
     assert "AAPL" in captured_url
+
+
+def test_reddit_query_falls_back_for_unknown_symbol(tmp_path):
+    captured_url = ""
+
+    def fake_get(url, *args, **kwargs):
+        nonlocal captured_url
+        captured_url = url
+        return FakeResponse(200, text="<rss><channel><item><title>XYZQ earnings discussion</title></item></channel></rss>")
+
+    client = SentimentSourceClient(cache_dir=tmp_path, request_get=fake_get)
+
+    result = client.fetch_reddit("XYZQ")
+
+    assert result.status == "available"
+    assert "XYZQ+stock+earnings" in captured_url
