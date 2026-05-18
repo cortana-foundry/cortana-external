@@ -1677,7 +1677,7 @@ export function MarketLabClient({ embedded = false }: MarketLabClientProps = {})
                   <div className="mb-2 -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 sm:flex-wrap sm:overflow-visible">
                     {[
                       { key: "all", label: "All", count: sentimentDigest.length },
-                      ...(sentiment.sources ?? [])
+                      ...(sentiment?.sources ?? [])
                         .map((s) => ({
                           key: String(s.source ?? ""),
                           label: sourceLabel(s.source),
