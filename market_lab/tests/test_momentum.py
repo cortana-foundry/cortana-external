@@ -33,4 +33,4 @@ def test_momentum_marks_missing_when_history_is_unavailable():
     snapshot = build_momentum_snapshot("AAPL", EmptyMarketData())
 
     assert snapshot.status == "missing"
-    assert snapshot.unavailable_windows == ["1d", "5d", "20d", "3m"]
+    assert snapshot.unavailable_windows == ["1d", "5d", "20d", "60d"]

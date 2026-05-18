@@ -34,7 +34,7 @@ The wording above is intentionally high level. This is how it becomes concrete:
 
 - **Better source quality** maps to PRD-R1, PRD-R2, and PRD-R3. V1 adds cleaner Yahoo/StockTwits/Reddit evidence, then V6 renders that evidence in Mission Control.
 - **Real fundamentals** maps to PRD-R4. V3 adds a `FundamentalsSnapshot`, then V6 shows it. This is not a buy/sell decision. It is a company fact sheet that tells the analyst whether valuation, earnings, growth, margins, and analyst context are available and usable.
-- **Momentum versus SPY** maps to PRD-R5. V2 computes deterministic 1D, 5D, 20D, and 3M performance before Codex reviews the run, so Codex is not guessing whether the symbol is outperforming the market.
+- **Momentum versus SPY** maps to PRD-R5. V2 computes deterministic 1D, 5D, 20D, and 60D performance before Codex reviews the run, so Codex is not guessing whether the symbol is outperforming the market.
 - **Analyst-style Codex review** maps to PRD-R6 and PRD-R7. V4 turns the packet into compact role sections: price, news, fundamentals, risk, and final judge.
 - **Learning from outcomes** maps to PRD-R8. V5 uses settled 1D, 5D, and 20D outcomes to build memory, but only changes confidence once enough samples exist.
 - **Readable cockpit** maps to PRD-R9. V6 decides how the new evidence appears in Mission Control without overwhelming the Market Lab tab.
@@ -137,7 +137,7 @@ Before Codex review, Market Lab should compute:
 | 1D | Is the symbol moving better than SPY today? |
 | 5D | Is short-term momentum improving or fading? |
 | 20D | Is the symbol outperforming over about one trading month? |
-| 3M | Is the larger trend stronger than SPY? |
+| 60D | Is the larger trend stronger than SPY? |
 
 Momentum should be deterministic and available before Codex is called.
 

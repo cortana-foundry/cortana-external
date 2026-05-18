@@ -141,7 +141,7 @@ class FundamentalsSnapshot(Model):
     unavailable_fields: list[str] = Field(default_factory=list)
 
 class MomentumWindow(Model):
-    window: Literal["1D", "5D", "20D", "3M"]
+    window: Literal["1D", "5D", "20D", "60D"]
     symbol_return_pct: float | None
     spy_return_pct: float | None
     relative_return_pct: float | None
@@ -207,7 +207,7 @@ Files:
 Responsibilities:
 
 - Fetch or load daily price history for symbol and SPY.
-- Compute 1D, 5D, 20D, and 3M returns.
+- Compute 1D, 5D, 20D, and 60D returns.
 - Compute relative return versus SPY.
 - Return `partial` or `missing` when history is incomplete.
 

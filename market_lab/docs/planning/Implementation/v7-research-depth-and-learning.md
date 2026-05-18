@@ -23,7 +23,7 @@ PRD-R5 Momentum Snapshot
 | Vertical | Delivers PRD | Implements Tech Spec Concepts | Dependencies | Outcome |
 |----------|--------------|-------------------------------|--------------|---------|
 | V1 - Source Quality | PRD-R1, PRD-R2, PRD-R3 | `SourceItem`, `SourceQualitySnapshot`, Source Quality Module | Existing sentiment collectors | Cleaner news/social evidence. |
-| V2 - Momentum | PRD-R5 | `MomentumWindow`, `MomentumSnapshot`, Momentum Module | Schwab/price history access | 1D/5D/20D/3M versus SPY before Codex. |
+| V2 - Momentum | PRD-R5 | `MomentumWindow`, `MomentumSnapshot`, Momentum Module | Schwab/price history access | 1D/5D/20D/60D versus SPY before Codex. |
 | V3 - Fundamentals | PRD-R4 | `FundamentalsSnapshot`, Fundamentals Module | Provider selection | Valuation/earnings context when available. |
 | V4 - Compact Codex Roles | PRD-R6, PRD-R7 | `AnalystRoleOutput`, Compact Codex Packet, Role Flow | V1-V3 | Role-based Codex review without token bloat. |
 | V5 - Settlement Learning | PRD-R8 | `OutcomeMemorySummary`, Settlement Learning | Existing settlement records | Outcome memory informs future reviews safely. |
@@ -73,7 +73,7 @@ Files:
 Tasks:
 
 - Fetch or load historical prices for symbol and SPY.
-- Compute 1D, 5D, 20D, and 3M returns.
+- Compute 1D, 5D, 20D, and 60D returns.
 - Compute relative performance versus SPY.
 - Mark incomplete windows as partial/missing.
 - Add momentum snapshot to review artifacts before Codex.

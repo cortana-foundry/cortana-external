@@ -211,7 +211,7 @@ class SourceQualitySnapshot(Model):
 
 
 class MomentumWindow(Model):
-    window: Literal["1d", "5d", "20d", "3m"]
+    window: Literal["1d", "5d", "20d", "60d"]
     status: Literal["available", "missing", "error"]
     symbol_return_pct: float | None = None
     spy_return_pct: float | None = None

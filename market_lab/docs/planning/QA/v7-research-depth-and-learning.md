@@ -20,7 +20,7 @@ Prove Market Lab has deeper, cleaner research evidence before Codex review and t
 | News Summary | Mixed-quality news | `why_this_matters` separates catalyst from noise. |
 | Fundamentals | Provider has fields | Valuation, earnings, growth, margin, and analyst fields persist. |
 | Fundamentals | Provider misses fields | Unavailable fields are explicit. |
-| Momentum | Complete history | 1D/5D/20D/3M returns and SPY-relative returns are correct. |
+| Momentum | Complete history | 1D/5D/20D/60D returns and SPY-relative returns are correct. |
 | Momentum | Missing history | Window is `partial` or `missing`, not fabricated. |
 | Codex Packet | Packet generated | Full raw review and full portfolio payload are absent. |
 | Codex Roles | Codex review attached | Price/news/fundamentals/risk/final-judge outputs persist. |
@@ -50,7 +50,7 @@ cd apps/mission-control && pnpm build
 3. Confirm news shows links and timestamps.
 4. Confirm StockTwits failure is source-scoped if it fails.
 5. Confirm fundamentals show either real fields or explicit unavailable fields.
-6. Confirm 1D, 5D, 20D, and 3M momentum versus SPY appears before Codex review.
+6. Confirm 1D, 5D, 20D, and 60D momentum versus SPY appears before Codex review.
 7. Attach Codex review.
 8. Confirm role outputs appear:
    - Price analyst
