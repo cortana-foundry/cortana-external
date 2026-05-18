@@ -274,11 +274,11 @@ For every workstream:
 - Implementation Plan breaks the work into verticals another LLM can execute
 - QA Plan proves the behavior, rollout safety, and operator truth before the workstream should be considered shippable
 
-Start from these templates:
-- [PRD template](/Users/hd/Developer/cortana-external/backtester/planning/PRDs/template.md)
-- [Tech Spec template](/Users/hd/Developer/cortana-external/backtester/planning/TechSpecs/template.md)
-- [Implementation template](/Users/hd/Developer/cortana-external/backtester/planning/Implementation/template.md)
-- [QA template](/Users/hd/Developer/cortana-external/backtester/planning/QA/template.md)
+Canonical planning templates moved out of this deprecated backtester tree:
+- [PRD template](../../../docs/planning/templates/prd.md)
+- [Tech Spec template](../../../docs/planning/templates/tech-spec.md)
+- [Implementation template](../../../docs/planning/templates/implementation-plan.md)
+- [QA template](../../../docs/planning/templates/qa-plan.md)
 
 All four documents should stay aligned on:
 - scope
